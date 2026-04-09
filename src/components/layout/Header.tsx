@@ -8,6 +8,7 @@ const navItems = [
   { href: "/aerzte", label: "Ärzte" },
   { href: "/widersprueche", label: "Widersprüche" },
   { href: "/admin", label: "⚙️ Admin" },
+  { href: "/settings", label: "👤 Einstellungen" },
 ];
 
 export default function Header() {

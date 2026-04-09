@@ -125,6 +125,62 @@ export async function getWhatsAppTemplate(key: string, fallback: string): Promis
   return getSetting(key, fallback)
 }
 
+// ── PDF Auto-Classification ───────────────────────────────────────────────────
+
+export type DocumentType = 'kassenabrechnung' | 'arztrechnung'
+
+/**
+ * Classifies a PDF as either a Kassenabrechnung (insurance reimbursement notice)
+ * or an Arztrechnung (medical invoice) using a lightweight Claude call.
+ *
+ * @param pdfBuffer  Raw PDF bytes
+ * @param pkvName    User's insurance company name (e.g. "AXA") — improves accuracy
+ */
+export async function classifyPdf(
+  pdfBuffer: Buffer,
+  pkvName?: string | null
+): Promise<DocumentType> {
+  try {
+    const model = await getSetting('claude_model', 'claude-sonnet-4-5')
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+    const base64Pdf = pdfBuffer.toString('base64')
+
+    const insuranceHint = pkvName
+      ? `Die Krankenversicherung des Nutzers heißt: "${pkvName}".`
+      : 'Die Versicherungsgesellschaft des Nutzers ist nicht bekannt.'
+
+    const response = await client.messages.create({
+      model,
+      max_tokens: 10,
+      system: `Du klassifizierst deutsche medizinische Dokumente. ${insuranceHint}
+Antworte NUR mit einem einzigen Wort: "kassenabrechnung" oder "arztrechnung".
+- kassenabrechnung = Erstattungsbescheid / Abrechnungsübersicht einer privaten Krankenversicherung (PKV)
+- arztrechnung = Rechnung eines Arztes, Labors, Krankenhauses oder sonstigen Leistungserbringers`,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
+            },
+            { type: 'text', text: 'Was ist das für ein Dokument? Antworte nur mit: kassenabrechnung oder arztrechnung' },
+          ],
+        },
+      ],
+    })
+
+    const answer = response.content[0].type === 'text'
+      ? response.content[0].text.trim().toLowerCase()
+      : ''
+
+    return answer.includes('kasse') ? 'kassenabrechnung' : 'arztrechnung'
+  } catch (err) {
+    console.error('[classifyPdf] Error — defaulting to arztrechnung:', err)
+    return 'arztrechnung'
+  }
+}
+
 // ── Kassenabrechnung Analysis ─────────────────────────────────────────────────
 
 export interface KassePosition {
