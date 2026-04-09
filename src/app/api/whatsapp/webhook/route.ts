@@ -65,18 +65,39 @@ export async function POST(request: NextRequest) {
   console.log('[webhook] From:', from, '| NumMedia:', numMedia, '| MediaType:', mediaType)
 
   // ── 1. Look up user by phone ──────────────────────────────────────────────
+  // Use only guaranteed base columns; extended PKV fields are loaded separately
+  // so the webhook still works before Migration 005 is applied.
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, full_name, pkv_name, benachrichtigung_whatsapp')
+    .select('id, full_name')
     .eq('phone_whatsapp', phone)
     .single()
 
   if (profileError || !profile) {
+    console.error('[webhook] Profile lookup failed:', profileError?.message, '| phone:', phone)
     return twimlReply(
       `👋 Willkommen bei MediRight!\n\nIhre Nummer ist noch nicht registriert. ` +
       `Bitte melden Sie sich an auf:\nhttps://mediright-app.vercel.app\n\n` +
       `Danach können Sie Rechnungen einfach hier weiterleiten.`
     )
+  }
+
+  // Load extended PKV fields if Migration 005 has been applied (fail-safe)
+  let pkvName: string | null = null
+  let notificationsEnabled = true
+  try {
+    const { data: ext } = await supabaseAdmin
+      .from('profiles')
+      .select('pkv_name, benachrichtigung_whatsapp')
+      .eq('id', profile.id)
+      .single()
+    if (ext) {
+      pkvName = ext.pkv_name ?? null
+      notificationsEnabled = ext.benachrichtigung_whatsapp !== false
+    }
+  } catch {
+    // Migration 005 not yet applied — continue without PKV context
+    console.warn('[webhook] Extended profile fields not available yet')
   }
 
   // ── 2. Check for PDF attachment ───────────────────────────────────────────
@@ -106,8 +127,8 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 4. Auto-classify document type ───────────────────────────────────────
-  console.log('[webhook] Classifying PDF for user:', profile.id, '| pkv:', profile.pkv_name)
-  const docType = await classifyPdf(pdfBuffer, profile.pkv_name)
+  console.log('[webhook] Classifying PDF for user:', profile.id, '| pkv:', pkvName)
+  const docType = await classifyPdf(pdfBuffer, pkvName)
   console.log('[webhook] Classification result:', docType)
 
   // ── 5. Upload to Supabase Storage ─────────────────────────────────────────
@@ -124,7 +145,7 @@ export async function POST(request: NextRequest) {
   }
 
   // ── 6. Route by document type ─────────────────────────────────────────────
-  const notifyPhone = profile.benachrichtigung_whatsapp !== false ? phone : undefined
+  const notifyPhone = notificationsEnabled ? phone : undefined
 
   if (docType === 'kassenabrechnung') {
     // Attach to most recent vorgang that has no Kassenbescheid yet
@@ -173,7 +194,7 @@ export async function POST(request: NextRequest) {
 
     return twimlReply(
       `🏥 *Kassenbescheid erkannt!*\n\n` +
-      `${profile.pkv_name ? `Dokument von ${profile.pkv_name} identifiziert. ` : ''}` +
+      `${pkvName ? `Dokument von ${pkvName} identifiziert. ` : ''}` +
       `Ich analysiere ihn jetzt und prüfe:\n` +
       `• Erstattungsquote & Kürzungen\n` +
       `• Abgelehnte Positionen\n` +

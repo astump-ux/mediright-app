@@ -79,9 +79,24 @@ export async function POST(request: NextRequest) {
   }
 
   const { vorgangId, userId, phone } = await request.json()
+  console.log('[analyze] START vorgangId:', vorgangId, '| userId:', userId)
 
   if (!vorgangId || !userId) {
     return NextResponse.json({ error: 'Missing vorgangId or userId' }, { status: 400 })
+  }
+
+  // Guard: ANTHROPIC_API_KEY must be set
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.error('[analyze] ANTHROPIC_API_KEY is not set — aborting')
+    if (phone) {
+      await sendWhatsApp(
+        phone,
+        `⚠️ MediRight ist noch nicht vollständig konfiguriert.\n\n` +
+        `Bitte wenden Sie sich an den Administrator.\n` +
+        `(ANTHROPIC_API_KEY fehlt)`
+      )
+    }
+    return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 503 })
   }
 
   try {
