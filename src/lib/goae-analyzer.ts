@@ -124,3 +124,103 @@ export async function analyzeRechnungPdf(pdfBuffer: Buffer): Promise<AnalyseResu
 export async function getWhatsAppTemplate(key: string, fallback: string): Promise<string> {
   return getSetting(key, fallback)
 }
+
+// ── Kassenabrechnung Analysis ─────────────────────────────────────────────────
+
+export interface KassePosition {
+  ziffer: string
+  bezeichnung: string
+  betragEingereicht: number
+  betragErstattet: number
+  status: 'erstattet' | 'gekuerzt' | 'abgelehnt'
+  ablehnungsgrund?: string | null
+}
+
+export interface KasseAnalyseResult {
+  referenznummer: string | null
+  bescheiddatum: string | null
+  betragEingereicht: number
+  betragErstattet: number
+  betragAbgelehnt: number
+  erstattungsquote: number
+  positionen: KassePosition[]
+  ablehnungsgruende: string[]
+  widerspruchEmpfohlen: boolean
+  widerspruchBegruendung: string | null
+  zusammenfassung: string
+}
+
+const DEFAULT_KASSE_SYSTEM_PROMPT = `Du bist ein Experte für deutsche private Krankenversicherungen (PKV), insbesondere für die Analyse von Erstattungsbescheiden der AXA Krankenversicherung.
+Analysiere den vorliegenden Erstattungsbescheid präzise und strukturiert.
+
+WICHTIGE REGELN:
+- Prüfe ob alle eingereichten Positionen erstattet wurden
+- Identifiziere Kürzungen und ihre Begründungen
+- Bewerte ob ein Widerspruch sinnvoll ist (z.B. bei ungerechtfertigten Kürzungen, formellen Fehlern, oder wenn Positionen ohne Begründung abgelehnt wurden)
+- Erstattungsquote = betragErstattet / betragEingereicht * 100
+
+Gib deine Antwort AUSSCHLIESSLICH als valides JSON zurück, ohne Markdown-Formatierung.`
+
+const DEFAULT_KASSE_USER_PROMPT = `Analysiere diesen PKV-Erstattungsbescheid und extrahiere alle Informationen.
+
+Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
+{
+  "referenznummer": "Referenz-/Schadennummer oder null",
+  "bescheiddatum": "YYYY-MM-DD oder null",
+  "betragEingereicht": 123.45,
+  "betragErstattet": 100.00,
+  "betragAbgelehnt": 23.45,
+  "erstattungsquote": 81.3,
+  "positionen": [
+    {
+      "ziffer": "1",
+      "bezeichnung": "Beratung",
+      "betragEingereicht": 10.72,
+      "betragErstattet": 10.72,
+      "status": "erstattet",
+      "ablehnungsgrund": null
+    }
+  ],
+  "ablehnungsgruende": ["Liste aller Ablehnungsgründe als Strings"],
+  "widerspruchEmpfohlen": false,
+  "widerspruchBegruendung": "Begründung warum Widerspruch empfohlen wird, oder null",
+  "zusammenfassung": "Kurze Zusammenfassung des Bescheids auf Deutsch (2-3 Sätze)"
+}
+
+Status-Werte für positionen:
+- "erstattet" = vollständig erstattet
+- "gekuerzt" = teilweise erstattet / gekürzt
+- "abgelehnt" = nicht erstattet`
+
+export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseResult> {
+  const [systemPrompt, userPrompt, model] = await Promise.all([
+    getSetting('kasse_analyse_prompt', DEFAULT_KASSE_SYSTEM_PROMPT),
+    getSetting('kasse_analyse_user_prompt', DEFAULT_KASSE_USER_PROMPT),
+    getSetting('claude_model', 'claude-sonnet-4-5'),
+  ])
+
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+  const base64Pdf = pdfBuffer.toString('base64')
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
+          },
+          { type: 'text', text: userPrompt },
+        ],
+      },
+    ],
+  })
+
+  const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
+  const jsonText = rawText.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
+  return JSON.parse(jsonText) as KasseAnalyseResult
+}

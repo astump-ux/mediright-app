@@ -86,13 +86,25 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 2. Check for PDF attachment ───────────────────────────────────────────
+  // ── 2. Detect KK prefix (Kassenabrechnung) ───────────────────────────────
+  const isKasseMode = messageBody.trim().toUpperCase().startsWith('KK')
+
+  // ── 3. Check for PDF attachment ───────────────────────────────────────────
   if (numMedia === 0 || !mediaUrl) {
+    if (isKasseMode) {
+      return twimlReply(
+        `🏥 *Kassenabrechnung zuordnen*\n\n` +
+        `Bitte senden Sie die AXA-Erstattungsübersicht als *PDF* — ` +
+        `schicken Sie die Nachricht erneut mit dem PDF im Anhang.\n\n` +
+        `_Format: Text "KK" + PDF-Anhang_`
+      )
+    }
     return twimlReply(
       `Hallo${profile.full_name ? ` ${profile.full_name}` : ''}! 👋\n\n` +
       `Bitte leiten Sie mir eine Arztrechnung als PDF weiter — ` +
       `ich analysiere sie dann automatisch für Sie.\n\n` +
-      `_Tipp: Im AXA Kundenportal → Postfach → PDF öffnen → Teilen → WhatsApp_`
+      `_Tipp: Im AXA Kundenportal → Postfach → PDF öffnen → Teilen → WhatsApp_\n\n` +
+      `_Kassenabrechnung zuordnen? Schicken Sie "KK" + PDF._`
     )
   }
 
@@ -104,7 +116,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 3. Download PDF ───────────────────────────────────────────────────────
+  // ── 4. Download PDF ───────────────────────────────────────────────────────
   let pdfBuffer: Buffer
   try {
     pdfBuffer = await downloadTwilioMedia(mediaUrl)
@@ -116,7 +128,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 4. Upload to Supabase Storage ─────────────────────────────────────────
+  // ── 5. Upload to Supabase Storage ─────────────────────────────────────────
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   const fileName = `${profile.id}/${timestamp}.pdf`
 
@@ -135,7 +147,68 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 5. Create Vorgang record ──────────────────────────────────────────────
+  // ── 6. KASSENABRECHNUNG: attach to most recent open Vorgang ──────────────
+  if (isKasseMode) {
+    // Find the most recent vorgang for this user that doesn't have a Kassenbescheid yet
+    const { data: latestVorgang, error: findError } = await supabaseAdmin
+      .from('vorgaenge')
+      .select('id')
+      .eq('user_id', profile.id)
+      .is('kasse_pdf_storage_path', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (findError || !latestVorgang) {
+      // No open vorgang found — create a standalone kasse record
+      console.warn('[webhook] No open Vorgang for KK — creating standalone')
+      const { data: newVorgang, error: createError } = await supabaseAdmin
+        .from('vorgaenge')
+        .insert({
+          user_id: profile.id,
+          kasse_pdf_storage_path: fileName,
+          status: 'offen',
+          rechnungsdatum: new Date().toISOString().split('T')[0],
+        })
+        .select('id')
+        .single()
+
+      if (createError || !newVorgang) {
+        return twimlReply(`❌ Datenbankfehler. Bitte versuchen Sie es später nochmal.`)
+      }
+
+      const host = request.headers.get('host')
+      fetch(`https://${host}/api/analyze-kasse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_API_SECRET! },
+        body: JSON.stringify({ vorgangId: newVorgang.id, userId: profile.id, phone }),
+      }).catch(err => console.error('Kasse analyze trigger error:', err))
+    } else {
+      // Attach to existing vorgang
+      await supabaseAdmin
+        .from('vorgaenge')
+        .update({ kasse_pdf_storage_path: fileName, updated_at: new Date().toISOString() })
+        .eq('id', latestVorgang.id)
+
+      const host = request.headers.get('host')
+      fetch(`https://${host}/api/analyze-kasse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_API_SECRET! },
+        body: JSON.stringify({ vorgangId: latestVorgang.id, userId: profile.id, phone }),
+      }).catch(err => console.error('Kasse analyze trigger error:', err))
+    }
+
+    return twimlReply(
+      `🏥 Kassenabrechnung erhalten! Ich verarbeite sie jetzt.\n\n` +
+      `In ca. 1–2 Minuten erhalten Sie eine Zusammenfassung mit:\n` +
+      `• Erstattungsquote\n` +
+      `• Gekürzte/abgelehnte Positionen\n` +
+      `• Widerspruchsempfehlung (falls sinnvoll)\n\n` +
+      `_Details: https://mediright-app.vercel.app/rechnungen_`
+    )
+  }
+
+  // ── 7. ARZTRECHNUNG: create new Vorgang ───────────────────────────────────
   const { data: vorgang, error: vorgangError } = await supabaseAdmin
     .from('vorgaenge')
     .insert({
@@ -152,8 +225,7 @@ export async function POST(request: NextRequest) {
     return twimlReply(`❌ Datenbankfehler. Bitte versuchen Sie es später nochmal.`)
   }
 
-  // ── 6. Trigger analysis asynchronously ───────────────────────────────────
-  // Fire-and-forget: don't await so Twilio gets a fast response
+  // ── 8. Trigger GOÄ analysis asynchronously ────────────────────────────────
   const analyzeUrl = `https://${request.headers.get('host')}/api/analyze`
   fetch(analyzeUrl, {
     method: 'POST',
@@ -161,13 +233,14 @@ export async function POST(request: NextRequest) {
     body: JSON.stringify({ vorgangId: vorgang.id, userId: profile.id, phone }),
   }).catch(err => console.error('Analyze trigger error:', err))
 
-  // ── 7. Confirm receipt ────────────────────────────────────────────────────
+  // ── 9. Confirm receipt ────────────────────────────────────────────────────
   return twimlReply(
     `✅ Rechnung erhalten! Ich analysiere sie jetzt.\n\n` +
     `In ca. 1–2 Minuten erhalten Sie hier eine Zusammenfassung mit:\n` +
     `• GOÄ-Positionen & Faktoren\n` +
     `• Auffälligkeiten & Überprüfungsbedarf\n` +
     `• Erstattungsprognose\n\n` +
-    `_Dashboard: https://mediright-app.vercel.app/dashboard_`
+    `_Dashboard: https://mediright-app.vercel.app/dashboard_\n` +
+    `_Kassenabrechnung erhalten? Schicken Sie "KK" + PDF._`
   )
 }
