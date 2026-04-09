@@ -7,6 +7,7 @@ const navItems = [
   { href: "/rechnungen", label: "Rechnungen" },
   { href: "/aerzte", label: "Ärzte" },
   { href: "/widersprueche", label: "Widersprüche" },
+  { href: "/admin", label: "⚙️ Admin" },
 ];
 
 export default function Header() {

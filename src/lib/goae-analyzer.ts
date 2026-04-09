@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getSupabaseAdmin } from './supabase-admin'
 
 export interface GoaePosition {
   ziffer: string
@@ -23,7 +24,8 @@ export interface AnalyseResult {
   whatsappNachricht: string
 }
 
-const SYSTEM_PROMPT = `Du bist ein Experte für die deutsche Gebührenordnung für Ärzte (GOÄ).
+// Hardcoded fallbacks — used if DB is unavailable
+const DEFAULT_SYSTEM_PROMPT = `Du bist ein Experte für die deutsche Gebührenordnung für Ärzte (GOÄ).
 Analysiere die vorliegende Arztrechnung präzise und strukturiert.
 
 WICHTIGE GOÄ-REGELN:
@@ -35,7 +37,7 @@ WICHTIGE GOÄ-REGELN:
 
 Gib deine Antwort AUSSCHLIESSLICH als valides JSON zurück, ohne Markdown-Formatierung.`
 
-const USER_PROMPT = `Analysiere diese Arztrechnung und extrahiere alle Informationen.
+const DEFAULT_USER_PROMPT = `Analysiere diese Arztrechnung und extrahiere alle Informationen.
 
 Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
 {
@@ -70,43 +72,55 @@ flagFaktorUeberSchwellenwert = true wenn irgendein Faktor > 2,3
 flagFehlendeBegrundung = true wenn Faktor > 2,3 aber keine schriftliche Begründung erkennbar
 einsparpotenzial = Betrag der reduziert werden könnte wenn alle Positionen auf 2,3-fach gedeckelt`
 
-export async function analyzeRechnungPdf(pdfBuffer: Buffer): Promise<AnalyseResult> {
-  const client = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY!,
-  })
+// Fetch a setting from DB with fallback
+async function getSetting(key: string, fallback: string): Promise<string> {
+  try {
+    const { data } = await getSupabaseAdmin()
+      .from('app_settings')
+      .select('value')
+      .eq('key', key)
+      .single()
+    return data?.value ?? fallback
+  } catch {
+    return fallback
+  }
+}
 
+export async function analyzeRechnungPdf(pdfBuffer: Buffer): Promise<AnalyseResult> {
+  // Load prompts and config from DB (with hardcoded fallbacks)
+  const [systemPrompt, userPrompt, model] = await Promise.all([
+    getSetting('goae_system_prompt', DEFAULT_SYSTEM_PROMPT),
+    getSetting('goae_user_prompt', DEFAULT_USER_PROMPT),
+    getSetting('claude_model', 'claude-sonnet-4-5'),
+  ])
+
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
   const base64Pdf = pdfBuffer.toString('base64')
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5',
+    model,
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: [
       {
         role: 'user',
         content: [
           {
             type: 'document',
-            source: {
-              type: 'base64',
-              media_type: 'application/pdf',
-              data: base64Pdf,
-            },
+            source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
           },
-          {
-            type: 'text',
-            text: USER_PROMPT,
-          },
+          { type: 'text', text: userPrompt },
         ],
       },
     ],
   })
 
   const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
-
-  // Strip potential markdown code blocks
   const jsonText = rawText.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
+  return JSON.parse(jsonText) as AnalyseResult
+}
 
-  const result = JSON.parse(jsonText) as AnalyseResult
-  return result
+// Fetch a WhatsApp message template from DB
+export async function getWhatsAppTemplate(key: string, fallback: string): Promise<string> {
+  return getSetting(key, fallback)
 }
