@@ -33,31 +33,159 @@ function KPIBar({ kasseBescheide, unmatched }: { kasseBescheide: KasseBescheid[]
     (s, k) => s + (k.rechnungen?.filter(r => !r.matchedVorgangId).length ?? 0), 0
   );
 
+  // Selbstbehalt: use the most recent Bescheid's verbleibend value (most up-to-date)
+  const currentYear = new Date().getFullYear().toString();
+  const currentYearBescheide = kasseBescheide.filter(
+    k => k.bescheiddatum?.startsWith(currentYear)
+  );
+  // Most recent = first in array (sorted desc)
+  const latestWithSelbstbehalt = currentYearBescheide.find(
+    k => k.selbstbehalt_verbleibend != null
+  );
+  const selbstbehaltVerbleibend  = latestWithSelbstbehalt?.selbstbehalt_verbleibend ?? null;
+  const selbstbehaltJahresgrenze = latestWithSelbstbehalt?.selbstbehalt_jahresgrenze ?? null;
+  const selbstbehaltGenutzt = selbstbehaltJahresgrenze != null && selbstbehaltVerbleibend != null
+    ? selbstbehaltJahresgrenze - selbstbehaltVerbleibend
+    : kasseBescheide
+        .filter(k => k.bescheiddatum?.startsWith(currentYear))
+        .reduce((s, k) => s + (k.selbstbehalt_abgezogen ?? 0), 0);
+
   const kpis = [
-    { label: "Gesamt eingereicht",   value: fmt(totalEingereicht), accent: "var(--navy)" },
-    { label: "Gesamt erstattet",     value: fmt(totalErstattet),   accent: "#22c55e" },
-    { label: "Gesamt abgelehnt",     value: fmt(totalAbgelehnt),   accent: totalAbgelehnt > 0 ? "#ef4444" : "var(--text-muted)" },
-    { label: "Ø Erstattungsquote",   value: avgQuote.toFixed(0) + " %", accent: quoteColor(avgQuote) },
+    { label: "Gesamt eingereicht",    value: fmt(totalEingereicht), accent: "var(--navy)" },
+    { label: "Gesamt erstattet",      value: fmt(totalErstattet),   accent: "#22c55e" },
+    { label: "Gesamt abgelehnt",      value: fmt(totalAbgelehnt),   accent: totalAbgelehnt > 0 ? "#ef4444" : "var(--text-muted)" },
+    { label: "Ø Erstattungsquote",    value: avgQuote.toFixed(0) + " %", accent: quoteColor(avgQuote) },
     { label: "Offene Kassenpositionen", value: String(unmatchedKasse), accent: unmatchedKasse > 0 ? "#f59e0b" : "#22c55e" },
     { label: "Rechnungen ohne Kasse", value: String(unmatched.length), accent: unmatched.length > 0 ? "#f59e0b" : "#22c55e" },
   ];
 
   return (
-    <div className="grid grid-cols-3 gap-4 mb-8" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-      {kpis.map((k) => (
-        <div
-          key={k.label}
-          className="rounded-2xl px-5 py-4"
-          style={{ background: "var(--card)", border: "1.5px solid var(--border)" }}
-        >
-          <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>
-            {k.label}
-          </p>
-          <p className="text-2xl font-bold" style={{ color: k.accent, fontFamily: "'DM Serif Display', Georgia, serif" }}>
-            {k.value}
+    <div className="flex flex-col gap-4 mb-8">
+      {/* Selbstbehalt banner — only shown when data is available */}
+      {(selbstbehaltVerbleibend != null || selbstbehaltGenutzt > 0) && (
+        <SelbstbehaltBanner
+          verbleibend={selbstbehaltVerbleibend}
+          jahresgrenze={selbstbehaltJahresgrenze}
+          genutzt={selbstbehaltGenutzt}
+          year={currentYear}
+        />
+      )}
+      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+        {kpis.map((k) => (
+          <div
+            key={k.label}
+            className="rounded-2xl px-5 py-4"
+            style={{ background: "var(--card)", border: "1.5px solid var(--border)" }}
+          >
+            <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>
+              {k.label}
+            </p>
+            <p className="text-2xl font-bold" style={{ color: k.accent, fontFamily: "'DM Serif Display', Georgia, serif" }}>
+              {k.value}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Selbstbehalt banner ───────────────────────────────────────────────────────
+
+function SelbstbehaltBanner({
+  verbleibend,
+  jahresgrenze,
+  genutzt,
+  year,
+}: {
+  verbleibend: number | null;
+  jahresgrenze: number | null;
+  genutzt: number;
+  year: string;
+}) {
+  const progress = jahresgrenze && jahresgrenze > 0
+    ? Math.min(100, (genutzt / jahresgrenze) * 100)
+    : null;
+
+  return (
+    <div
+      className="rounded-2xl px-6 py-5"
+      style={{ background: "var(--card)", border: "1.5px solid var(--border)" }}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-base">🛡️</span>
+          <p className="text-sm font-semibold" style={{ color: "var(--navy)" }}>
+            Selbstbehalt {year}
           </p>
         </div>
-      ))}
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Laut letztem Bescheid
+        </p>
+      </div>
+
+      <div className="flex items-end gap-6">
+        {/* Already used */}
+        <div>
+          <p className="text-xs uppercase tracking-wider mb-0.5" style={{ color: "var(--text-muted)" }}>
+            Bereits abgezogen
+          </p>
+          <p className="text-2xl font-bold" style={{ color: "#f59e0b", fontFamily: "'DM Serif Display', Georgia, serif" }}>
+            {fmt(genutzt)}
+          </p>
+        </div>
+
+        {/* Remaining */}
+        {verbleibend != null && (
+          <div>
+            <p className="text-xs uppercase tracking-wider mb-0.5" style={{ color: "var(--text-muted)" }}>
+              Noch verbleibend
+            </p>
+            <p className="text-2xl font-bold" style={{
+              color: verbleibend === 0 ? "#22c55e" : "var(--navy)",
+              fontFamily: "'DM Serif Display', Georgia, serif"
+            }}>
+              {fmt(verbleibend)}
+            </p>
+          </div>
+        )}
+
+        {/* Annual limit */}
+        {jahresgrenze != null && (
+          <div>
+            <p className="text-xs uppercase tracking-wider mb-0.5" style={{ color: "var(--text-muted)" }}>
+              Jahresgrenze
+            </p>
+            <p className="text-xl font-semibold" style={{ color: "var(--text-muted)" }}>
+              {fmt(jahresgrenze)}
+            </p>
+          </div>
+        )}
+
+        {/* Progress bar */}
+        {progress != null && (
+          <div className="flex-1 min-w-[120px]">
+            <div className="flex justify-between text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+              <span>Verbrauch</span>
+              <span>{progress.toFixed(0)} %</span>
+            </div>
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-subtle)" }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${progress}%`,
+                  background: progress >= 100 ? "#22c55e" : progress >= 60 ? "#f59e0b" : "#3b82f6",
+                }}
+              />
+            </div>
+            {progress >= 100 && (
+              <p className="text-xs mt-1 font-semibold" style={{ color: "#22c55e" }}>
+                ✓ Jahres-Selbstbehalt erreicht
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -215,20 +343,35 @@ function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
                   );
                 })}
               </tbody>
-              {/* Totals row */}
+              {/* Totals + Selbstbehalt footer */}
               <tfoot>
                 <tr className="border-t-2" style={{ borderColor: "var(--border)" }}>
-                  <td colSpan={2} className="px-6 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                    Gesamt
+                  <td colSpan={2} className="px-6 py-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                    Gesamt eingereicht / erstattet
                   </td>
-                  <td className="px-4 py-3 text-right font-bold font-mono text-sm" style={{ color: "var(--navy)" }}>
+                  <td className="px-4 py-2 text-right font-bold font-mono text-sm" style={{ color: "var(--navy)" }}>
                     {fmt(kasse.betrag_eingereicht)}
                   </td>
-                  <td className="px-4 py-3 text-right font-bold font-mono text-sm" style={{ color: quoteColor(quote) }}>
+                  <td className="px-4 py-2 text-right font-bold font-mono text-sm" style={{ color: quoteColor(quote) }}>
                     {fmt(kasse.betrag_erstattet)}
                   </td>
                   <td />
                 </tr>
+                {kasse.selbstbehalt_abgezogen != null && kasse.selbstbehalt_abgezogen > 0 && (
+                  <tr style={{ background: "#fffbeb" }}>
+                    <td colSpan={2} className="px-6 py-2 text-xs font-semibold" style={{ color: "#92400e" }}>
+                      🛡️ Selbstbehalt abgezogen
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-xs font-semibold" style={{ color: "#92400e" }}>
+                      −{fmt(kasse.selbstbehalt_abgezogen)}
+                    </td>
+                    <td colSpan={2} className="px-4 py-2 text-xs" style={{ color: "#92400e" }}>
+                      {kasse.selbstbehalt_verbleibend != null
+                        ? `Noch verbleibend: ${fmt(kasse.selbstbehalt_verbleibend)}`
+                        : ""}
+                    </td>
+                  </tr>
+                )}
               </tfoot>
             </table>
           )}

@@ -225,9 +225,12 @@ async function runKassePipeline(
       bescheiddatum: analyse.bescheiddatum,
       referenznummer: analyse.referenznummer,
       betrag_eingereicht: analyse.betragEingereicht ?? 0,
-      betrag_erstattet: analyse.betragErstattet ?? 0,
-      betrag_abgelehnt: analyse.betragAbgelehnt ?? 0,
-      widerspruch_empfohlen: analyse.widerspruchEmpfohlen ?? false,
+      betrag_erstattet:          analyse.betragErstattet ?? 0,
+      betrag_abgelehnt:          analyse.betragAbgelehnt ?? 0,
+      widerspruch_empfohlen:     analyse.widerspruchEmpfohlen ?? false,
+      selbstbehalt_abgezogen:    analyse.selbstbehaltAbgezogen   ?? null,
+      selbstbehalt_verbleibend:  analyse.selbstbehaltVerbleibend ?? null,
+      selbstbehalt_jahresgrenze: analyse.selbstbehaltJahresgrenze ?? null,
     })
     .select('id')
     .single()

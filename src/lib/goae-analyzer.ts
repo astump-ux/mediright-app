@@ -216,6 +216,12 @@ export interface KasseAnalyseResult {
   betragErstattet: number
   betragAbgelehnt: number
   erstattungsquote: number
+  /** Selbstbehalt abgezogen in DIESER Abrechnung */
+  selbstbehaltAbgezogen: number | null
+  /** Verbleibender Selbstbehalt für das laufende Kalenderjahr (laut Bescheid) */
+  selbstbehaltVerbleibend: number | null
+  /** Jahres-Selbstbehalt-Grenze laut Vertrag (laut Bescheid, falls angegeben) */
+  selbstbehaltJahresgrenze: number | null
   /** Rechnungen grouped by provider — key field for matching */
   rechnungen: KasseRechnungGruppe[]
   /** All positions flat (for backward-compat display in modals) */
@@ -235,6 +241,10 @@ WICHTIGE REGELN:
 - Identifiziere Kürzungen und ihre Begründungen
 - Bewerte ob ein Widerspruch sinnvoll ist
 - Erstattungsquote = betragErstattet / betragEingereicht * 100
+- Selbstbehalt: Viele PKV-Verträge haben einen jährlichen Selbstbehalt.
+  Suche nach Begriffen wie "Selbstbehalt", "Eigenanteil", "Jahresselbstbehalt",
+  "verbleibender Selbstbehalt", "noch verbleibend" — diese Beträge sind explizit
+  auf dem Bescheid ausgewiesen und MÜSSEN extrahiert werden.
 
 Gib deine Antwort AUSSCHLIESSLICH als valides JSON zurück, ohne Markdown-Formatierung.`
 
@@ -279,15 +289,25 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
       "ablehnungsgrund": null
     }
   ],
+  "selbstbehaltAbgezogen": 150.00,
+  "selbstbehaltVerbleibend": 50.00,
+  "selbstbehaltJahresgrenze": 500.00,
   "ablehnungsgruende": ["Liste aller Ablehnungsgründe als Strings"],
   "widerspruchEmpfohlen": false,
   "widerspruchBegruendung": "Begründung oder null",
   "zusammenfassung": "Kurze Zusammenfassung (2-3 Sätze)"
 }
 
-WICHTIG: "rechnungen" MUSS alle Leistungserbringer/Rechnungen als separate Objekte enthalten.
-Wenn der Bescheid Positionen verschiedener Ärzte enthält, erstelle für jeden Arzt eine eigene Gruppe.
-Status-Werte: "erstattet" | "gekuerzt" | "abgelehnt"`
+WICHTIG:
+- "rechnungen" MUSS alle Leistungserbringer/Rechnungen als separate Objekte enthalten.
+  Wenn der Bescheid Positionen verschiedener Ärzte enthält, erstelle für jeden Arzt eine eigene Gruppe.
+- "selbstbehaltAbgezogen": Betrag des Selbstbehalts der in DIESER Abrechnung abgezogen wurde.
+  Null wenn kein Selbstbehalt abgezogen wurde.
+- "selbstbehaltVerbleibend": Der auf dem Bescheid ausgewiesene verbleibende Selbstbehalt
+  für das laufende Kalenderjahr. Null wenn nicht angegeben.
+- "selbstbehaltJahresgrenze": Der Jahres-Selbstbehalt-Gesamtbetrag laut Vertrag.
+  Null wenn nicht angegeben.
+- Status-Werte für positionen: "erstattet" | "gekuerzt" | "abgelehnt"`
 
 export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseResult> {
   const [systemPrompt, userPrompt, model] = await Promise.all([
@@ -320,6 +340,11 @@ export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseRe
   const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
   const jsonText = rawText.replace(/^```json\n?/i, '').replace(/\n?```$/i, '').trim()
   const result = JSON.parse(jsonText) as KasseAnalyseResult
+
+  // Ensure all fields exist with safe defaults (backward compat)
+  if (result.selbstbehaltAbgezogen   === undefined) result.selbstbehaltAbgezogen   = null
+  if (result.selbstbehaltVerbleibend === undefined) result.selbstbehaltVerbleibend = null
+  if (result.selbstbehaltJahresgrenze=== undefined) result.selbstbehaltJahresgrenze= null
 
   // Ensure rechnungen array exists (backward compat if Claude omits it)
   if (!result.rechnungen) result.rechnungen = []

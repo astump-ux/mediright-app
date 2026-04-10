@@ -16,6 +16,9 @@ export interface KasseBescheid {
   betrag_erstattet: number
   betrag_abgelehnt: number
   widerspruch_empfohlen: boolean
+  selbstbehalt_abgezogen: number | null
+  selbstbehalt_verbleibend: number | null
+  selbstbehalt_jahresgrenze: number | null
   pdf_storage_path: string | null
   rechnungen: KasseRechnungGruppe[]
   vorgaenge: {
@@ -54,7 +57,7 @@ export default async function KassenPage() {
   // Load kassenabrechnungen
   const { data: kassenRaw } = await admin
     .from('kassenabrechnungen')
-    .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, pdf_storage_path, kasse_analyse')
+    .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, selbstbehalt_abgezogen, selbstbehalt_verbleibend, selbstbehalt_jahresgrenze, pdf_storage_path, kasse_analyse')
     .eq('user_id', user.id)
     .order('bescheiddatum', { ascending: false })
 
@@ -97,7 +100,10 @@ export default async function KassenPage() {
     betrag_eingereicht: k.betrag_eingereicht,
     betrag_erstattet: k.betrag_erstattet,
     betrag_abgelehnt: k.betrag_abgelehnt,
-    widerspruch_empfohlen: k.widerspruch_empfohlen,
+    widerspruch_empfohlen:     k.widerspruch_empfohlen,
+    selbstbehalt_abgezogen:    k.selbstbehalt_abgezogen    ?? null,
+    selbstbehalt_verbleibend:  k.selbstbehalt_verbleibend  ?? null,
+    selbstbehalt_jahresgrenze: k.selbstbehalt_jahresgrenze ?? null,
     pdf_storage_path: k.pdf_storage_path,
     rechnungen: (k.kasse_analyse?.rechnungen ?? []) as KasseRechnungGruppe[],
     vorgaenge: (vorgangByKasse.get(k.id) ?? []).map(v => ({
