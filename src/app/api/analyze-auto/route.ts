@@ -105,20 +105,33 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ success: true, vorgangId, docType })
   } catch (err) {
-    console.error('[analyze-auto] pipeline error:', err)
+    const errStr = String(err)
+    const errDetail = err instanceof Error ? err.message : errStr
+    console.error('[analyze-auto] pipeline error:', errDetail, err)
+
     await supabaseAdmin
       .from('vorgaenge')
       .update({ status: 'pruefen', updated_at: new Date().toISOString() })
       .eq('id', vorgangId)
+
     if (phone) {
+      // Send actual error reason so user/developer can diagnose
+      const hint = errDetail.toLowerCase().includes('json')
+        ? 'Claude hat kein gültiges JSON zurückgegeben.'
+        : errDetail.toLowerCase().includes('timeout') || errDetail.toLowerCase().includes('deadline')
+        ? 'Zeitüberschreitung — bitte erneut senden.'
+        : errDetail.toLowerCase().includes('content') || errDetail.toLowerCase().includes('block')
+        ? 'Das PDF-Format wird nicht unterstützt (z.B. gescanntes Bild ohne Text).'
+        : `Fehler: ${errDetail.slice(0, 120)}`
+
       await sendWhatsApp(
         phone,
-        `⚠️ Analyse fehlgeschlagen.\n\n` +
-        `Das PDF könnte geschützt oder beschädigt sein.\n` +
-        `Bitte prüfen Sie manuell: https://mediright-app.vercel.app/rechnungen`
+        `⚠️ *Analyse fehlgeschlagen*\n\n${hint}\n\n` +
+        `Bitte laden Sie das Dokument erneut hoch oder prüfen Sie es manuell:\n` +
+        `https://mediright-app.vercel.app/rechnungen`
       )
     }
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    return NextResponse.json({ error: errDetail }, { status: 500 })
   }
 }
 

@@ -86,6 +86,36 @@ async function getSetting(key: string, fallback: string): Promise<string> {
   }
 }
 
+/**
+ * Robustly extract JSON from Claude's response.
+ * Handles: ```json blocks, leading/trailing text, and finds the first { ... } block.
+ */
+function extractJson<T>(raw: string): T {
+  // 1. Strip markdown code fences
+  let text = raw
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim()
+
+  // 2. Try direct parse first
+  try {
+    return JSON.parse(text) as T
+  } catch { /* fall through */ }
+
+  // 3. Find the outermost { ... } block (Claude sometimes adds explanatory text)
+  const firstBrace = text.indexOf('{')
+  const lastBrace  = text.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(text.slice(firstBrace, lastBrace + 1)) as T
+    } catch { /* fall through */ }
+  }
+
+  // 4. Nothing worked — throw with the raw response for debugging
+  throw new Error(`JSON parse failed. Raw response (first 500 chars): ${raw.slice(0, 500)}`)
+}
+
 export async function analyzeRechnungPdf(pdfBuffer: Buffer): Promise<AnalyseResult> {
   // Load prompts and config from DB (with hardcoded fallbacks)
   const [systemPrompt, userPrompt, model] = await Promise.all([
@@ -116,8 +146,7 @@ export async function analyzeRechnungPdf(pdfBuffer: Buffer): Promise<AnalyseResu
   })
 
   const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
-  const jsonText = rawText.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
-  return JSON.parse(jsonText) as AnalyseResult
+  return extractJson<AnalyseResult>(rawText)
 }
 
 // Fetch a WhatsApp message template from DB
@@ -338,8 +367,7 @@ export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseRe
   })
 
   const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
-  const jsonText = rawText.replace(/^```json\n?/i, '').replace(/\n?```$/i, '').trim()
-  const result = JSON.parse(jsonText) as KasseAnalyseResult
+  const result = extractJson<KasseAnalyseResult>(rawText)
 
   // Ensure all fields exist with safe defaults (backward compat)
   if (result.selbstbehaltAbgezogen   === undefined) result.selbstbehaltAbgezogen   = null
