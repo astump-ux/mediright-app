@@ -191,7 +191,7 @@ export async function matchVorgangToKasse(
 
   const { data: kassenabrechnungen } = await getSupabaseAdmin()
     .from('kassenabrechnungen')
-    .select('id, analyse')
+    .select('id, kasse_analyse')
     .eq('user_id', userId)
     .gte('created_at', sixMonthsAgo.toISOString())
     .order('created_at', { ascending: false })
@@ -203,7 +203,7 @@ export async function matchVorgangToKasse(
   let bestGruppeIdx: number = -1
 
   for (const kasse of kassenabrechnungen) {
-    const rechnungen: KasseRechnungGruppe[] = kasse.analyse?.rechnungen ?? []
+    const rechnungen: KasseRechnungGruppe[] = kasse.kasse_analyse?.rechnungen ?? []
     rechnungen.forEach((gruppe, idx) => {
       if (gruppe.matchedVorgangId) return // already matched
       const score = matchScore(vorgang, gruppe)
@@ -222,15 +222,15 @@ export async function matchVorgangToKasse(
 
   console.log(`[matching] Arztrechnung ${vorgangId} → kasse ${bestKasseId} gruppe ${bestGruppeIdx} (score ${bestScore.toFixed(2)})`)
 
-  // Update the kassenabrechnung's analyse JSON with the new matchedVorgangId
+  // Update the kassenabrechnung's kasse_analyse JSON with the new matchedVorgangId
   const { data: kasseRecord } = await getSupabaseAdmin()
     .from('kassenabrechnungen')
-    .select('analyse')
+    .select('kasse_analyse')
     .eq('id', bestKasseId)
     .single()
 
-  if (kasseRecord?.analyse) {
-    const updatedAnalyse = { ...kasseRecord.analyse }
+  if (kasseRecord?.kasse_analyse) {
+    const updatedAnalyse = { ...kasseRecord.kasse_analyse }
     if (Array.isArray(updatedAnalyse.rechnungen)) {
       updatedAnalyse.rechnungen[bestGruppeIdx] = {
         ...updatedAnalyse.rechnungen[bestGruppeIdx],
@@ -239,7 +239,7 @@ export async function matchVorgangToKasse(
     }
     await getSupabaseAdmin()
       .from('kassenabrechnungen')
-      .update({ analyse: updatedAnalyse, updated_at: new Date().toISOString() })
+      .update({ kasse_analyse: updatedAnalyse, updated_at: new Date().toISOString() })
       .eq('id', bestKasseId)
   }
 

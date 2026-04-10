@@ -219,7 +219,7 @@ async function runKassePipeline(
     .insert({
       user_id: userId,
       pdf_storage_path: pdfStoragePath,
-      analyse,
+      kasse_analyse: analyse,
       bescheiddatum: analyse.bescheiddatum,
       referenznummer: analyse.referenznummer,
       betrag_eingereicht: analyse.betragEingereicht ?? 0,
@@ -241,10 +241,10 @@ async function runKassePipeline(
     analyse.rechnungen ?? []
   )
 
-  // Persist updated rechnungen (with matchedVorgangId) back to analyse
+  // Persist updated rechnungen (with matchedVorgangId) back into kasse_analyse
   await supabaseAdmin
     .from('kassenabrechnungen')
-    .update({ analyse: { ...analyse, rechnungen: updatedRechnungen } })
+    .update({ kasse_analyse: { ...analyse, rechnungen: updatedRechnungen } })
     .eq('id', kasseRecord.id)
 
   // ── Remove placeholder vorgang (was only a carrier for the PDF) ───────────

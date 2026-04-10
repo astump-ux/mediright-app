@@ -54,7 +54,7 @@ export default async function KassenPage() {
   // Load kassenabrechnungen
   const { data: kassenRaw } = await admin
     .from('kassenabrechnungen')
-    .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, pdf_storage_path, analyse')
+    .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, pdf_storage_path, kasse_analyse')
     .eq('user_id', user.id)
     .order('bescheiddatum', { ascending: false })
 
@@ -99,7 +99,7 @@ export default async function KassenPage() {
     betrag_abgelehnt: k.betrag_abgelehnt,
     widerspruch_empfohlen: k.widerspruch_empfohlen,
     pdf_storage_path: k.pdf_storage_path,
-    rechnungen: (k.analyse?.rechnungen ?? []) as KasseRechnungGruppe[],
+    rechnungen: (k.kasse_analyse?.rechnungen ?? []) as KasseRechnungGruppe[],
     vorgaenge: (vorgangByKasse.get(k.id) ?? []).map(v => ({
       id: v.id,
       arzt_name: v.arzt_name,
