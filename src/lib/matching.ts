@@ -101,13 +101,18 @@ export async function matchKasseToVorgaenge(
 ): Promise<KasseRechnungGruppe[]> {
   if (rechnungen.length === 0) return rechnungen
 
-  // Load all user vorgaenge that don't have a kassenabrechnung yet
+  // Load analysed Arztrechnung vorgaenge for this user:
+  // - must have arzt_name (= has been analysed, not a placeholder)
+  // - must have status != 'offen' (= analysis completed)
+  // - skip vorgaenge already matched to a different kasse
   const { data: vorgaenge } = await getSupabaseAdmin()
     .from('vorgaenge')
     .select('id, arzt_name, rechnungsdatum, betrag_gesamt, kassenabrechnung_id, kasse_match_status')
     .eq('user_id', userId)
-    .not('pdf_storage_path', 'is', null)
+    .not('arzt_name', 'is', null)   // only analysed Arztrechnungen
+    .neq('status', 'offen')         // exclude placeholders
 
+  console.log('[matching] Candidate vorgaenge for kasse', kasseId, ':', vorgaenge?.length ?? 0)
   if (!vorgaenge?.length) return rechnungen
 
   // Greedy matching: highest score first, each vorgang matched at most once
@@ -196,6 +201,9 @@ export async function matchVorgangToKasse(
     .gte('created_at', sixMonthsAgo.toISOString())
     .order('created_at', { ascending: false })
 
+  console.log('[matching] matchVorgangToKasse: arzt=', arztName, 'datum=', rechnungsdatum, 'betrag=', betragGesamt)
+  console.log('[matching] Open kassenabrechnungen to check:', kassenabrechnungen?.length ?? 0)
+
   if (!kassenabrechnungen?.length) return
 
   let bestScore = MATCH_THRESHOLD
@@ -204,9 +212,11 @@ export async function matchVorgangToKasse(
 
   for (const kasse of kassenabrechnungen) {
     const rechnungen: KasseRechnungGruppe[] = kasse.kasse_analyse?.rechnungen ?? []
+    console.log(`[matching]   kasse ${kasse.id}: ${rechnungen.length} rechnungen groups`)
     rechnungen.forEach((gruppe, idx) => {
       if (gruppe.matchedVorgangId) return // already matched
       const score = matchScore(vorgang, gruppe)
+      console.log(`[matching]     gruppe[${idx}] "${gruppe.arztName}" datum=${gruppe.rechnungsdatum} betrag=${gruppe.betragEingereicht} → score ${score.toFixed(3)}`)
       if (score > bestScore) {
         bestScore = score
         bestKasseId = kasse.id
@@ -216,7 +226,7 @@ export async function matchVorgangToKasse(
   }
 
   if (!bestKasseId || bestGruppeIdx < 0) {
-    console.log(`[matching] Arztrechnung ${vorgangId}: no open kasse position found`)
+    console.log(`[matching] Arztrechnung ${vorgangId}: no open kasse position found (threshold ${MATCH_THRESHOLD})`)
     return
   }
 

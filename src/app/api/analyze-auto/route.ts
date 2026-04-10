@@ -132,21 +132,23 @@ async function runArztPipeline(
   const analyse = await analyzeRechnungPdf(pdfBuffer)
   console.log('[analyze-auto] GOÄ done, arzt:', analyse.arztName)
 
+  // Write arzt_name directly onto vorgaenge (denormalized) so matching can use it
   await supabaseAdmin.from('vorgaenge').update({
-    rechnungsdatum: analyse.rechnungsdatum,
-    rechnungsnummer: analyse.rechnungsnummer,
-    betrag_gesamt: analyse.betragGesamt,
-    goae_positionen: analyse.goaePositionen,
-    max_faktor: analyse.maxFaktor,
-    flag_faktor_ueber_schwellenwert: analyse.flagFaktorUeberSchwellenwert,
-    flag_fehlende_begruendung: analyse.flagFehlendeBegrundung,
-    einsparpotenzial: analyse.einsparpotenzial,
-    claude_analyse: analyse,
-    status: 'pruefen',
-    updated_at: new Date().toISOString(),
+    arzt_name:                        analyse.arztName ?? null,
+    rechnungsdatum:                   analyse.rechnungsdatum,
+    rechnungsnummer:                  analyse.rechnungsnummer,
+    betrag_gesamt:                    analyse.betragGesamt,
+    goae_positionen:                  analyse.goaePositionen,
+    max_faktor:                       analyse.maxFaktor,
+    flag_faktor_ueber_schwellenwert:  analyse.flagFaktorUeberSchwellenwert,
+    flag_fehlende_begruendung:        analyse.flagFehlendeBegrundung,
+    einsparpotenzial:                 analyse.einsparpotenzial,
+    claude_analyse:                   analyse,
+    status:                           'pruefen',
+    updated_at:                       new Date().toISOString(),
   }).eq('id', vorgangId)
 
-  // Upsert Arzt record
+  // Upsert Arzt record + link back via arzt_id
   let arztId: string | null = null
   if (analyse.arztName) {
     const { data: arzt } = await supabaseAdmin
