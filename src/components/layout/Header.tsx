@@ -3,12 +3,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/rechnungen", label: "Rechnungen" },
-  { href: "/aerzte", label: "Ärzte" },
-  { href: "/widersprueche", label: "Widersprüche" },
-  { href: "/admin", label: "⚙️ Admin" },
-  { href: "/settings", label: "👤 Einstellungen" },
+  { href: "/dashboard",         label: "Dashboard" },
+  { href: "/rechnungen",        label: "Rechnungen" },
+  { href: "/kassenabrechnung",  label: "Kassenabrechnungen" },
+  { href: "/aerzte",            label: "Ärzte" },
+  { href: "/widersprueche",     label: "Widersprüche" },
+  { href: "/admin",             label: "⚙️ Admin" },
+  { href: "/settings",          label: "👤 Einstellungen" },
 ];
 
 export default function Header() {

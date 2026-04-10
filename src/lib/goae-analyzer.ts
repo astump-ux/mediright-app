@@ -192,6 +192,23 @@ export interface KassePosition {
   ablehnungsgrund?: string | null
 }
 
+/**
+ * One invoice/provider block within a Kassenbescheid.
+ * A single Kassenbescheid often covers multiple Arztrechnungen.
+ * matchedVorgangId is populated by the matching engine (not by Claude).
+ */
+export interface KasseRechnungGruppe {
+  arztName: string | null
+  arztFachgebiet: string | null
+  rechnungsnummer: string | null
+  rechnungsdatum: string | null      // YYYY-MM-DD
+  betragEingereicht: number
+  betragErstattet: number
+  betragAbgelehnt: number
+  positionen: KassePosition[]
+  matchedVorgangId?: string | null   // set by matching.ts, not Claude
+}
+
 export interface KasseAnalyseResult {
   referenznummer: string | null
   bescheiddatum: string | null
@@ -199,6 +216,9 @@ export interface KasseAnalyseResult {
   betragErstattet: number
   betragAbgelehnt: number
   erstattungsquote: number
+  /** Rechnungen grouped by provider — key field for matching */
+  rechnungen: KasseRechnungGruppe[]
+  /** All positions flat (for backward-compat display in modals) */
   positionen: KassePosition[]
   ablehnungsgruende: string[]
   widerspruchEmpfohlen: boolean
@@ -210,14 +230,15 @@ const DEFAULT_KASSE_SYSTEM_PROMPT = `Du bist ein Experte für deutsche private K
 Analysiere den vorliegenden Erstattungsbescheid präzise und strukturiert.
 
 WICHTIGE REGELN:
+- Gruppiere Positionen nach Arzt/Leistungserbringer und Rechnung
 - Prüfe ob alle eingereichten Positionen erstattet wurden
 - Identifiziere Kürzungen und ihre Begründungen
-- Bewerte ob ein Widerspruch sinnvoll ist (z.B. bei ungerechtfertigten Kürzungen, formellen Fehlern, oder wenn Positionen ohne Begründung abgelehnt wurden)
+- Bewerte ob ein Widerspruch sinnvoll ist
 - Erstattungsquote = betragErstattet / betragEingereicht * 100
 
 Gib deine Antwort AUSSCHLIESSLICH als valides JSON zurück, ohne Markdown-Formatierung.`
 
-const DEFAULT_KASSE_USER_PROMPT = `Analysiere diesen PKV-Erstattungsbescheid und extrahiere alle Informationen.
+const DEFAULT_KASSE_USER_PROMPT = `Analysiere diesen PKV-Erstattungsbescheid vollständig.
 
 Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
 {
@@ -227,10 +248,31 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
   "betragErstattet": 100.00,
   "betragAbgelehnt": 23.45,
   "erstattungsquote": 81.3,
+  "rechnungen": [
+    {
+      "arztName": "Name des Arztes/Leistungserbringers oder null",
+      "arztFachgebiet": "Fachgebiet oder null",
+      "rechnungsnummer": "Rechnungsnummer oder null",
+      "rechnungsdatum": "YYYY-MM-DD oder null",
+      "betragEingereicht": 50.00,
+      "betragErstattet": 45.00,
+      "betragAbgelehnt": 5.00,
+      "positionen": [
+        {
+          "ziffer": "1",
+          "bezeichnung": "Beratung",
+          "betragEingereicht": 10.72,
+          "betragErstattet": 10.72,
+          "status": "erstattet",
+          "ablehnungsgrund": null
+        }
+      ]
+    }
+  ],
   "positionen": [
     {
       "ziffer": "1",
-      "bezeichnung": "Beratung",
+      "bezeichnung": "Beratung (Dr. Müller)",
       "betragEingereicht": 10.72,
       "betragErstattet": 10.72,
       "status": "erstattet",
@@ -239,14 +281,13 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
   ],
   "ablehnungsgruende": ["Liste aller Ablehnungsgründe als Strings"],
   "widerspruchEmpfohlen": false,
-  "widerspruchBegruendung": "Begründung warum Widerspruch empfohlen wird, oder null",
-  "zusammenfassung": "Kurze Zusammenfassung des Bescheids auf Deutsch (2-3 Sätze)"
+  "widerspruchBegruendung": "Begründung oder null",
+  "zusammenfassung": "Kurze Zusammenfassung (2-3 Sätze)"
 }
 
-Status-Werte für positionen:
-- "erstattet" = vollständig erstattet
-- "gekuerzt" = teilweise erstattet / gekürzt
-- "abgelehnt" = nicht erstattet`
+WICHTIG: "rechnungen" MUSS alle Leistungserbringer/Rechnungen als separate Objekte enthalten.
+Wenn der Bescheid Positionen verschiedener Ärzte enthält, erstelle für jeden Arzt eine eigene Gruppe.
+Status-Werte: "erstattet" | "gekuerzt" | "abgelehnt"`
 
 export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseResult> {
   const [systemPrompt, userPrompt, model] = await Promise.all([
@@ -260,7 +301,7 @@ export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseRe
 
   const response = await client.messages.create({
     model,
-    max_tokens: 4096,
+    max_tokens: 8192,
     system: systemPrompt,
     messages: [
       {
@@ -277,6 +318,12 @@ export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseRe
   })
 
   const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
-  const jsonText = rawText.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
-  return JSON.parse(jsonText) as KasseAnalyseResult
+  const jsonText = rawText.replace(/^```json\n?/i, '').replace(/\n?```$/i, '').trim()
+  const result = JSON.parse(jsonText) as KasseAnalyseResult
+
+  // Ensure rechnungen array exists (backward compat if Claude omits it)
+  if (!result.rechnungen) result.rechnungen = []
+  if (!result.positionen) result.positionen = []
+
+  return result
 }
