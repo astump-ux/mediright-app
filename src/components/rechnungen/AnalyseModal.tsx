@@ -1,7 +1,8 @@
 'use client'
 
+import type { KasseRechnungGruppe, KasseAnalyseResult } from '@/lib/goae-analyzer'
+
 const navy = '#0f172a'
-const navyMid = '#1e293b'
 const mint = '#10b981'
 const mintLight = '#d1fae5'
 const amber = '#f59e0b'
@@ -51,12 +52,26 @@ interface KasseAnalyse {
   ablehnungsgruende?: string[]
   widerspruchEmpfohlen?: boolean
   widerspruchBegruendung?: string
+  widerspruchErfolgswahrscheinlichkeit?: number | null
+  naechsteSchritte?: string[] | null
   zusammenfassung?: string
+}
+
+interface KassenbescheidSummary {
+  id: string
+  bescheiddatum: string | null
+  referenznummer: string | null
+  betragErstattet: number | null
+  betragAbgelehnt: number | null
+  widerspruchEmpfohlen: boolean
 }
 
 interface AnalyseModalProps {
   type: 'rechnung' | 'kasse'
   data: GoaeAnalyse | KasseAnalyse
+  kasseGruppe?: KasseRechnungGruppe | null
+  kasseAnalyseNew?: KasseAnalyseResult | null
+  kassenbescheid?: KassenbescheidSummary | null
   onClose: () => void
 }
 
@@ -78,7 +93,142 @@ function StatusBadge({ status }: { status: string }) {
   return <span style={{ background: redLight, color: '#991b1b', fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>✗ Abgelehnt</span>
 }
 
-export default function AnalyseModal({ type, data, onClose }: AnalyseModalProps) {
+// ── Kassenbescheid section inside GOÄ modal ───────────────────────────────────
+
+function KassenbescheidSection({
+  gruppe,
+  analyse,
+  bescheid,
+}: {
+  gruppe: KasseRechnungGruppe | null | undefined
+  analyse: KasseAnalyseResult | null | undefined
+  bescheid: KassenbescheidSummary | null | undefined
+}) {
+  if (!bescheid && !gruppe) return null
+
+  const erstattet = gruppe?.betragErstattet ?? bescheid?.betragErstattet ?? 0
+  const abgelehnt = gruppe?.betragAbgelehnt ?? bescheid?.betragAbgelehnt ?? 0
+  const eingereicht = gruppe?.betragEingereicht ?? 0
+  const datum = bescheid?.bescheiddatum
+    ? new Date(bescheid.bescheiddatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : null
+  const quote = eingereicht > 0 ? (erstattet / eingereicht) * 100 : null
+
+  const abgelehntePos = gruppe?.positionen?.filter(p => p.status === 'abgelehnt' || p.status === 'gekuerzt') ?? []
+  const erfolg = analyse?.widerspruchErfolgswahrscheinlichkeit ?? null
+  const schritte = analyse?.naechsteSchritte ?? null
+  const widerspruch = analyse?.widerspruchEmpfohlen ?? bescheid?.widerspruchEmpfohlen ?? false
+  const begruendung = analyse?.widerspruchBegruendung ?? null
+
+  const erfolgColor = erfolg == null ? slate : erfolg >= 70 ? '#22c55e' : erfolg >= 40 ? amber : red
+  const erfolgBg    = erfolg == null ? '#f1f5f9' : erfolg >= 70 ? mintLight : erfolg >= 40 ? amberLight : redLight
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      {/* Section header */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: navy, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span>🏥</span> Kassenbescheid zu dieser Rechnung
+        {datum && <span style={{ fontSize: 12, fontWeight: 400, color: slate }}>· {datum}</span>}
+        {bescheid?.referenznummer && <span style={{ fontSize: 11, color: slate }}>Ref. {bescheid.referenznummer}</span>}
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
+        <KpiBox label="Eingereicht" value={eingereicht > 0 ? `${eingereicht.toFixed(2)} €` : '—'} />
+        <KpiBox label="Erstattet" value={`${erstattet.toFixed(2)} €`} good={erstattet > 0} />
+        <KpiBox
+          label={quote != null ? `Abgelehnt (${quote.toFixed(0)} % Quote)` : 'Abgelehnt'}
+          value={abgelehnt > 0 ? `${abgelehnt.toFixed(2)} €` : '—'}
+          warn={abgelehnt > 0}
+        />
+      </div>
+
+      {/* Abgelehnte Positionen */}
+      {abgelehntePos.length > 0 && (
+        <div style={{ border: `1px solid #fecaca`, borderRadius: 10, overflow: 'hidden', marginBottom: 14 }}>
+          <div style={{ background: '#fff1f2', padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#991b1b' }}>
+            ❌ Abgelehnte / Gekürzte Positionen
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: '#fef2f2' }}>
+                <th style={{ padding: '6px 10px', textAlign: 'left', color: '#991b1b', fontWeight: 600 }}>Ziffer</th>
+                <th style={{ padding: '6px 10px', textAlign: 'left', color: '#991b1b', fontWeight: 600 }}>Bezeichnung</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', color: '#991b1b', fontWeight: 600 }}>Eingereicht</th>
+                <th style={{ padding: '6px 10px', textAlign: 'right', color: '#991b1b', fontWeight: 600 }}>Erstattet</th>
+                <th style={{ padding: '6px 10px', textAlign: 'center', color: '#991b1b', fontWeight: 600 }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {abgelehntePos.map((pos, i) => (
+                <tr key={i} style={{ borderTop: '1px solid #fecaca', background: i % 2 === 0 ? 'white' : '#fff5f5' }}>
+                  <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#991b1b', fontWeight: 600 }}>{pos.ziffer}</td>
+                  <td style={{ padding: '6px 10px', color: '#334155' }}>
+                    {pos.bezeichnung}
+                    {pos.ablehnungsgrund && (
+                      <div style={{ fontSize: 11, color: red, marginTop: 2, fontStyle: 'italic' }}>→ {pos.ablehnungsgrund}</div>
+                    )}
+                  </td>
+                  <td style={{ padding: '6px 10px', textAlign: 'right', color: slate }}>{pos.betragEingereicht?.toFixed(2)} €</td>
+                  <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: pos.betragErstattet > 0 ? amber : red }}>
+                    {pos.betragErstattet?.toFixed(2)} €
+                  </td>
+                  <td style={{ padding: '6px 10px', textAlign: 'center' }}><StatusBadge status={pos.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Ablehnungsgründe */}
+      {(analyse?.ablehnungsgruende ?? []).length > 0 && (
+        <div style={{ background: '#fef2f2', borderRadius: 10, padding: '10px 14px', marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#991b1b', marginBottom: 6 }}>Ablehnungsgründe der Kasse</div>
+          {analyse!.ablehnungsgruende!.map((g, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, fontSize: 12, color: '#475569', marginBottom: 4 }}>
+              <span style={{ color: red }}>•</span><span>{g}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Widerspruchsanalyse */}
+      {widerspruch && (
+        <div style={{ background: amberLight, border: `1px solid ${amber}`, borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13 }}>⚡ Widerspruch empfohlen</div>
+            {erfolg != null && (
+              <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: erfolgBg, color: erfolgColor }}>
+                {erfolg} % Erfolg
+              </span>
+            )}
+          </div>
+          {begruendung && (
+            <p style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6, marginBottom: schritte ? 10 : 0 }}>{begruendung}</p>
+          )}
+          {schritte && schritte.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Nächste Schritte
+              </div>
+              {schritte.map((s, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 5 }}>
+                  <span style={{ flexShrink: 0, width: 18, height: 18, borderRadius: '50%', background: amber, color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {i + 1}
+                  </span>
+                  <span style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>{s}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew, kassenbescheid, onClose }: AnalyseModalProps) {
   const isRechnung = type === 'rechnung'
   const rData = data as GoaeAnalyse
   const kData = data as KasseAnalyse
@@ -88,7 +238,7 @@ export default function AnalyseModal({ type, data, onClose }: AnalyseModalProps)
       style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div style={{ background: 'white', borderRadius: 16, width: '100%', maxWidth: 700, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.4)' }}>
+      <div style={{ background: 'white', borderRadius: 16, width: '100%', maxWidth: 720, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.4)' }}>
         {/* Header */}
         <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: isRechnung ? navy : '#1e3a5f' }}>
           <div>
@@ -131,11 +281,32 @@ export default function AnalyseModal({ type, data, onClose }: AnalyseModalProps)
             )}
           </div>
 
-          {/* Widerspruchsempfehlung (Kasse only) */}
+          {/* Widerspruchsempfehlung (Kasse modal only) */}
           {!isRechnung && kData.widerspruchEmpfohlen && (
             <div style={{ background: amberLight, border: `1px solid ${amber}`, borderRadius: 10, padding: '12px 16px', marginBottom: 20 }}>
-              <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13, marginBottom: 4 }}>⚡ Widerspruch empfohlen</div>
+              <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13, marginBottom: 4 }}>
+                ⚡ Widerspruch empfohlen
+                {kData.widerspruchErfolgswahrscheinlichkeit != null && (
+                  <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                    background: kData.widerspruchErfolgswahrscheinlichkeit >= 70 ? mintLight : kData.widerspruchErfolgswahrscheinlichkeit >= 40 ? amberLight : redLight,
+                    color: kData.widerspruchErfolgswahrscheinlichkeit >= 70 ? '#065f46' : kData.widerspruchErfolgswahrscheinlichkeit >= 40 ? '#92400e' : '#991b1b'
+                  }}>
+                    {kData.widerspruchErfolgswahrscheinlichkeit} % Erfolg
+                  </span>
+                )}
+              </div>
               <div style={{ fontSize: 13, color: '#78350f', lineHeight: 1.6 }}>{kData.widerspruchBegruendung}</div>
+              {kData.naechsteSchritte && kData.naechsteSchritte.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', textTransform: 'uppercase', marginBottom: 6 }}>Nächste Schritte</div>
+                  {kData.naechsteSchritte.map((s, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: '#78350f', marginBottom: 4 }}>
+                      <span style={{ flexShrink: 0, width: 18, height: 18, borderRadius: '50%', background: amber, color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
+                      <span style={{ lineHeight: 1.5 }}>{s}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -200,7 +371,7 @@ export default function AnalyseModal({ type, data, onClose }: AnalyseModalProps)
             </table>
           </div>
 
-          {/* Ablehnungsgründe (Kasse only) */}
+          {/* Ablehnungsgründe (Kasse modal only) */}
           {!isRechnung && (kData.ablehnungsgruende ?? []).length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: navy, marginBottom: 8 }}>Ablehnungsgründe</div>
@@ -211,6 +382,18 @@ export default function AnalyseModal({ type, data, onClose }: AnalyseModalProps)
                 </div>
               ))}
             </div>
+          )}
+
+          {/* ── Kassenbescheid section (GOÄ modal only) ── */}
+          {isRechnung && (kassenbescheid || kasseGruppe) && (
+            <>
+              <div style={{ height: 1, background: '#e2e8f0', margin: '4px 0 20px' }} />
+              <KassenbescheidSection
+                gruppe={kasseGruppe}
+                analyse={kasseAnalyseNew}
+                bescheid={kassenbescheid}
+              />
+            </>
           )}
         </div>
       </div>

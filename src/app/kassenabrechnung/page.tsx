@@ -20,6 +20,7 @@ export interface KasseBescheid {
   selbstbehalt_verbleibend: number | null
   selbstbehalt_jahresgrenze: number | null
   pdf_storage_path: string | null
+  kasse_analyse: Record<string, unknown> | null
   rechnungen: KasseRechnungGruppe[]
   vorgaenge: {
     id: string
@@ -105,6 +106,7 @@ export default async function KassenPage() {
     selbstbehalt_verbleibend:  k.selbstbehalt_verbleibend  ?? null,
     selbstbehalt_jahresgrenze: k.selbstbehalt_jahresgrenze ?? null,
     pdf_storage_path: k.pdf_storage_path,
+    kasse_analyse: k.kasse_analyse as Record<string, unknown> | null,
     rechnungen: (k.kasse_analyse?.rechnungen ?? []) as KasseRechnungGruppe[],
     vorgaenge: (vorgangByKasse.get(k.id) ?? []).map(v => ({
       id: v.id,

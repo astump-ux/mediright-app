@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import AnalyseModal from './AnalyseModal'
+import type { KasseRechnungGruppe, KasseAnalyseResult } from '@/lib/goae-analyzer'
 
 const navy = '#0f172a'
 const mint = '#10b981'
@@ -17,6 +18,15 @@ const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }
   abgelehnt: { bg: redLight, color: '#991b1b', label: 'Abgelehnt' },
   pruefen:   { bg: amberLight, color: '#92400e', label: 'Prüfen' },
   offen:     { bg: '#f1f5f9', color: slate, label: 'Offen' },
+}
+
+interface KassenbescheidSummary {
+  id: string
+  bescheiddatum: string | null
+  referenznummer: string | null
+  betragErstattet: number | null
+  betragAbgelehnt: number | null
+  widerspruchEmpfohlen: boolean
 }
 
 interface VorgangRow {
@@ -36,6 +46,9 @@ interface VorgangRow {
   hasKassePdf: boolean
   claudeAnalyse?: Record<string, unknown> | null
   kasseAnalyse?: Record<string, unknown> | null
+  kassenbescheid?: KassenbescheidSummary | null
+  kasseGruppe?: KasseRechnungGruppe | null
+  kasseAnalyseNew?: KasseAnalyseResult | null
 }
 
 async function getSignedUrl(vorgangId: string, type: 'pdf' | 'kasse-pdf'): Promise<string | null> {
@@ -73,8 +86,55 @@ function ActionBtn({ label, icon, onClick, disabled, variant = 'default' }: {
   )
 }
 
+function KassenbescheidBadge({ v }: { v: VorgangRow }) {
+  const kb = v.kassenbescheid
+  const gruppe = v.kasseGruppe
+  if (!kb) return (
+    <span style={{ fontSize: 12, color: '#94a3b8', padding: '5px 0' }}>
+      Kassenbescheid: noch ausstehend
+    </span>
+  )
+
+  // Use gruppe-level amounts if available, else bescheid totals
+  const erstattet = gruppe?.betragErstattet ?? kb.betragErstattet ?? 0
+  const abgelehnt = gruppe?.betragAbgelehnt ?? kb.betragAbgelehnt ?? 0
+  const datum = kb.bescheiddatum
+    ? new Date(kb.bescheiddatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : null
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <span style={{
+        fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 20,
+        background: mintLight, color: '#065f46',
+      }}>
+        🏥 Bescheid {datum ?? '—'}
+      </span>
+      <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>
+        ✓ {erstattet.toFixed(2).replace('.', ',')} € erstattet
+      </span>
+      {abgelehnt > 0 && (
+        <span style={{ fontSize: 12, color: red, fontWeight: 600 }}>
+          ✗ {abgelehnt.toFixed(2).replace('.', ',')} € abgelehnt
+        </span>
+      )}
+      {kb.widerspruchEmpfohlen && (
+        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberLight, color: '#92400e' }}>
+          ⚡ Widerspruch
+        </span>
+      )}
+    </div>
+  )
+}
+
 export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[] }) {
-  const [modal, setModal] = useState<{ type: 'rechnung' | 'kasse'; data: Record<string, unknown> } | null>(null)
+  const [modal, setModal] = useState<{
+    type: 'rechnung' | 'kasse'
+    data: Record<string, unknown>
+    kasseGruppe?: KasseRechnungGruppe | null
+    kasseAnalyseNew?: KasseAnalyseResult | null
+    kassenbescheid?: KassenbescheidSummary | null
+  } | null>(null)
   const [downloading, setDownloading] = useState<string>('')
 
   async function handleDownload(id: string, type: 'pdf' | 'kasse-pdf') {
@@ -102,6 +162,9 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
         <AnalyseModal
           type={modal.type}
           data={modal.data}
+          kasseGruppe={modal.kasseGruppe}
+          kasseAnalyseNew={modal.kasseAnalyseNew}
+          kassenbescheid={modal.kassenbescheid}
           onClose={() => setModal(null)}
         />
       )}
@@ -110,12 +173,13 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
         {vorgaenge.map(v => {
           const s = STATUS_STYLES[v.status] ?? STATUS_STYLES.offen
           const isDownloading = downloading.startsWith(v.id)
+          const hasKassenbescheid = !!v.kassenbescheid
 
           return (
             <div key={v.id} style={{
               background: 'white', borderRadius: 14, padding: '16px 20px',
               boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
-              borderLeft: v.flagged ? `4px solid ${red}` : `4px solid transparent`,
+              borderLeft: v.flagged ? `4px solid ${red}` : hasKassenbescheid ? `4px solid ${mint}` : `4px solid transparent`,
             }}>
               {/* Row 1: Main info */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
@@ -131,9 +195,13 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontWeight: 700, fontSize: 17, color: navy }}>{v.betrag.toFixed(2)} €</div>
-                  {v.betragErstattet != null && (
+                  {v.kasseGruppe?.betragErstattet != null ? (
+                    <div style={{ fontSize: 12, color: mint, fontWeight: 600 }}>
+                      ↳ {v.kasseGruppe.betragErstattet.toFixed(2)} € erstattet
+                    </div>
+                  ) : v.betragErstattet != null ? (
                     <div style={{ fontSize: 12, color: mint, fontWeight: 600 }}>↳ {v.betragErstattet.toFixed(2)} € erstattet</div>
-                  )}
+                  ) : null}
                   {(v.einsparpotenzial ?? 0) > 0 && (
                     <div style={{ fontSize: 12, color: amber }}>💡 {v.einsparpotenzial!.toFixed(2)} € Potenzial</div>
                   )}
@@ -149,34 +217,43 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
                 </div>
               )}
 
+              {/* Kassenbescheid info strip */}
+              <div style={{ marginBottom: 10 }}>
+                <KassenbescheidBadge v={v} />
+              </div>
+
               {/* Row 2: Status + Actions */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 10, borderTop: '1px solid #f1f5f9' }}>
-                {/* Status */}
                 <span style={{ background: s.bg, color: s.color, fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20 }}>
                   {s.label}
                 </span>
 
-                {/* Actions */}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {/* Arztrechnung */}
+                  {/* Arztrechnung PDF */}
                   <ActionBtn
                     icon="⬇" label="Rechnung PDF"
                     disabled={!v.hasPdf || isDownloading}
                     variant="mint"
                     onClick={() => handleDownload(v.id, 'pdf')}
                   />
+                  {/* GOÄ Analyse Modal — now includes kasse data */}
                   {v.claudeAnalyse && (
                     <ActionBtn
                       icon="🔬" label="GOÄ-Analyse"
                       variant="blue"
-                      onClick={() => setModal({ type: 'rechnung', data: v.claudeAnalyse! })}
+                      onClick={() => setModal({
+                        type: 'rechnung',
+                        data: v.claudeAnalyse!,
+                        kasseGruppe: v.kasseGruppe,
+                        kasseAnalyseNew: v.kasseAnalyseNew,
+                        kassenbescheid: v.kassenbescheid,
+                      })}
                     />
                   )}
 
-                  {/* Divider */}
                   <span style={{ width: 1, background: '#e2e8f0', margin: '0 4px' }} />
 
-                  {/* Kassenabrechnung */}
+                  {/* Kassenbescheid PDF */}
                   {v.hasKassePdf ? (
                     <>
                       <ActionBtn
@@ -194,9 +271,12 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
                       )}
                     </>
                   ) : (
-                    <span style={{ fontSize: 12, color: '#94a3b8', padding: '5px 0' }}>
-                      Kassenabrechnung: WhatsApp mit „KK" + PDF
-                    </span>
+                    <a
+                      href="/kassenabrechnung"
+                      style={{ fontSize: 12, color: hasKassenbescheid ? mint : '#94a3b8', padding: '5px 0', textDecoration: 'none', fontWeight: hasKassenbescheid ? 600 : 400 }}
+                    >
+                      {hasKassenbescheid ? '→ Kassenabrechnungen' : 'Kassenbescheid: ausstehend'}
+                    </a>
                   )}
                 </div>
               </div>

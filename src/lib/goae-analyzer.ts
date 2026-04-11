@@ -258,6 +258,10 @@ export interface KasseAnalyseResult {
   ablehnungsgruende: string[]
   widerspruchEmpfohlen: boolean
   widerspruchBegruendung: string | null
+  /** Estimated success probability for appeal 0–100, null if no appeal recommended */
+  widerspruchErfolgswahrscheinlichkeit: number | null
+  /** Step-by-step recommended actions for the patient */
+  naechsteSchritte: string[] | null
   zusammenfassung: string
 }
 
@@ -267,13 +271,18 @@ Analysiere den vorliegenden Erstattungsbescheid präzise und strukturiert.
 WICHTIGE REGELN:
 - Gruppiere Positionen nach Arzt/Leistungserbringer und Rechnung
 - Prüfe ob alle eingereichten Positionen erstattet wurden
-- Identifiziere Kürzungen und ihre Begründungen
-- Bewerte ob ein Widerspruch sinnvoll ist
+- Identifiziere Kürzungen und ihre Begründungen im Detail
+- Bewerte ob ein Widerspruch sinnvoll ist und schätze die Erfolgswahrscheinlichkeit realistisch ein:
+  * 70–90 %: Formale Fehler der Kasse (falsche GOÄ-Anwendung, fehlende Begründung der Ablehnung)
+  * 50–70 %: Streitige Leistungspositionen (z.B. IGeL-Abgrenzung, medizinische Notwendigkeit)
+  * 20–50 %: Vertragliche Ausschlüsse, klare Tarifbedingungen
+  * < 20 %: Eindeutige Vertragsausschlüsse oder bereits rechtskräftig entschieden
 - Erstattungsquote = betragErstattet / betragEingereicht * 100
 - Selbstbehalt: Viele PKV-Verträge haben einen jährlichen Selbstbehalt.
   Suche nach Begriffen wie "Selbstbehalt", "Eigenanteil", "Jahresselbstbehalt",
   "verbleibender Selbstbehalt", "noch verbleibend" — diese Beträge sind explizit
   auf dem Bescheid ausgewiesen und MÜSSEN extrahiert werden.
+- Nächste Schritte: Gib konkrete, handlungsorientierte Empfehlungen für den Versicherten.
 
 Gib deine Antwort AUSSCHLIESSLICH als valides JSON zurück, ohne Markdown-Formatierung.`
 
@@ -323,7 +332,13 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
   "selbstbehaltJahresgrenze": 500.00,
   "ablehnungsgruende": ["Liste aller Ablehnungsgründe als Strings"],
   "widerspruchEmpfohlen": false,
-  "widerspruchBegruendung": "Begründung oder null",
+  "widerspruchBegruendung": "Detaillierte juristische/medizinische Begründung warum Widerspruch Aussicht hat, oder null",
+  "widerspruchErfolgswahrscheinlichkeit": 65,
+  "naechsteSchritte": [
+    "Innerhalb von 4 Wochen schriftlichen Widerspruch einlegen (Frist beachten!)",
+    "Ablehnungsschreiben der Kasse vollständig anfordern (§ 192 VVG)",
+    "Ärztliche Stellungnahme zur medizinischen Notwendigkeit einholen"
+  ],
   "zusammenfassung": "Kurze Zusammenfassung (2-3 Sätze)"
 }
 
@@ -370,9 +385,11 @@ export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseRe
   const result = extractJson<KasseAnalyseResult>(rawText)
 
   // Ensure all fields exist with safe defaults (backward compat)
-  if (result.selbstbehaltAbgezogen   === undefined) result.selbstbehaltAbgezogen   = null
-  if (result.selbstbehaltVerbleibend === undefined) result.selbstbehaltVerbleibend = null
-  if (result.selbstbehaltJahresgrenze=== undefined) result.selbstbehaltJahresgrenze= null
+  if (result.selbstbehaltAbgezogen             === undefined) result.selbstbehaltAbgezogen             = null
+  if (result.selbstbehaltVerbleibend           === undefined) result.selbstbehaltVerbleibend           = null
+  if (result.selbstbehaltJahresgrenze          === undefined) result.selbstbehaltJahresgrenze          = null
+  if (result.widerspruchErfolgswahrscheinlichkeit === undefined) result.widerspruchErfolgswahrscheinlichkeit = null
+  if (result.naechsteSchritte                  === undefined) result.naechsteSchritte                  = null
 
   // Ensure rechnungen array exists (backward compat if Claude omits it)
   if (!result.rechnungen) result.rechnungen = []

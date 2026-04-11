@@ -1,6 +1,9 @@
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import RechnungenClient from '@/components/rechnungen/RechnungenClient'
+import type { KasseRechnungGruppe, KasseAnalyseResult } from '@/lib/goae-analyzer'
+
+export const dynamic = 'force-dynamic'
 
 export default async function RechnungenPage() {
   const supabase = await createServerSupabaseClient()
@@ -13,10 +16,12 @@ export default async function RechnungenPage() {
       .from('vorgaenge')
       .select(`
         id, rechnungsdatum, betrag_gesamt, betrag_erstattet, betrag_abgelehnt,
-        einsparpotenzial, status, max_faktor,
+        einsparpotenzial, status, max_faktor, arzt_name,
         flag_fehlende_begruendung, flag_faktor_ueber_schwellenwert,
         goae_positionen, claude_analyse,
         kasse_pdf_storage_path, kasse_analyse,
+        kassenabrechnung_id,
+        kassenabrechnungen ( id, bescheiddatum, referenznummer, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, kasse_analyse ),
         aerzte ( name, fachgebiet )
       `)
       .eq('user_id', user.id)
@@ -24,16 +29,39 @@ export default async function RechnungenPage() {
 
     if (data) {
       type ArztRow = { name: string; fachgebiet: string | null }
+      type KasseRow = {
+        id: string
+        bescheiddatum: string | null
+        referenznummer: string | null
+        betrag_erstattet: number | null
+        betrag_abgelehnt: number | null
+        widerspruch_empfohlen: boolean
+        kasse_analyse: Record<string, unknown> | null
+      }
+
       vorgaenge = data.map(v => {
         const arzt = (v.aerzte as unknown) as ArztRow | null
         const flagged = !!(v.flag_fehlende_begruendung || v.flag_faktor_ueber_schwellenwert)
         const goae = (v.goae_positionen as Array<{ ziffer: string }> | null) ?? []
+
+        // Kassenbescheid via FK join (new architecture)
+        const kassenabrechnung = (v.kassenabrechnungen as unknown) as KasseRow | null
+
+        // Find the matched rechnungsgruppe for THIS vorgang within the Kassenbescheid
+        let kasseGruppe: KasseRechnungGruppe | null = null
+        let kasseAnalyseNew: KasseAnalyseResult | null = null
+        if (kassenabrechnung?.kasse_analyse) {
+          const ka = kassenabrechnung.kasse_analyse as unknown as KasseAnalyseResult
+          kasseAnalyseNew = ka
+          kasseGruppe = ka.rechnungen?.find(r => r.matchedVorgangId === v.id) ?? null
+        }
+
         return {
           id: v.id,
           datum: v.rechnungsdatum
             ? new Date(v.rechnungsdatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
             : '–',
-          arzt: arzt?.name ?? 'Unbekannt',
+          arzt: arzt?.name ?? v.arzt_name ?? 'Unbekannt',
           fachrichtung: arzt?.fachgebiet ?? 'Sonstige',
           betrag: v.betrag_gesamt ?? 0,
           betragErstattet: v.betrag_erstattet ?? undefined,
@@ -47,10 +75,21 @@ export default async function RechnungenPage() {
             : undefined,
           faktor: v.max_faktor ?? undefined,
           goaZiffern: goae.slice(0, 5).map(p => `GOÄ ${p.ziffer}`),
-          hasPdf: true, // all vorgaenge have a pdf (uploaded via WhatsApp)
+          hasPdf: true,
           hasKassePdf: !!v.kasse_pdf_storage_path,
           claudeAnalyse: v.claude_analyse as Record<string, unknown> | null,
           kasseAnalyse: v.kasse_analyse as Record<string, unknown> | null,
+          // New: linked Kassenbescheid data
+          kassenbescheid: kassenabrechnung ? {
+            id: kassenabrechnung.id,
+            bescheiddatum: kassenabrechnung.bescheiddatum,
+            referenznummer: kassenabrechnung.referenznummer,
+            betragErstattet: kassenabrechnung.betrag_erstattet,
+            betragAbgelehnt: kassenabrechnung.betrag_abgelehnt,
+            widerspruchEmpfohlen: kassenabrechnung.widerspruch_empfohlen,
+          } : null,
+          kasseGruppe,
+          kasseAnalyseNew,
         }
       })
     }
@@ -79,18 +118,6 @@ export default async function RechnungenPage() {
         >
           💬 Neue Rechnung einreichen
         </a>
-      </div>
-
-      {/* Hint for Kassenabrechnung */}
-      <div style={{
-        background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10,
-        padding: '10px 16px', marginBottom: 20, fontSize: 13, color: '#1d4ed8',
-        display: 'flex', alignItems: 'center', gap: 10
-      }}>
-        <span>💡</span>
-        <span>
-          <strong>Kassenabrechnung zuordnen:</strong> Schicken Sie die AXA-Erstattungsübersicht via WhatsApp mit dem Text <code style={{ background: '#dbeafe', padding: '1px 5px', borderRadius: 4 }}>KK</code> vor dem PDF.
-        </span>
       </div>
 
       <RechnungenClient vorgaenge={vorgaenge} />
