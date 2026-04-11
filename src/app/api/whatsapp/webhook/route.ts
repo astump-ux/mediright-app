@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import twilio from 'twilio'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
@@ -122,15 +123,17 @@ export async function POST(request: NextRequest) {
     return twimlReply(`❌ Datenbankfehler. Bitte später nochmal versuchen.`)
   }
 
-  // ── 6. Trigger auto-analyze (fire-and-forget, no Claude call here) ────────
-  fetch(`https://${host}/api/analyze-auto`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-internal-secret': process.env.INTERNAL_API_SECRET!,
-    },
-    body: JSON.stringify({ vorgangId: vorgang.id, userId: profile.id, phone }),
-  }).catch(err => console.error('[webhook] analyze-auto trigger error:', err))
+  // ── 6. Trigger auto-analyze (background, keep function alive via waitUntil) ─
+  waitUntil(
+    fetch(`https://${host}/api/analyze-auto`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-secret': process.env.INTERNAL_API_SECRET!,
+      },
+      body: JSON.stringify({ vorgangId: vorgang.id, userId: profile.id, phone }),
+    }).catch(err => console.error('[webhook] analyze-auto trigger error:', err))
+  )
 
   // ── 7. Immediate confirmation to user ─────────────────────────────────────
   return twimlReply(
