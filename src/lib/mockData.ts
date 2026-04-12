@@ -14,10 +14,12 @@ export const mockDashboard: DashboardData = {
     selbstbehalt: 150,
     offeneRechnungen: 0,
   },
-  erstattungsquote: 83,
-  einsparpotenzial: 138,           // GOÄ-based (Ärzte)
-  widerspruchPotenzialKasse: 147,  // AXA appeal potential
-  prognose: 2960,
+  // Erstattungsquote = erstattet / (eingereicht - selbstbehalt) = 620/(820-150) ≈ 93%
+  erstattungsquote: 93,
+  einsparpotenzial: 138,             // GOÄ-based (Ärzte)
+  widerspruchPotenzialKasse: 147,    // = totalAbgelehntKasse
+  // Prognose: data through month 4 (April) → × 12/4
+  prognose: Math.round(1847 / 4 * 12),
   vorgaenge: [
     {
       id: "1",
@@ -145,10 +147,10 @@ export const mockDashboard: DashboardData = {
   ],
   kasse: {
     kasseName: "AXA",
-    erstattungsquote: 83,
+    erstattungsquote: 93,
     erstattungsquoteAvg: 89,
-    ablehnungsrate: [7, 8, 9, 11, 14],
-    ablehnungsrateReal: 14,
+    ablehnungsrate: [0, 18],  // 2 points: start-of-year baseline vs current month
+    ablehnungsrateReal: 18,
     stilleKuerzungTotal: 127,
     stilleKuerzungCount: 5,
     stilleKuerzungen: [

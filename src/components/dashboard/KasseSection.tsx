@@ -2,24 +2,39 @@ import type { KasseStats } from "@/types";
 import Card from "@/components/ui/Card";
 import { SectionBadge } from "@/components/ui/Badge";
 
-function MiniLineChart({ data }: { data: number[] }) {
-  const max = 20;
+function MiniLineChart({ data, rateReal }: { data: number[]; rateReal: number }) {
+  // Need at least 2 points for a meaningful line; data is guaranteed to have >= 2
+  const pts = data.length >= 2 ? data : [0, rateReal];
+  const maxVal = Math.max(...pts, 20); // at least 20 for y-axis scale
   const w = 280, h = 80;
-  const points = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * (w - 20) + 10;
-    const y = h - (v / max) * (h - 12) - 6;
+
+  const points = pts.map((v, i) => {
+    const x = pts.length > 1
+      ? (i / (pts.length - 1)) * (w - 20) + 10
+      : w / 2;
+    const y = h - (v / maxVal) * (h - 12) - 6;
     return `${x},${y}`;
   });
   const last = points[points.length - 1].split(",");
-  const avgY = h - (8 / max) * (h - 12) - 6;
+  const avgY = h - (8 / maxVal) * (h - 12) - 6;
+
+  // Build x-axis labels from number of data points
+  const monate = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+  const now = new Date();
+  const labels = pts.map((_, i) => {
+    // Walk backwards from current month
+    const offset = pts.length - 1 - i;
+    const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    return `${monate[d.getMonth()]}`;
+  });
 
   return (
     <div className="my-3">
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 80 }}>
-        {/* avg line */}
+        {/* avg benchmark line */}
         <line x1="0" y1={avgY} x2={w} y2={avgY} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="5,3" />
-        <text x={w - 2} y={avgY - 3} fontSize="8" fill="#94a3b8" textAnchor="end">Ø</text>
-        {/* area */}
+        <text x={w - 2} y={avgY - 3} fontSize="8" fill="#94a3b8" textAnchor="end">Ø 8%</text>
+        {/* area fill */}
         <polygon
           points={`${points.join(" ")} ${w - 10},${h} 10,${h}`}
           fill="rgba(239,68,68,0.08)"
@@ -34,11 +49,11 @@ function MiniLineChart({ data }: { data: number[] }) {
         })}
         {/* last value label */}
         <text x={last[0]} y={Number(last[1]) - 8} fontSize="9" fontWeight="700" fill="#b91c1c" textAnchor="middle">
-          {data[data.length - 1]}%
+          {pts[pts.length - 1]}%
         </text>
       </svg>
       <div className="flex justify-between text-[10px] text-slate-400 mt-1">
-        {["Q1 '24", "Q2 '24", "Q3 '24", "Q4 '24", "Q1 '25"].map((l) => (
+        {labels.map((l) => (
           <span key={l}>{l}</span>
         ))}
       </div>
@@ -99,19 +114,19 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
           <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
             📉 Ihre persönliche Ablehnungsrate
           </p>
-          <MiniLineChart data={stats.ablehnungsrate} />
+          <MiniLineChart data={stats.ablehnungsrate} rateReal={realRate} />
           {isAboveAvg ? (
             <div className="rounded-lg px-3 py-2.5 text-sm flex gap-2" style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b" }}>
               <span>🔺</span>
               <span>
-                <strong>Ablehnungsrate steigt:</strong> von {stats.ablehnungsrate[0]}% auf {realRate}% — doppelt so hoch wie Ø {kasseName} (8%)
+                <strong>Ablehnungsrate aktuell {realRate}%</strong> — über dem {kasseName}-Durchschnitt (Ø 8%). {stats.ablehnungsrate.length > 1 ? "Trend steigend." : ""}
               </span>
             </div>
           ) : (
             <div className="rounded-lg px-3 py-2.5 text-sm flex gap-2" style={{ background: "#f0fdf4", border: "1px solid #6ee7b7", color: "#065f46" }}>
               <span>✓</span>
               <span>
-                <strong>Ablehnungsrate:</strong> {realRate}% — im Normbereich (Ø {kasseName}: 8%)
+                <strong>Ablehnungsrate {realRate}%</strong> — im Normbereich (Ø {kasseName}: 8%)
               </span>
             </div>
           )}

@@ -50,8 +50,14 @@ function vorsorgeStatus(naechstesDatum: string | null): VorsorgeItem['status'] {
   return 'ok'
 }
 
-// AXA ActiveMe-U known preventive care benefits
-// Will be replaced by DB data once migration 009 is applied
+/**
+ * AXA ActiveMe-U Vorsorge-Leistungen (hardcoded fallback)
+ *
+ * No separate DB table is needed — these templates are matched against the
+ * user's existing vorgaenge (by Fachgebiet) to derive the last visit date
+ * and calculate when the next check-up is due.  If you ever add a
+ * "vorsorge_leistungen" table the queries below will use that instead.
+ */
 const AXA_VORSORGE_TEMPLATES = [
   { id: 'v1', name: 'Internist Jahres-Check',     icon: '❤️', fachgebiet: 'Innere Medizin',   empfIntervallMonate: 12, axaLeistung: true },
   { id: 'v2', name: 'Labor-Basisprofil',           icon: '🔬', fachgebiet: 'Labordiagnostik',  empfIntervallMonate: 12, axaLeistung: true },
@@ -141,18 +147,49 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     }
   })
 
-  // ── Build per-Arzt kassenbescheid data ────────────────────────────
-  // Map: arztName (lowercase) → { eingereicht, erstattet, abgelehnt }
+  // ── Build vorgangId → arztId map for kasse matching ──────────────
+  // We use matchedVorgangId from kasse_analyse.rechnungen to link
+  // kassenbescheid data to Arzt entries reliably (avoids name mismatches).
+  const vorgangToArzt = new Map<string, ArztRow>() // vorgangId → arzt
+  for (const v of rawVorgaenge) {
+    const arzt = (v.aerzte as unknown) as ArztRow | null
+    if (arzt?.id) vorgangToArzt.set(v.id, arzt)
+  }
+
+  // arztId → { eingereicht, erstattet, abgelehnt }
   const arztKasseMap = new Map<string, { eingereicht: number; erstattet: number; abgelehnt: number }>()
 
   for (const k of rawKasse ?? []) {
-    const ka = k.kasse_analyse as { rechnungen?: Array<{ arztName?: string; betragEingereicht?: number; betragErstattet?: number; betragAbgelehnt?: number }> } | null
+    type KasseRechnungGruppe = {
+      matchedVorgangId?: string
+      arztName?: string
+      betragEingereicht?: number
+      betragErstattet?: number
+      betragAbgelehnt?: number
+    }
+    const ka = k.kasse_analyse as { rechnungen?: KasseRechnungGruppe[] } | null
     if (!ka?.rechnungen) continue
+
     for (const gruppe of ka.rechnungen) {
-      if (!gruppe.arztName) continue
-      const key = gruppe.arztName.toLowerCase()
-      const existing = arztKasseMap.get(key) ?? { eingereicht: 0, erstattet: 0, abgelehnt: 0 }
-      arztKasseMap.set(key, {
+      // Primary: match via matchedVorgangId
+      let arztId: string | undefined
+      if (gruppe.matchedVorgangId) {
+        arztId = vorgangToArzt.get(gruppe.matchedVorgangId)?.id
+      }
+      // Fallback: fuzzy name match across all known ärzte
+      if (!arztId && gruppe.arztName) {
+        const needle = gruppe.arztName.toLowerCase()
+        for (const arzt of vorgangToArzt.values()) {
+          if (arzt.name.toLowerCase().includes(needle) || needle.includes(arzt.name.toLowerCase().split(' ').pop() ?? '')) {
+            arztId = arzt.id
+            break
+          }
+        }
+      }
+      if (!arztId) continue
+
+      const existing = arztKasseMap.get(arztId) ?? { eingereicht: 0, erstattet: 0, abgelehnt: 0 }
+      arztKasseMap.set(arztId, {
         eingereicht: existing.eingereicht + (gruppe.betragEingereicht ?? 0),
         erstattet:   existing.erstattet   + (gruppe.betragErstattet   ?? 0),
         abgelehnt:   existing.abgelehnt   + (gruppe.betragAbgelehnt   ?? 0),
@@ -184,7 +221,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       const maxFak = Math.max(...a.vorgaenge.map((v) => v.max_faktor ?? 0))
       if (maxFak > 2.3) alerts.push(`Faktor bis ${maxFak}× — §12-Begründung prüfen`)
     }
-    const kasseData = arztKasseMap.get(a.name.toLowerCase())
+    const kasseData = arztKasseMap.get(a.id)
     return {
       id: a.id,
       name: a.name,
@@ -204,21 +241,39 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 
   // ── KPI Aggregates from kassenabrechnungen ────────────────────────
   const kasseList = rawKasse ?? []
-  const totalErstattetKasse    = kasseList.reduce((s, k) => s + (k.betrag_erstattet   ?? 0), 0)
-  const totalAbgelehntKasse    = kasseList.reduce((s, k) => s + (k.betrag_abgelehnt   ?? 0), 0)
+  const totalErstattetKasse    = kasseList.reduce((s, k) => s + (k.betrag_erstattet       ?? 0), 0)
+  const totalAbgelehntKasse    = kasseList.reduce((s, k) => s + (k.betrag_abgelehnt       ?? 0), 0)
   const totalSelbstbehalt      = kasseList.reduce((s, k) => s + (k.selbstbehalt_abgezogen ?? 0), 0)
-  const totalEingereichtKasse  = kasseList.reduce((s, k) => s + (k.betrag_eingereicht  ?? 0), 0)
-  const widerspruchPotenzial   = kasseList
-    .filter(k => k.widerspruch_empfohlen)
-    .reduce((s, k) => s + (k.betrag_abgelehnt ?? 0), 0)
+  const totalEingereichtKasse  = kasseList.reduce((s, k) => s + (k.betrag_eingereicht     ?? 0), 0)
 
-  const erstattungsquote = totalEingereichtKasse > 0
-    ? Math.round((totalErstattetKasse / totalEingereichtKasse) * 100)
+  // Fix #1 — Erstattungsquote WITHOUT Selbstbehalt:
+  // Denominator = what the insurance was actually asked to decide on (= eingereicht - selbstbehalt)
+  // This gives the "pure" reimbursement rate, showing how much of the eligible amount was paid.
+  const eligibleBetrag = totalEingereichtKasse - totalSelbstbehalt
+  const erstattungsquote = eligibleBetrag > 0
+    ? Math.round((totalErstattetKasse / eligibleBetrag) * 100)
     : 0
+
+  // Fix #2 — Widerspruchspotenzial = all rejected amounts (not filtered by widerspruch_empfohlen flag)
+  // The flag is not reliably populated; the total abgelehnt is a better proxy for contestable amounts.
+  const widerspruchPotenzial = Math.round(totalAbgelehntKasse)
 
   const jahresausgaben = Math.round(rawVorgaenge.reduce((s, v) => s + (v.betrag_gesamt ?? 0), 0))
 
-  // Stille Kürzungen = positions with status 'gekuerzt' (quiet reduction, no formal rejection)
+  // Fix #3 — Jahresprognose based on last invoice date
+  // Find the latest rechnungsdatum in current year, extrapolate from Jan → that month
+  const sortedDates = rawVorgaenge
+    .filter(v => v.rechnungsdatum)
+    .map(v => v.rechnungsdatum!)
+    .sort()
+  const latestDateStr = sortedDates.at(-1)
+  const elapsedMonths = latestDateStr
+    ? new Date(latestDateStr).getMonth() + 1  // getMonth() is 0-based; Jan=1 elapsed month
+    : 1
+  const prognose = Math.round((jahresausgaben / elapsedMonths) * 12)
+  const monthsWithData = elapsedMonths
+
+  // Stille Kürzungen = positions with status 'gekuerzt' in kasse_analyse
   let stilleKuerzungTotal = 0
   let stilleKuerzungCount = 0
   const stilleKuerzungByFach = new Map<string, { betrag: number; vorgaenge: number }>()
@@ -240,11 +295,10 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       }
     }
   }
-  // Fallback: if no gekuerzt positions found, use einsparpotenzial from vorgaenge
+  // Fallback to GOÄ einsparpotenzial if no gekuerzt positions found
   const einsparpotenzial = Math.round(rawVorgaenge.reduce((s, v) => s + (v.einsparpotenzial ?? 0), 0))
   if (stilleKuerzungTotal === 0 && einsparpotenzial > 0) {
     stilleKuerzungTotal = einsparpotenzial
-    // Group by fachgebiet from vorgaenge
     const kuerzungMap = new Map<string, { betrag: number; vorgaenge: number }>()
     for (const v of rawVorgaenge) {
       if (!v.einsparpotenzial || v.einsparpotenzial <= 0) continue
@@ -276,22 +330,40 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     ? Math.round(totalAbgelehntKasse + totalSelbstbehalt)
     : Math.round(jahresausgaben)
 
-  // Prognose
-  const months = new Set(rawVorgaenge.map(v => v.rechnungsdatum?.substring(0, 7))).size || 1
-  const prognose = Math.round((jahresausgaben / months) * 12)
-
-  // Ablehnungsrate
-  const abgelehntVorgaenge = rawVorgaenge.filter(v => v.status === 'abgelehnt').length
-  const ablehnungsrateReal = rawVorgaenge.length > 0
-    ? Math.round((abgelehntVorgaenge / rawVorgaenge.length) * 100)
-    : 0
+  // Fix #5 — Ablehnungsrate: build monthly data points for current year
+  // Group kassenabrechnungen by month to show trend within the year
+  const ablehnungsrateByMonth = new Map<string, { eingereicht: number; abgelehnt: number }>()
+  for (const k of kasseList) {
+    if (!k.bescheiddatum) continue
+    const monthKey = k.bescheiddatum.substring(0, 7) // "YYYY-MM"
+    const ex = ablehnungsrateByMonth.get(monthKey) ?? { eingereicht: 0, abgelehnt: 0 }
+    ablehnungsrateByMonth.set(monthKey, {
+      eingereicht: ex.eingereicht + (k.betrag_eingereicht ?? 0),
+      abgelehnt:   ex.abgelehnt   + (k.betrag_abgelehnt   ?? 0),
+    })
+  }
+  // Convert to sorted array of rates (%)
+  const monthlyRates = Array.from(ablehnungsrateByMonth.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, { eingereicht, abgelehnt }]) =>
+      eingereicht > 0 ? Math.round((abgelehnt / eingereicht) * 100) : 0
+    )
+  // Need at least 2 points for a chart line; if only 1 real point, use [0, realRate]
+  const ablehnungsrateReal = Math.round(
+    totalEingereichtKasse > 0 ? (totalAbgelehntKasse / totalEingereichtKasse) * 100 : 0
+  )
+  const ablehnungsrate: number[] = monthlyRates.length >= 2
+    ? monthlyRates
+    : monthlyRates.length === 1
+    ? [0, monthlyRates[0]]  // start at 0, show the one real data point
+    : [0, ablehnungsrateReal] // fallback when no bescheiddatum data
 
   const kasseName = (profile as { pkv_name?: string })?.pkv_name ?? profile?.versicherung ?? 'AXA'
 
   const kasse: KasseStats = {
     erstattungsquote,
     erstattungsquoteAvg: 89,
-    ablehnungsrate: [ablehnungsrateReal],
+    ablehnungsrate,
     ablehnungsrateReal,
     stilleKuerzungTotal: Math.round(stilleKuerzungTotal),
     stilleKuerzungCount,
@@ -314,7 +386,12 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     .slice(0, 5)
 
   // ── Vorsorge ──────────────────────────────────────────────────────
-  // Try to fetch user-specific vorsorge templates from DB, fall back to AXA defaults
+  // Source: AXA_VORSORGE_TEMPLATES (hardcoded for AXA ActiveMe-U) matched
+  // against the user's actual visit history (from vorgaenge, all time).
+  // "letzteDatum" = last vorgangsdatum with matching Fachgebiet.
+  // "naechstesDatum" = letzteDatum + empfIntervallMonate.
+  // No DB table required. If a "vorsorge_leistungen" table exists, it will be
+  // used as the template source instead.
   let vorsorgeTemplates = AXA_VORSORGE_TEMPLATES
   try {
     const { data: dbTemplates } = await supabase
@@ -331,7 +408,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         axaLeistung: t.axa_leistung ?? true,
       }))
     }
-  } catch { /* table may not exist yet */ }
+  } catch { /* vorsorge_leistungen table not yet created — using hardcoded fallback */ }
 
   // Build fachgebiet → last date map from ALL vorgaenge (not just current year)
   const lastDateByFach = new Map<string, string>()
@@ -376,9 +453,9 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     eigenanteilBreakdown,
     erstattungsquote,
     einsparpotenzial,
-    widerspruchPotenzialKasse: Math.round(widerspruchPotenzial),
+    widerspruchPotenzialKasse: widerspruchPotenzial,
     prognose,
-    monthsWithData: months,
+    monthsWithData,
     vorgaenge,
     aerzte,
     kasse,
