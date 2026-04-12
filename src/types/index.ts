@@ -73,8 +73,9 @@ export interface DashboardData {
   eigenanteil: number;
   eigenanteilBreakdown: EigenanteilBreakdown;
   erstattungsquote: number;
-  einsparpotenzial: number;        // GOÄ-based (Ärzte)
-  widerspruchPotenzialKasse: number; // Kasse-based (AXA appeals)
+  einsparpotenzial: number;          // GOÄ / Arzt-side (§12 GOÄ violations, wrong codes)
+  widerspruchPotenzialKasse: number; // Kasse-side: formal appeal to insurance
+  korrekturArztPotenzial?: number;   // Arzt-side from kasse analysis (aktionstyp='korrektur_arzt')
   prognose: number;
   monthsWithData: number;
   vorgaenge: Vorgang[];

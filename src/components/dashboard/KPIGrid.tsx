@@ -7,11 +7,13 @@ function fmt(n: number) {
 export default function KPIGrid({ data }: { data: DashboardData }) {
   const year        = data.currentYear ?? new Date().getFullYear()
   const count       = data.vorgangCount ?? data.vorgaenge.length
-  const eCount      = data.einsparpotenzialCount ?? 0
-  const kasseName   = data.user.kasse || "PKV"
-  const kassePot    = data.widerspruchPotenzialKasse ?? 0
-  const arztPot     = data.einsparpotenzial ?? 0
-  const totalPot    = kassePot + arztPot
+  const eCount        = data.einsparpotenzialCount ?? 0
+  const kasseName     = data.user.kasse || "PKV"
+  const kassePot      = data.widerspruchPotenzialKasse ?? 0
+  const arztGOÄPot    = data.einsparpotenzial ?? 0
+  const arztKassePot  = data.korrekturArztPotenzial ?? 0
+  const arztPot       = Math.max(arztGOÄPot, arztKassePot)
+  const totalPot      = kassePot + arztPot
 
   // Erstattungsquote color
   const quoteColor = data.erstattungsquote >= 80 ? "#22c55e"
@@ -86,7 +88,7 @@ export default function KPIGrid({ data }: { data: DashboardData }) {
             )}
             {arztPot > 0 && (
               <div className="flex items-center justify-between text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
-                <span>🩺 Ärzte GOÄ</span>
+                <span>🩺 {arztKassePot > arztGOÄPot ? "Ärzte Korrektur" : "Ärzte GOÄ"}</span>
                 <span className="font-bold" style={{ color: "rgba(255,255,255,0.75)" }}>€ {fmt(arztPot)}</span>
               </div>
             )}

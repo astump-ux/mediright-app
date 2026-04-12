@@ -219,6 +219,13 @@ export interface KassePosition {
   betragErstattet: number
   status: 'erstattet' | 'gekuerzt' | 'abgelehnt'
   ablehnungsgrund?: string | null
+  /**
+   * Who should act on this position (only relevant for gekuerzt/abgelehnt):
+   * - "widerspruch_kasse"  → formal appeal to the insurance company
+   * - "korrektur_arzt"    → ask the doctor to correct/re-issue the invoice
+   * - null                → position is fine or no clear action
+   */
+  aktionstyp?: 'widerspruch_kasse' | 'korrektur_arzt' | null
 }
 
 /**
@@ -284,6 +291,21 @@ WICHTIGE REGELN:
   auf dem Bescheid ausgewiesen und MÜSSEN extrahiert werden.
 - Nächste Schritte: Gib konkrete, handlungsorientierte Empfehlungen für den Versicherten.
 
+AKTIONSTYP PRO POSITION (für gekürzte oder abgelehnte Positionen):
+Jede Position mit status "gekuerzt" oder "abgelehnt" MUSS ein aktionstyp-Feld erhalten:
+- "widerspruch_kasse": Die Ablehnung/Kürzung ist anfechtbar bei der Versicherung, z.B.:
+    * Falsche GOÄ-Auslegung der Kasse
+    * Fehlende oder unzureichende Begründung der Ablehnung
+    * Position ist medizinisch indiziert und tarif-konform
+    * Kasse hat gegen § 192 VVG verstoßen
+- "korrektur_arzt": Das Problem liegt in der Arztrechnung selbst, z.B.:
+    * GOÄ-Ziffer falsch angewandt oder nicht abrechenbar
+    * Faktor über 2,3× ohne §12 GOÄ-Begründung
+    * Doppelabrechnung (§ 4 GOÄ-Verstoß)
+    * Analogziffer nicht korrekt begründet
+    * Rechnung formal fehlerhaft (falsche Nummer, fehlendes Datum etc.)
+Für "erstattet"-Positionen: aktionstyp = null.
+
 Gib deine Antwort AUSSCHLIESSLICH als valides JSON zurück, ohne Markdown-Formatierung.`
 
 const DEFAULT_KASSE_USER_PROMPT = `Analysiere diesen PKV-Erstattungsbescheid vollständig.
@@ -312,7 +334,26 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
           "betragEingereicht": 10.72,
           "betragErstattet": 10.72,
           "status": "erstattet",
-          "ablehnungsgrund": null
+          "ablehnungsgrund": null,
+          "aktionstyp": null
+        },
+        {
+          "ziffer": "A3695a",
+          "bezeichnung": "Analogziffer Labor",
+          "betragEingereicht": 35.00,
+          "betragErstattet": 0.00,
+          "status": "abgelehnt",
+          "ablehnungsgrund": "Analogziffer nicht anerkannt",
+          "aktionstyp": "widerspruch_kasse"
+        },
+        {
+          "ziffer": "3",
+          "bezeichnung": "Eingehende Untersuchung",
+          "betragEingereicht": 18.65,
+          "betragErstattet": 9.33,
+          "status": "gekuerzt",
+          "ablehnungsgrund": "Faktor 3,5× ohne §12-Begründung",
+          "aktionstyp": "korrektur_arzt"
         }
       ]
     }
@@ -324,7 +365,8 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
       "betragEingereicht": 10.72,
       "betragErstattet": 10.72,
       "status": "erstattet",
-      "ablehnungsgrund": null
+      "ablehnungsgrund": null,
+      "aktionstyp": null
     }
   ],
   "selbstbehaltAbgezogen": 150.00,
@@ -351,7 +393,8 @@ WICHTIG:
   für das laufende Kalenderjahr. Null wenn nicht angegeben.
 - "selbstbehaltJahresgrenze": Der Jahres-Selbstbehalt-Gesamtbetrag laut Vertrag.
   Null wenn nicht angegeben.
-- Status-Werte für positionen: "erstattet" | "gekuerzt" | "abgelehnt"`
+- Status-Werte für positionen: "erstattet" | "gekuerzt" | "abgelehnt"
+- aktionstyp für gekuerzt/abgelehnt: "widerspruch_kasse" | "korrektur_arzt" (null für erstattet)`
 
 export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseResult> {
   const [systemPrompt, userPrompt, model] = await Promise.all([

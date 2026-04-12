@@ -16,8 +16,9 @@ export const mockDashboard: DashboardData = {
   },
   // Erstattungsquote = erstattet / (eingereicht - selbstbehalt) = 620/(820-150) ≈ 93%
   erstattungsquote: 93,
-  einsparpotenzial: 138,             // GOÄ-based (Ärzte)
-  widerspruchPotenzialKasse: 147,    // = totalAbgelehntKasse
+  einsparpotenzial: 63,              // GOÄ §12 Ärzte (rein GOÄ-basiert)
+  widerspruchPotenzialKasse: 74,     // Positionen aktionstyp=widerspruch_kasse (Labor-Ablehnung)
+  korrekturArztPotenzial: 63,        // Positionen aktionstyp=korrektur_arzt (Faktor-Kürzung Arzt)
   // Prognose: data through month 4 (April) → × 12/4
   prognose: Math.round(1847 / 4 * 12),
   vorgaenge: [

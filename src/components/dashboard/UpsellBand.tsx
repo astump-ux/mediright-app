@@ -5,15 +5,18 @@ function fmt(n: number) {
 }
 
 export default function UpsellBand({ data }: { data: DashboardData }) {
-  const kassePot = data.widerspruchPotenzialKasse ?? 0
-  const arztPot  = data.einsparpotenzial ?? 0
+  const kassePot  = data.widerspruchPotenzialKasse ?? 0
+  const arztGOÄPot = data.einsparpotenzial ?? 0
+  const arztKassePot = data.korrekturArztPotenzial ?? 0
+  // Arzt-side = GOÄ potential OR kasse-derived correction potential (whichever is higher / available)
+  const arztPot  = Math.max(arztGOÄPot, arztKassePot)
   const totalPot = kassePot + arztPot
   const kasseName = data.user.kasse || "PKV"
   const eCount   = data.einsparpotenzialCount ?? 0
 
   const items = [
     kassePot > 0 && `Widerspruchsbrief gegen ${kasseName}-Ablehnung`,
-    arztPot  > 0 && `§12 GOÄ-Beanstandung an Ihren Arzt`,
+    arztPot  > 0 && (arztKassePot > arztGOÄPot ? `Korrektur-/Änderungsbitte an Arzt/Labor` : `§12 GOÄ-Beanstandung an Ihren Arzt`),
     "Automatische Fristenüberwachung (Verjährung 3 Jahre)",
     "Vollständige Benchmark-Daten unbegrenzt",
   ].filter(Boolean) as string[];
@@ -52,7 +55,7 @@ export default function UpsellBand({ data }: { data: DashboardData }) {
             {arztPot > 0 && (
               <div className="rounded-xl px-4 py-2.5" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)" }}>
                 <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>
-                  🩺 Ärzte GOÄ
+                  🩺 {arztKassePot > arztGOÄPot ? "Ärzte Korrektur" : "Ärzte GOÄ"}
                 </div>
                 <div className="font-bold text-lg italic" style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "rgba(255,255,255,0.8)" }}>
                   € {fmt(arztPot)}

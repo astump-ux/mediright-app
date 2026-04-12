@@ -47,9 +47,11 @@ export default async function DashboardPage() {
           fontFamily: "'DM Serif Display', Georgia, serif",
           color: "var(--navy)"
         }}>
-          {isDemo ? 'Ihr Gesundheitsüberblick' : `Hallo, ${data.user.name.split(' ')[0]}`}{' '}
-          <span style={{ color: "var(--mint-dark)" }}>{currentYear}</span>
+          {isDemo ? 'Ihr Gesundheitsüberblick' : `Hallo, ${data.user.name}`}
         </h1>
+        <p className="text-sm mt-0.5" style={{ color: "var(--mint-dark)", fontWeight: 600 }}>
+          Gesundheitsüberblick {currentYear}
+        </p>
       </div>
 
       {/* No real data yet: show empty state below KPIs */}

@@ -106,9 +106,11 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   if (!rawVorgaenge || rawVorgaenge.length === 0) return null
 
   // Fetch kassenabrechnungen for current year (source of truth for insurance metrics)
+  // Includes the new split columns betrag_widerspruch_kasse + betrag_korrektur_arzt
+  // (added in migration 009; defaults to 0 if not yet populated)
   const { data: rawKasse } = await supabase
     .from('kassenabrechnungen')
-    .select('id, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, selbstbehalt_abgezogen, bescheiddatum, widerspruch_empfohlen, kasse_analyse')
+    .select('id, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, selbstbehalt_abgezogen, bescheiddatum, widerspruch_empfohlen, kasse_analyse, betrag_widerspruch_kasse, betrag_korrektur_arzt')
     .eq('user_id', user.id)
     .gte('bescheiddatum', yearStart)
     .lte('bescheiddatum', yearEnd)
@@ -254,9 +256,14 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     ? Math.round((totalErstattetKasse / eligibleBetrag) * 100)
     : 0
 
-  // Fix #2 — Widerspruchspotenzial = all rejected amounts (not filtered by widerspruch_empfohlen flag)
-  // The flag is not reliably populated; the total abgelehnt is a better proxy for contestable amounts.
-  const widerspruchPotenzial = Math.round(totalAbgelehntKasse)
+  // Fix #2 — Widerspruchspotenzial from new split columns (migration 009)
+  // betrag_widerspruch_kasse = positions where AXA appeal is recommended (aktionstyp='widerspruch_kasse')
+  // betrag_korrektur_arzt    = positions where doctor correction is needed (aktionstyp='korrektur_arzt')
+  // Fallback: if new columns are zero (rows predating migration 009), use totalAbgelehntKasse
+  const totalWiderspruchKasse = kasseList.reduce((s, k) => s + ((k as { betrag_widerspruch_kasse?: number }).betrag_widerspruch_kasse ?? 0), 0)
+  const totalKorrekturArzt    = kasseList.reduce((s, k) => s + ((k as { betrag_korrektur_arzt?: number }).betrag_korrektur_arzt    ?? 0), 0)
+  const widerspruchPotenzial  = totalWiderspruchKasse > 0 ? Math.round(totalWiderspruchKasse) : Math.round(totalAbgelehntKasse)
+  const korrekturArztPotenzial = Math.round(totalKorrekturArzt)
 
   const jahresausgaben = Math.round(rawVorgaenge.reduce((s, v) => s + (v.betrag_gesamt ?? 0), 0))
 
@@ -315,6 +322,8 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     .slice(0, 5)
 
   const einsparpotenzialCount = rawVorgaenge.filter(v => (v.einsparpotenzial ?? 0) > 0).length
+  // GOÄ-based einsparpotenzial (Arzt-side) — add korrekturArztPotenzial from kasse if GOÄ is 0
+  const einsparpotenzialArzt = einsparpotenzial > 0 ? einsparpotenzial : korrekturArztPotenzial
 
   // Eigenanteil breakdown
   const offeneRechnungen = jahresausgaben - totalEingereichtKasse > 0
@@ -386,20 +395,20 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     .slice(0, 5)
 
   // ── Vorsorge ──────────────────────────────────────────────────────
-  // Source: AXA_VORSORGE_TEMPLATES (hardcoded for AXA ActiveMe-U) matched
-  // against the user's actual visit history (from vorgaenge, all time).
-  // "letzteDatum" = last vorgangsdatum with matching Fachgebiet.
-  // "naechstesDatum" = letzteDatum + empfIntervallMonate.
-  // No DB table required. If a "vorsorge_leistungen" table exists, it will be
-  // used as the template source instead.
+  // Priority order:
+  //   1. user_vorsorge_config (per-user, seeded by /api/vorsorge/init)
+  //   2. AXA_VORSORGE_TEMPLATES (hardcoded fallback for AXA ActiveMe-U)
+  //
+  // If user_vorsorge_config has no entries yet, trigger async seeding so
+  // the next dashboard load will have proper data.
   let vorsorgeTemplates = AXA_VORSORGE_TEMPLATES
   try {
-    const { data: dbTemplates } = await supabase
-      .from('vorsorge_leistungen')
-      .select('*')
-      .or(`tarif_name.eq.${((profile as { pkv_tarif?: string })?.pkv_tarif ?? 'AXA_ACTIVEME_U').toUpperCase().replace(/ /g, '_')},tarif_name.eq.AXA_ACTIVEME_U`)
-    if (dbTemplates && dbTemplates.length > 0) {
-      vorsorgeTemplates = dbTemplates.map(t => ({
+    const { data: userConfig, count } = await supabase
+      .from('user_vorsorge_config')
+      .select('id, name, icon, fachgebiet, empf_intervall_monate, axa_leistung', { count: 'exact' })
+      .eq('user_id', user.id)
+    if (userConfig && userConfig.length > 0) {
+      vorsorgeTemplates = userConfig.map(t => ({
         id: t.id,
         name: t.name,
         icon: t.icon,
@@ -407,8 +416,16 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         empfIntervallMonate: t.empf_intervall_monate,
         axaLeistung: t.axa_leistung ?? true,
       }))
+    } else if (count === 0) {
+      // No config yet — trigger background seeding (fire-and-forget, no await)
+      // The next dashboard load will pick up the seeded data
+      fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://mediright-app.vercel.app'}/api/vorsorge/init`, {
+        method: 'POST',
+        headers: { 'Cookie': `sb-access-token=placeholder` }, // auth handled server-side
+        body: JSON.stringify({}),
+      }).catch(() => {/* ignore */})
     }
-  } catch { /* vorsorge_leistungen table not yet created — using hardcoded fallback */ }
+  } catch { /* user_vorsorge_config table not yet created (pre-migration 010) */ }
 
   // Build fachgebiet → last date map from ALL vorgaenge (not just current year)
   const lastDateByFach = new Map<string, string>()
@@ -452,8 +469,9 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     eigenanteil,
     eigenanteilBreakdown,
     erstattungsquote,
-    einsparpotenzial,
+    einsparpotenzial: einsparpotenzialArzt,
     widerspruchPotenzialKasse: widerspruchPotenzial,
+    korrekturArztPotenzial,
     prognose,
     monthsWithData,
     vorgaenge,

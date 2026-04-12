@@ -228,6 +228,21 @@ async function runKassePipeline(
   const analyse = await analyzeKassePdf(pdfBuffer)
   console.log('[analyze-auto] Kasse done, rechnungen:', analyse.rechnungen?.length ?? 0)
 
+  // ── Compute split Einsparpotenzial from aktionstyp per position ─────────────
+  // Iterate all positions across all rechnungen to sum up by who should act.
+  let betragWiderspruchKasse = 0
+  let betragKorrekturArzt    = 0
+  for (const gruppe of analyse.rechnungen ?? []) {
+    for (const pos of gruppe.positionen ?? []) {
+      const kuerzung = (pos.betragEingereicht ?? 0) - (pos.betragErstattet ?? 0)
+      if (kuerzung <= 0) continue
+      if (pos.aktionstyp === 'widerspruch_kasse') betragWiderspruchKasse += kuerzung
+      else if (pos.aktionstyp === 'korrektur_arzt') betragKorrekturArzt += kuerzung
+      else if (pos.status === 'abgelehnt') betragWiderspruchKasse += kuerzung  // fallback
+      else if (pos.status === 'gekuerzt')  betragKorrekturArzt    += kuerzung  // fallback
+    }
+  }
+
   // ── Create kassenabrechnungen record ───────────────────────────────────────
   const { data: kasseRecord, error: kasseErr } = await supabaseAdmin
     .from('kassenabrechnungen')
@@ -237,13 +252,15 @@ async function runKassePipeline(
       kasse_analyse: analyse,
       bescheiddatum: analyse.bescheiddatum,
       referenznummer: analyse.referenznummer,
-      betrag_eingereicht: analyse.betragEingereicht ?? 0,
+      betrag_eingereicht:        analyse.betragEingereicht ?? 0,
       betrag_erstattet:          analyse.betragErstattet ?? 0,
       betrag_abgelehnt:          analyse.betragAbgelehnt ?? 0,
       widerspruch_empfohlen:     analyse.widerspruchEmpfohlen ?? false,
       selbstbehalt_abgezogen:    analyse.selbstbehaltAbgezogen   ?? null,
       selbstbehalt_verbleibend:  analyse.selbstbehaltVerbleibend ?? null,
       selbstbehalt_jahresgrenze: analyse.selbstbehaltJahresgrenze ?? null,
+      betrag_widerspruch_kasse:  Math.round(betragWiderspruchKasse * 100) / 100,
+      betrag_korrektur_arzt:     Math.round(betragKorrekturArzt    * 100) / 100,
     })
     .select('id')
     .single()
@@ -291,8 +308,11 @@ async function runKassePipeline(
         : null,
       ``,
       analyse.zusammenfassung,
-      analyse.widerspruchEmpfohlen
-        ? `\n⚡ *Widerspruch empfohlen!*\n${analyse.widerspruchBegruendung ?? ''}`
+      analyse.widerspruchEmpfohlen && betragWiderspruchKasse > 0
+        ? `\n⚡ *Widerspruch bei AXA empfohlen:* ${betragWiderspruchKasse.toFixed(2)} €\n${analyse.widerspruchBegruendung ?? ''}`
+        : null,
+      betragKorrekturArzt > 0
+        ? `📝 *Korrektur bei Arzt/Labor prüfen:* ${betragKorrekturArzt.toFixed(2)} €`
         : null,
       ``,
       `📊 https://mediright-app.vercel.app/kassenabrechnung`,
