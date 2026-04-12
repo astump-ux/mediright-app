@@ -55,6 +55,56 @@ function FaktorChart({ verlauf }: { verlauf: { datum: string; faktor: number }[]
   );
 }
 
+function KasseBescheidMini({ arzt }: { arzt: Arzt }) {
+  const eingereicht = arzt.eingereichtBeiKasse ?? 0
+  const erstattet   = arzt.erstattetVonKasse ?? 0
+  const abgelehnt   = arzt.abgelehntVonKasse ?? 0
+  if (eingereicht === 0) return null
+  const quote = eingereicht > 0 ? Math.round((erstattet / eingereicht) * 100) : 0
+
+  return (
+    <div className="mt-3 mb-4 rounded-xl overflow-hidden border border-slate-100">
+      <div className="text-[10px] font-bold uppercase tracking-wider px-3 py-2 bg-slate-50 text-slate-400">
+        🛡️ Kassenbescheid
+      </div>
+      <div className="grid grid-cols-3 divide-x divide-slate-100">
+        <div className="px-3 py-2.5 text-center">
+          <div className="text-[10px] text-slate-400 mb-0.5">Eingereicht</div>
+          <div className="font-bold text-sm" style={{ color: "var(--navy)" }}>
+            € {eingereicht.toLocaleString("de-DE", { maximumFractionDigits: 0 })}
+          </div>
+        </div>
+        <div className="px-3 py-2.5 text-center">
+          <div className="text-[10px] text-slate-400 mb-0.5">Erstattet</div>
+          <div className="font-bold text-sm" style={{ color: "#059669" }}>
+            € {erstattet.toLocaleString("de-DE", { maximumFractionDigits: 0 })}
+          </div>
+        </div>
+        <div className="px-3 py-2.5 text-center">
+          <div className="text-[10px] text-slate-400 mb-0.5">Abgelehnt</div>
+          <div className="font-bold text-sm" style={{ color: abgelehnt > 0 ? "#b91c1c" : "#64748b" }}>
+            {abgelehnt > 0 ? `€ ${abgelehnt.toLocaleString("de-DE", { maximumFractionDigits: 0 })}` : "—"}
+          </div>
+        </div>
+      </div>
+      <div className="px-3 py-2 bg-slate-50 flex items-center gap-2">
+        <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${quote}%`,
+              background: quote >= 80 ? "#22c55e" : quote >= 60 ? "#f59e0b" : "#ef4444"
+            }}
+          />
+        </div>
+        <span className="text-[10px] font-bold" style={{ color: quote >= 80 ? "#059669" : quote >= 60 ? "#92400e" : "#b91c1c" }}>
+          {quote}% erstattet
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function ArztCard({ arzt }: { arzt: Arzt }) {
   const variant = arzt.flagged ? "flagged" : "ok";
   return (
@@ -83,9 +133,11 @@ function ArztCard({ arzt }: { arzt: Arzt }) {
                 ✓ Unauffällig
               </span>
             )}
-            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-              Ø Faktor {arzt.avgFaktor}×
-            </span>
+            {arzt.avgFaktor > 0 && (
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                Ø Faktor {arzt.avgFaktor}×
+              </span>
+            )}
           </div>
         </div>
         <div className="text-right flex-shrink-0">
@@ -100,6 +152,9 @@ function ArztCard({ arzt }: { arzt: Arzt }) {
           </div>
         </div>
       </div>
+
+      {/* Kassenbescheid mini-panel */}
+      <KasseBescheidMini arzt={arzt} />
 
       {/* Faktor chart */}
       {arzt.faktorVerlauf.length > 0 && <FaktorChart verlauf={arzt.faktorVerlauf} />}

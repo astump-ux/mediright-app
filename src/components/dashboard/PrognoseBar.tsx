@@ -1,6 +1,9 @@
 import type { DashboardData } from "@/types";
 
 export default function PrognoseBar({ data }: { data: DashboardData }) {
+  const year = data.currentYear ?? new Date().getFullYear()
+  const months = data.monthsWithData ?? 0
+
   return (
     <div
       className="rounded-2xl px-6 py-4 mb-7 flex items-center justify-between gap-4 flex-wrap"
@@ -18,9 +21,11 @@ export default function PrognoseBar({ data }: { data: DashboardData }) {
           📈
         </div>
         <div>
-          <p className="font-semibold text-white text-sm">Jahresprognose 2025</p>
+          <p className="font-semibold text-white text-sm">Jahresprognose {year}</p>
           <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.6)" }}>
-            Auf Basis Ihrer bisherigen 4 Monate: bis Dezember voraussichtlich
+            {months > 0
+              ? `Auf Basis Ihrer bisherigen ${months} Monat${months !== 1 ? "e" : ""}: bis Dezember voraussichtlich`
+              : "Auf Basis Ihrer bisherigen Daten: bis Dezember voraussichtlich"}
           </p>
         </div>
       </div>
@@ -32,7 +37,7 @@ export default function PrognoseBar({ data }: { data: DashboardData }) {
           € {data.prognose.toLocaleString("de-DE")}
         </div>
         <div className="text-[10px] mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>
-          Gesamtausgaben bis Dez. 2025
+          Gesamtausgaben bis Dez. {year}
         </div>
       </div>
     </div>

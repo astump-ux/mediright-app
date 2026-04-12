@@ -9,75 +9,95 @@ export default function KPIGrid({ data }: { data: DashboardData }) {
   const count       = data.vorgangCount ?? data.vorgaenge.length
   const eCount      = data.einsparpotenzialCount ?? 0
   const kasseName   = data.user.kasse || "PKV"
+  const kassePot    = data.widerspruchPotenzialKasse ?? 0
+  const arztPot     = data.einsparpotenzial ?? 0
+  const totalPot    = kassePot + arztPot
 
   // Erstattungsquote color
   const quoteColor = data.erstattungsquote >= 80 ? "#22c55e"
     : data.erstattungsquote >= 60 ? "#f59e0b"
     : "#ef4444"
 
-  const cards = [
-    {
-      label: `Gesundheitsausgaben ${year}`,
-      value: `€ ${fmt(data.jahresausgaben)}`,
-      sub: `${count} abgerechnete Vorgang${count !== 1 ? '‍e' : ''}`,
-      dark: false,
-    },
-    {
-      label: "Ihr Eigenanteil netto",
-      value: `€ ${fmt(data.eigenanteil)}`,
-      sub: "Abgelehnte Leistungen + Selbstbehalt",
-      dark: false,
-    },
-    {
-      label: `Erstattungsquote ${kasseName}`,
-      value: `${data.erstattungsquote} %`,
-      sub: data.erstattungsquote === 0
-        ? "Noch kein Kassenbescheid eingereicht"
-        : `von eingereichten Leistungen erstattet`,
-      accent: data.erstattungsquote > 0 ? quoteColor : undefined,
-      dark: false,
-    },
-    {
-      label: "Einsparpotenzial identifiziert",
-      value: `€ ${fmt(data.einsparpotenzial)}`,
-      sub: eCount > 0
-        ? `in ${eCount} anfechtbare${eCount !== 1 ? 'n' : 'r'} Position${eCount !== 1 ? 'en' : ''}`
-        : "Keine Auffälligkeiten",
-      dark: true,
-    },
-  ];
-
   return (
-    <div className="grid grid-cols-4 gap-4 mb-5">
-      {cards.map((c, i) => (
-        <div
-          key={i}
-          className="rounded-2xl shadow-sm px-6 py-5"
-          style={{ background: c.dark ? "var(--navy)" : "white" }}
-        >
-          <div
-            className="text-[11px] font-bold uppercase tracking-widest mb-2"
-            style={{ color: c.dark ? "rgba(255,255,255,0.45)" : "#94a3b8" }}
-          >
-            {c.label}
+    <div className="mb-5">
+      {/* Row 1: 4 KPI cards */}
+      <div className="grid grid-cols-4 gap-4 mb-4">
+        {/* Gesundheitsausgaben */}
+        <div className="rounded-2xl shadow-sm px-6 py-5" style={{ background: "white" }}>
+          <div className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: "#94a3b8" }}>
+            Gesundheitsausgaben {year}
           </div>
-          <div
-            className="text-3xl mb-1 leading-none italic"
-            style={{
-              fontFamily: "'DM Serif Display', Georgia, serif",
-              color: c.dark ? "var(--mint)" : (c.accent ?? "var(--navy)"),
-            }}
-          >
-            {c.value}
+          <div className="text-3xl mb-1 leading-none italic"
+            style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "var(--navy)" }}>
+            € {fmt(data.jahresausgaben)}
           </div>
-          <div
-            className="text-xs"
-            style={{ color: c.dark ? "rgba(255,255,255,0.4)" : "#64748b" }}
-          >
-            {c.sub}
+          <div className="text-xs" style={{ color: "#64748b" }}>
+            {count} abgerechnete Vorgang{count !== 1 ? "‍e" : ""}
           </div>
         </div>
-      ))}
+
+        {/* Eigenanteil */}
+        <div className="rounded-2xl shadow-sm px-6 py-5" style={{ background: "white" }}>
+          <div className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: "#94a3b8" }}>
+            Ihr Eigenanteil netto
+          </div>
+          <div className="text-3xl mb-1 leading-none italic"
+            style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "var(--navy)" }}>
+            € {fmt(data.eigenanteil)}
+          </div>
+          <div className="text-xs" style={{ color: "#64748b" }}>
+            Abgelehnte Leistungen + Selbstbehalt
+          </div>
+        </div>
+
+        {/* Erstattungsquote */}
+        <div className="rounded-2xl shadow-sm px-6 py-5" style={{ background: "white" }}>
+          <div className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: "#94a3b8" }}>
+            Erstattungsquote {kasseName}
+          </div>
+          <div className="text-3xl mb-1 leading-none italic"
+            style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: data.erstattungsquote > 0 ? quoteColor : "var(--navy)" }}>
+            {data.erstattungsquote} %
+          </div>
+          <div className="text-xs" style={{ color: "#64748b" }}>
+            {data.erstattungsquote === 0
+              ? "Noch kein Kassenbescheid eingereicht"
+              : "von eingereichten Leistungen erstattet"}
+          </div>
+        </div>
+
+        {/* Einsparpotenzial — dark card, split */}
+        <div className="rounded-2xl shadow-sm px-6 py-5" style={{ background: "var(--navy)" }}>
+          <div className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.45)" }}>
+            Einsparpotenzial identifiziert
+          </div>
+          <div className="text-3xl mb-2 leading-none italic"
+            style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "var(--mint)" }}>
+            € {fmt(totalPot)}
+          </div>
+
+          {/* Split breakdown */}
+          <div className="flex flex-col gap-1">
+            {kassePot > 0 && (
+              <div className="flex items-center justify-between text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
+                <span>🛡️ {kasseName} Widerspruch</span>
+                <span className="font-bold" style={{ color: "var(--mint)" }}>€ {fmt(kassePot)}</span>
+              </div>
+            )}
+            {arztPot > 0 && (
+              <div className="flex items-center justify-between text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
+                <span>🩺 Ärzte GOÄ</span>
+                <span className="font-bold" style={{ color: "rgba(255,255,255,0.75)" }}>€ {fmt(arztPot)}</span>
+              </div>
+            )}
+            {totalPot === 0 && eCount === 0 && (
+              <div className="text-[11px]" style={{ color: "rgba(255,255,255,0.4)" }}>
+                Keine Auffälligkeiten
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

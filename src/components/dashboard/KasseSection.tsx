@@ -76,13 +76,21 @@ function BenchmarkRow({ label, sub, youPct, avgPct, youVal, avgVal, variant }: {
 }
 
 export default function KasseSection({ stats }: { stats: KasseStats }) {
+  const kasseName = stats.kasseName || "PKV"
+  const realRate  = stats.ablehnungsrateReal ?? (stats.ablehnungsrate[stats.ablehnungsrate.length - 1] ?? 0)
+  const kuerzCount = stats.stilleKuerzungCount ?? 0
+  const isAboveAvg = realRate > 8
+
   return (
     <section className="mt-8">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl flex items-center gap-2.5" style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "var(--navy)" }}>
-          🛡️ Ihr Versicherer — AXA im Check
+          🛡️ Ihr Versicherer — {kasseName} im Check
         </h2>
-        <SectionBadge label="Ihre Rate unter Durchschnitt" variant="red" />
+        {isAboveAvg
+          ? <SectionBadge label="Ihre Rate über Durchschnitt" variant="red" />
+          : <SectionBadge label="Rate im Normbereich" variant="green" />
+        }
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-4">
@@ -92,16 +100,27 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
             📉 Ihre persönliche Ablehnungsrate
           </p>
           <MiniLineChart data={stats.ablehnungsrate} />
-          <div className="rounded-lg px-3 py-2.5 text-sm flex gap-2" style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b" }}>
-            <span>🔺</span>
-            <span><strong>Ablehnungsrate steigt:</strong> von 7% (Q1 2024) auf 14% (Q1 2025) — doppelt so hoch wie Ø AXA (8%)</span>
-          </div>
+          {isAboveAvg ? (
+            <div className="rounded-lg px-3 py-2.5 text-sm flex gap-2" style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b" }}>
+              <span>🔺</span>
+              <span>
+                <strong>Ablehnungsrate steigt:</strong> von {stats.ablehnungsrate[0]}% auf {realRate}% — doppelt so hoch wie Ø {kasseName} (8%)
+              </span>
+            </div>
+          ) : (
+            <div className="rounded-lg px-3 py-2.5 text-sm flex gap-2" style={{ background: "#f0fdf4", border: "1px solid #6ee7b7", color: "#065f46" }}>
+              <span>✓</span>
+              <span>
+                <strong>Ablehnungsrate:</strong> {realRate}% — im Normbereich (Ø {kasseName}: 8%)
+              </span>
+            </div>
+          )}
         </Card>
 
         {/* Benchmark */}
         <Card>
           <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-            👥 Sie im Vergleich — AXA ActiveMed Kunden
+            👥 Sie im Vergleich — {kasseName} Kunden
           </p>
           <p className="text-[10px] text-slate-400 mb-3">Basierend auf anonymisierten Daten ähnlicher Tarife (n=847)</p>
           <BenchmarkRow
@@ -111,7 +130,7 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
             avgPct={stats.erstattungsquoteAvg}
             youVal={`${stats.erstattungsquote}%`}
             avgVal={`Ø ${stats.erstattungsquoteAvg}%`}
-            variant="warn"
+            variant={stats.erstattungsquote >= stats.erstattungsquoteAvg ? "good" : "warn"}
           />
           <BenchmarkRow
             label="Internist — Ø Faktor Ihrer Rechnungen"
@@ -135,29 +154,31 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
       </div>
 
       {/* Stille Kürzung */}
-      <Card>
-        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-4">
-          👁️ Die stille Kürzung — kumuliert seit Ihrer ersten Einreichung
-        </p>
-        <div className="flex items-center gap-4 p-4 rounded-xl mb-4" style={{ background: "#fffbeb", border: "1px solid #fde68a" }}>
-          <div className="text-3xl italic flex-shrink-0" style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "#b45309" }}>
-            € {stats.stilleKuerzungTotal}
-          </div>
-          <div className="text-sm" style={{ color: "#92400e" }}>
-            <strong className="block text-[#7c2d12] mb-0.5">Weniger erstattet als gesetzlich zulässig — ohne formelle Ablehnung</strong>
-            AXA hat in 5 Vorgängen Erstattungen still gekürzt: nicht abgelehnt, aber weniger überwiesen als lt. Tarif zulässig.
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          {stats.stilleKuerzungen.map((k) => (
-            <div key={k.kategorie} className="bg-slate-50 rounded-xl p-3.5">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">{k.kategorie}</div>
-              <div className="text-xl italic" style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "#b45309" }}>€ {k.betrag}</div>
-              <div className="text-xs text-slate-500">{k.vorgaenge} Vorgänge</div>
+      {stats.stilleKuerzungTotal > 0 && (
+        <Card>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-4">
+            👁️ Die stille Kürzung — kumuliert seit Ihrer ersten Einreichung
+          </p>
+          <div className="flex items-center gap-4 p-4 rounded-xl mb-4" style={{ background: "#fffbeb", border: "1px solid #fde68a" }}>
+            <div className="text-3xl italic flex-shrink-0" style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "#b45309" }}>
+              € {stats.stilleKuerzungTotal}
             </div>
-          ))}
-        </div>
-      </Card>
+            <div className="text-sm" style={{ color: "#92400e" }}>
+              <strong className="block text-[#7c2d12] mb-0.5">Weniger erstattet als gesetzlich zulässig — ohne formelle Ablehnung</strong>
+              {kasseName} hat in {kuerzCount > 0 ? kuerzCount : stats.stilleKuerzungen.reduce((s, k) => s + k.vorgaenge, 0)} Vorgängen Erstattungen still gekürzt: nicht abgelehnt, aber weniger überwiesen als lt. Tarif zulässig.
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {stats.stilleKuerzungen.map((k) => (
+              <div key={k.kategorie} className="bg-slate-50 rounded-xl p-3.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">{k.kategorie}</div>
+                <div className="text-xl italic" style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "#b45309" }}>€ {k.betrag}</div>
+                <div className="text-xs text-slate-500">{k.vorgaenge} Vorgänge</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </section>
   );
 }

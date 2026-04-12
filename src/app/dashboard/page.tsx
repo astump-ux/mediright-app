@@ -17,7 +17,6 @@ export default async function DashboardPage() {
   if (!data) data = mockDashboard;
 
   const currentYear = new Date().getFullYear();
-  const vorgangCount = data.vorgaenge.length;
 
   return (
     <>
@@ -43,7 +42,7 @@ export default async function DashboardPage() {
       )}
 
       {/* Greeting */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div className="mb-6">
         <h1 className="text-2xl" style={{
           fontFamily: "'DM Serif Display', Georgia, serif",
           color: "var(--navy)"
@@ -51,27 +50,6 @@ export default async function DashboardPage() {
           {isDemo ? 'Ihr Gesundheitsüberblick' : `Hallo, ${data.user.name.split(' ')[0]}`}{' '}
           <span style={{ color: "var(--mint-dark)" }}>{currentYear}</span>
         </h1>
-        <div className="flex gap-2 flex-wrap">
-          {[
-            { label: `🛡️ ${data.user.kasse} ${data.user.tarif}`.trim() },
-            {
-              label: `📅 ${vorgangCount} Vorgang${vorgangCount !== 1 ? '‍ · ‍Analyse aktiv' : ''}`,
-              blue: true
-            },
-            { label: "💬 Via WhatsApp" },
-          ].map((p) => (
-            <span
-              key={p.label}
-              className="text-xs font-medium px-3.5 py-1.5 rounded-full shadow-sm"
-              style={{
-                background: p.blue ? "var(--blue-light)" : "white",
-                color: p.blue ? "#1d4ed8" : "#475569",
-              }}
-            >
-              {p.label}
-            </span>
-          ))}
-        </div>
       </div>
 
       {/* No real data yet: show empty state below KPIs */}
@@ -84,7 +62,7 @@ export default async function DashboardPage() {
           <ArztSection aerzte={data.aerzte} />
           <KasseSection stats={data.kasse} />
           <GesundheitsSection data={data} />
-          <ChronikSection vorgaenge={data.vorgaenge} />
+          <ChronikSection data={data} />
           <VorgaengeTable vorgaenge={data.vorgaenge} limit={4} />
           <UpsellBand data={data} />
         </>
