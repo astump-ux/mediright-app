@@ -55,7 +55,7 @@ export async function PATCH(request: NextRequest) {
   for (const key of ALLOWED_FIELDS) {
     if (key in body) updates[key] = body[key]
   }
-  updates.updated_at = new Date().toISOString()
+  // Note: updated_at is NOT added here — profiles table may not have this column
 
   const { error } = await getSupabaseAdmin()
     .from('profiles')

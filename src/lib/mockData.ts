@@ -2,6 +2,9 @@ import type { DashboardData } from "@/types";
 
 export const mockDashboard: DashboardData = {
   user: { name: "Alexander S.", tarif: "ActiveMed-U", kasse: "AXA" },
+  currentYear: new Date().getFullYear(),
+  vorgangCount: 7,
+  einsparpotenzialCount: 3,
   jahresausgaben: 1847,
   eigenanteil: 312,
   erstattungsquote: 83,

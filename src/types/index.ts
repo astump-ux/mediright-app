@@ -37,6 +37,9 @@ export interface KasseStats {
 
 export interface DashboardData {
   user: { name: string; tarif: string; kasse: string };
+  currentYear: number;
+  vorgangCount: number;
+  einsparpotenzialCount: number;
   jahresausgaben: number;
   eigenanteil: number;
   erstattungsquote: number;

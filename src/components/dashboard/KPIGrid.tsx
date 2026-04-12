@@ -5,33 +5,44 @@ function fmt(n: number) {
 }
 
 export default function KPIGrid({ data }: { data: DashboardData }) {
+  const year        = data.currentYear ?? new Date().getFullYear()
+  const count       = data.vorgangCount ?? data.vorgaenge.length
+  const eCount      = data.einsparpotenzialCount ?? 0
+  const kasseName   = data.user.kasse || "PKV"
+
+  // Erstattungsquote color
+  const quoteColor = data.erstattungsquote >= 80 ? "#22c55e"
+    : data.erstattungsquote >= 60 ? "#f59e0b"
+    : "#ef4444"
+
   const cards = [
     {
-      label: "Gesundheitsausgaben 2025",
+      label: `Gesundheitsausgaben ${year}`,
       value: `€ ${fmt(data.jahresausgaben)}`,
-      sub: "7 abgerechnete Vorgänge",
-      delta: "+18% vs. 2024",
-      deltaUp: true,
+      sub: `${count} abgerechnete Vorgang${count !== 1 ? '‍e' : ''}`,
       dark: false,
     },
     {
       label: "Ihr Eigenanteil netto",
       value: `€ ${fmt(data.eigenanteil)}`,
-      sub: "nach Erstattung & Selbstbehalt",
+      sub: "Abgelehnte Leistungen + Selbstbehalt",
       dark: false,
     },
     {
-      label: "Erstattungsquote AXA",
+      label: `Erstattungsquote ${kasseName}`,
       value: `${data.erstattungsquote} %`,
-      sub: `Ø andere AXA-Kunden: ${data.kasse.erstattungsquoteAvg}%`,
-      delta: `−${data.kasse.erstattungsquoteAvg - data.erstattungsquote} Pkte`,
-      deltaUp: true,
+      sub: data.erstattungsquote === 0
+        ? "Noch kein Kassenbescheid eingereicht"
+        : `von eingereichten Leistungen erstattet`,
+      accent: data.erstattungsquote > 0 ? quoteColor : undefined,
       dark: false,
     },
     {
       label: "Einsparpotenzial identifiziert",
       value: `€ ${fmt(data.einsparpotenzial)}`,
-      sub: "in 3 anfechtbaren Positionen",
+      sub: eCount > 0
+        ? `in ${eCount} anfechtbare${eCount !== 1 ? 'n' : 'r'} Position${eCount !== 1 ? 'en' : ''}`
+        : "Keine Auffälligkeiten",
       dark: true,
     },
   ];
@@ -54,24 +65,16 @@ export default function KPIGrid({ data }: { data: DashboardData }) {
             className="text-3xl mb-1 leading-none italic"
             style={{
               fontFamily: "'DM Serif Display', Georgia, serif",
-              color: c.dark ? "var(--mint)" : "var(--navy)",
+              color: c.dark ? "var(--mint)" : (c.accent ?? "var(--navy)"),
             }}
           >
             {c.value}
           </div>
           <div
-            className="text-xs flex items-center gap-2 flex-wrap"
+            className="text-xs"
             style={{ color: c.dark ? "rgba(255,255,255,0.4)" : "#64748b" }}
           >
             {c.sub}
-            {c.delta && (
-              <span
-                className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                style={{ background: "#fee2e2", color: "#b91c1c" }}
-              >
-                {c.delta}
-              </span>
-            )}
           </div>
         </div>
       ))}

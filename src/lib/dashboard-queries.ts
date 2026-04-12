@@ -42,14 +42,18 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  // Fetch profile
+  const currentYear = new Date().getFullYear()
+  const yearStart = `${currentYear}-01-01`
+  const yearEnd   = `${currentYear}-12-31`
+
+  // Fetch profile (try pkv_name first, fall back to versicherung for backward compat)
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, versicherung, tarif')
+    .select('full_name, versicherung, tarif, pkv_name, pkv_tarif')
     .eq('id', user.id)
     .single()
 
-  // Fetch all vorgaenge with aerzte join
+  // Fetch vorgaenge for current year with aerzte join
   const { data: rawVorgaenge, error } = await supabase
     .from('vorgaenge')
     .select(`
@@ -64,16 +68,27 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       flag_fehlende_begruendung,
       einsparpotenzial,
       status,
+      kassenabrechnung_id,
       goae_positionen,
       aerzte ( id, name, fachgebiet )
     `)
     .eq('user_id', user.id)
+    .gte('rechnungsdatum', yearStart)
+    .lte('rechnungsdatum', yearEnd)
     .order('rechnungsdatum', { ascending: false })
 
   if (error) {
     console.error('getDashboardData error:', error)
     return null
   }
+
+  // Fetch kassenabrechnungen for current year (source of truth for erstattet/abgelehnt)
+  const { data: rawKasse } = await supabase
+    .from('kassenabrechnungen')
+    .select('betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, selbstbehalt_abgezogen, bescheiddatum')
+    .eq('user_id', user.id)
+    .gte('bescheiddatum', yearStart)
+    .lte('bescheiddatum', yearEnd)
 
   // Return null if user has no data → triggers empty state
   if (!rawVorgaenge || rawVorgaenge.length === 0) return null
@@ -159,17 +174,33 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   }).sort((a, b) => b.gesamtBetrag - a.gesamtBetrag)
 
   // ── KPI Aggregates ────────────────────────────────────────────────
+  // Jahresausgaben: sum of all Arztrechnung amounts (vorgaenge with real arzt data)
   const jahresausgaben = Math.round(
     rawVorgaenge.reduce((s, v) => s + (v.betrag_gesamt ?? 0), 0)
   )
-  const totalErstattet = rawVorgaenge.reduce((s, v) => s + (v.betrag_erstattet ?? 0), 0)
-  const erstattungsquote = jahresausgaben > 0
-    ? Math.round((totalErstattet / jahresausgaben) * 100)
+
+  // Use kassenabrechnungen as source of truth for insurance metrics
+  const kasseList = rawKasse ?? []
+  const totalErstattetKasse = kasseList.reduce((s, k) => s + (k.betrag_erstattet ?? 0), 0)
+  const totalAbgelehntKasse = kasseList.reduce((s, k) => s + (k.betrag_abgelehnt ?? 0), 0)
+  const totalSelbstbehalt   = kasseList.reduce((s, k) => s + (k.selbstbehalt_abgezogen ?? 0), 0)
+  const totalEingereichtKasse = kasseList.reduce((s, k) => s + (k.betrag_eingereicht ?? 0), 0)
+
+  // Erstattungsquote from actual kassenabrechnungen (not vorgaenge.betrag_erstattet which may be 0)
+  const erstattungsquote = totalEingereichtKasse > 0
+    ? Math.round((totalErstattetKasse / totalEingereichtKasse) * 100)
     : 0
-  const eigenanteil = Math.round(jahresausgaben - totalErstattet)
+
+  // Eigenanteil = what user actually paid: rejected + deductible + invoices not yet submitted
+  const eigenanteil = kasseList.length > 0
+    ? Math.round(totalAbgelehntKasse + totalSelbstbehalt)
+    : Math.round(jahresausgaben)   // no kassenbescheide yet → full amount is eigenanteil
+
   const einsparpotenzial = Math.round(
     rawVorgaenge.reduce((s, v) => s + (v.einsparpotenzial ?? 0), 0)
   )
+  // Count vorgaenge with einsparpotenzial > 0 (for KPI display)
+  const einsparpotenzialCount = rawVorgaenge.filter(v => (v.einsparpotenzial ?? 0) > 0).length
 
   // Prognose = linear extrapolation based on months with data
   const months = new Set(rawVorgaenge.map((v) => v.rechnungsdatum?.substring(0, 7))).size || 1
@@ -226,9 +257,12 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   return {
     user: {
       name: profile?.full_name ?? user.email?.split('@')[0] ?? 'Nutzer',
-      tarif: profile?.tarif ?? '–',
-      kasse: profile?.versicherung ?? 'AXA',
+      tarif: (profile as { pkv_tarif?: string })?.pkv_tarif ?? profile?.tarif ?? '–',
+      kasse: (profile as { pkv_name?: string })?.pkv_name ?? profile?.versicherung ?? 'AXA',
     },
+    currentYear,
+    vorgangCount: vorgaenge.length,
+    einsparpotenzialCount,
     jahresausgaben,
     eigenanteil,
     erstattungsquote,
