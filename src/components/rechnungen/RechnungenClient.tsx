@@ -119,8 +119,8 @@ function KassenbescheidBadge({ v }: { v: VorgangRow }) {
         </span>
       )}
       {kb.widerspruchEmpfohlen && (
-        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberLight, color: '#92400e' }}>
-          ⚡ Widerspruch
+        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberLight, color: '#92400e' }} title="KI-Empfehlung — kein laufender Widerspruch">
+          ⚡ Widerspruch empfohlen
         </span>
       )}
     </div>
@@ -239,7 +239,7 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
                   {/* GOÄ Analyse Modal — now includes kasse data */}
                   {v.claudeAnalyse && (
                     <ActionBtn
-                      icon="🔬" label="GOÄ-Analyse"
+                      icon="💡" label="Sparpotenzial ansehen"
                       variant="blue"
                       onClick={() => setModal({
                         type: 'rechnung',
@@ -264,7 +264,7 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
                       />
                       {v.kasseAnalyse && (
                         <ActionBtn
-                          icon="🏥" label="Kassen-Analyse"
+                          icon="🏥" label="Analyse ansehen"
                           variant="amber"
                           onClick={() => setModal({ type: 'kasse', data: v.kasseAnalyse! })}
                         />
