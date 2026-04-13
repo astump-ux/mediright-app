@@ -171,6 +171,7 @@ interface KassenbescheidSummary {
   betragErstattet: number | null
   betragAbgelehnt: number | null
   widerspruchEmpfohlen: boolean
+  widerspruchStatus?: string
 }
 
 interface AnalyseModalProps {
@@ -180,6 +181,196 @@ interface AnalyseModalProps {
   kasseAnalyseNew?: KasseAnalyseResult | null
   kassenbescheid?: KassenbescheidSummary | null
   onClose: () => void
+}
+
+// ── Widerspruch letter generator (template-based, no API call) ───────────────
+
+const AXA_PLACEHOLDER_ADDRESS = `AXA Krankenversicherung AG\nKundenservice / Leistungsabteilung\n[⚠️ PLATZHALTER: Adresse aus Ihrem Versicherungsschein eintragen!]`
+
+function generateWiderspruchLetter({
+  bescheid,
+  gruppe,
+  analyse,
+}: {
+  bescheid: KassenbescheidSummary | null | undefined
+  gruppe: KasseRechnungGruppe | null | undefined
+  analyse: KasseAnalyseResult | null | undefined
+}): { betreff: string; body: string } {
+  const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const bescheidDatum = bescheid?.bescheiddatum
+    ? new Date(bescheid.bescheiddatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : '[Datum des Bescheids]'
+  const ref = bescheid?.referenznummer ?? '[Ihre Referenznummer]'
+  const abgelehnt = (gruppe?.betragAbgelehnt ?? bescheid?.betragAbgelehnt ?? 0).toFixed(2)
+  const abgelehntePos = gruppe?.positionen?.filter(p => p.status === 'abgelehnt' || p.status === 'gekuerzt') ?? []
+  const begruendung = analyse?.widerspruchBegruendung ?? 'Die Ablehnung ist aus meiner Sicht nicht gerechtfertigt.'
+
+  const posListe = abgelehntePos.length > 0
+    ? abgelehntePos.map(p =>
+        `  - Ziffer ${p.ziffer} "${p.bezeichnung}": ${p.betragEingereicht?.toFixed(2) ?? '?'} € eingereicht, ${p.betragErstattet?.toFixed(2) ?? '0.00'} € erstattet`
+      ).join('\n')
+    : '  [Bitte betroffene Positionen eintragen]'
+
+  const betreff = `Widerspruch gegen Leistungsbescheid vom ${bescheidDatum} – Referenz ${ref}`
+
+  const body = `${AXA_PLACEHOLDER_ADDRESS}
+
+${heute}
+
+Betreff: ${betreff}
+Versicherungsnehmer: [Ihr vollständiger Name]
+Versicherungsnummer: [Ihre Versicherungsnummer]
+
+Sehr geehrte Damen und Herren,
+
+hiermit lege ich fristgerecht Widerspruch gegen Ihren Leistungsbescheid vom ${bescheidDatum} (Referenz: ${ref}) ein.
+
+Sie haben Leistungen in Höhe von ${abgelehnt} € nicht erstattet. Ich bin der Auffassung, dass diese Entscheidung nicht gerechtfertigt ist und bitte Sie um eine erneute Prüfung.
+
+Betroffene Positionen:
+${posListe}
+
+Begründung meines Widerspruchs:
+${begruendung}
+
+Ich bitte Sie daher, Ihre Entscheidung zu überprüfen und mir den abgelehnten Betrag von ${abgelehnt} € vollständig zu erstatten. Sollten Sie an Ihrer Entscheidung festhalten, behalte ich mir vor, die Ombudsstelle für private Kranken- und Pflegeversicherung (www.pkv-ombudsmann.de) einzuschalten.
+
+Bitte bestätigen Sie den Eingang dieses Widerspruchs schriftlich.
+
+Mit freundlichen Grüßen,
+
+[Ihr vollständiger Name]
+[Ihre Adresse]
+[Telefon / E-Mail]`
+
+  return { betreff, body }
+}
+
+function WiderspruchPanel({
+  bescheid,
+  gruppe,
+  analyse,
+  kassenbescheidId,
+}: {
+  bescheid: KassenbescheidSummary | null | undefined
+  gruppe: KasseRechnungGruppe | null | undefined
+  analyse: KasseAnalyseResult | null | undefined
+  kassenbescheidId?: string
+}) {
+  const [copied, setCopied] = useState(false)
+  const [markedSent, setMarkedSent] = useState(false)
+  const [sending, setSending] = useState(false)
+
+  const { betreff, body } = generateWiderspruchLetter({ bescheid, gruppe, analyse })
+  const [editableBetreff, setEditableBetreff] = useState(betreff)
+  const [editableBody, setEditableBody] = useState(body)
+
+  const fullText = `Betreff: ${editableBetreff}\n\n${editableBody}`
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(fullText)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2500)
+  }
+
+  function handleMailto() {
+    const subject = encodeURIComponent(editableBetreff)
+    // mailto body has ~2000 char limit in most clients — use copy for full text
+    const shortBody = encodeURIComponent(editableBody.slice(0, 1800) + (editableBody.length > 1800 ? '\n\n[Bitte vollständigen Text aus Zwischenablage einfügen]' : ''))
+    window.location.href = `mailto:?subject=${subject}&body=${shortBody}`
+  }
+
+  async function handleMarkSent() {
+    if (!kassenbescheidId) { setMarkedSent(true); return }
+    setSending(true)
+    try {
+      await fetch(`/api/kassenabrechnungen/${kassenbescheidId}/widerspruch-status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'gesendet' }),
+      })
+      setMarkedSent(true)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16, border: `2px solid ${amber}`, borderRadius: 12, overflow: 'hidden' }}>
+      {/* Panel header */}
+      <div style={{ background: amberLight, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontWeight: 700, color: '#92400e', fontSize: 14 }}>📧 Widerspruch per E-Mail</span>
+        <span style={{ fontSize: 12, color: '#92400e' }}>— Text bearbeiten, dann kopieren oder direkt öffnen</span>
+      </div>
+
+      {/* AXA address placeholder warning */}
+      <div style={{ background: '#fff7ed', borderBottom: '1px solid #fed7aa', padding: '8px 16px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+        <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+        <div style={{ fontSize: 12, color: '#9a3412' }}>
+          <strong>Empfängeradresse ist ein PLATZHALTER.</strong> Bitte die korrekte AXA-Adresse aus Ihrem Versicherungsschein eintragen, bevor Sie die E-Mail absenden. Ebenso: Name, Versicherungsnummer und Adresse ergänzen.
+        </div>
+      </div>
+
+      <div style={{ padding: 16, background: 'white' }}>
+        {/* Betreff */}
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>
+            Betreff
+          </label>
+          <input
+            value={editableBetreff}
+            onChange={e => setEditableBetreff(e.target.value)}
+            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, color: navy, boxSizing: 'border-box' }}
+          />
+        </div>
+
+        {/* Body */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>
+            E-Mail-Text
+          </label>
+          <textarea
+            value={editableBody}
+            onChange={e => setEditableBody(e.target.value)}
+            rows={16}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }}
+          />
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            onClick={handleCopy}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? mintLight : '#f1f5f9', color: copied ? '#065f46' : navy, transition: 'all 0.2s' }}
+          >
+            {copied ? '✓ Kopiert!' : '📋 Text kopieren'}
+          </button>
+          <button
+            onClick={handleMailto}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#eff6ff', color: '#1d4ed8' }}
+          >
+            📧 E-Mail-Programm öffnen
+          </button>
+          <div style={{ flex: 1 }} />
+          {!markedSent ? (
+            <button
+              onClick={handleMarkSent}
+              disabled={sending}
+              style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 8, border: `1px solid ${amber}`, cursor: sending ? 'wait' : 'pointer', background: 'white', color: '#92400e' }}
+            >
+              {sending ? '…' : '✓ Als gesendet markieren'}
+            </button>
+          ) : (
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46', padding: '7px 0' }}>✓ Als gesendet markiert</span>
+          )}
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>
+          💡 Tipp: "Text kopieren" → in E-Mail-Programm einfügen. "E-Mail-Programm öffnen" funktioniert nur bei kurzen Texten vollständig.
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ── Kassenbescheid section (used inside GOÄ modal as Section 2) ──────────────
@@ -193,6 +384,8 @@ function KassenbescheidSection({
   analyse: KasseAnalyseResult | null | undefined
   bescheid: KassenbescheidSummary | null | undefined
 }) {
+  const [showWiderspruchPanel, setShowWiderspruchPanel] = useState(false)
+
   const erstattet = gruppe?.betragErstattet ?? bescheid?.betragErstattet ?? 0
   const abgelehnt = gruppe?.betragAbgelehnt ?? bescheid?.betragAbgelehnt ?? 0
   const eingereicht = gruppe?.betragEingereicht ?? 0
@@ -279,14 +472,15 @@ function KassenbescheidSection({
           {/* Split CTAs based on aktionstyp */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {hasKasseAction && (
-              <a href="/widersprueche"
-                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: '#b45309', color: 'white', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                ⚖️ Widerspruch bei AXA einlegen
-              </a>
+              <button
+                onClick={() => setShowWiderspruchPanel(v => !v)}
+                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: showWiderspruchPanel ? '#92400e' : '#b45309', color: 'white', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                {showWiderspruchPanel ? '▲ E-Mail schließen' : '⚖️ Widerspruch per E-Mail erstellen'}
+              </button>
             )}
             {hasArztAction && (
               <span
-                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: 'white', color: '#92400e', border: `1px solid ${amber}`, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'default' }}
+                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: 'white', color: '#92400e', border: `1px solid ${amber}`, display: 'inline-flex', alignItems: 'center', gap: 5 }}
                 title="Kontaktieren Sie Ihre Arztpraxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung für den abgerechneten Faktor.">
                 🩺 Arzt um Korrektur bitten
               </span>
@@ -294,7 +488,7 @@ function KassenbescheidSection({
           </div>
           {hasArztAction && (
             <div style={{ fontSize: 11, color: '#92400e', marginTop: 8, fontStyle: 'italic' }}>
-              💬 "Arzt um Korrektur bitten": Kontaktieren Sie die Praxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung für den erhöhten Faktor (§12 Abs. 3 GOÄ).
+              💬 Kontaktieren Sie die Praxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung für den erhöhten Faktor (§12 Abs. 3 GOÄ).
             </div>
           )}
         </div>
@@ -305,6 +499,16 @@ function KassenbescheidSection({
         <div style={{ background: mintLight, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#065f46' }}>
           ✓ Kasse hat alles erstattet — kein Handlungsbedarf.
         </div>
+      )}
+
+      {/* Widerspruch E-Mail Panel — inline, toggled by CTA */}
+      {showWiderspruchPanel && (
+        <WiderspruchPanel
+          bescheid={bescheid}
+          gruppe={gruppe}
+          analyse={analyse}
+          kassenbescheidId={bescheid?.id}
+        />
       )}
     </div>
   )

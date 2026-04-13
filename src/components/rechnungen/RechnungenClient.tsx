@@ -27,6 +27,7 @@ interface KassenbescheidSummary {
   betragErstattet: number | null
   betragAbgelehnt: number | null
   widerspruchEmpfohlen: boolean
+  widerspruchStatus?: string
 }
 
 interface VorgangRow {
@@ -118,11 +119,20 @@ function KassenbescheidBadge({ v }: { v: VorgangRow }) {
           ✗ {abgelehnt.toFixed(2).replace('.', ',')} € abgelehnt
         </span>
       )}
-      {kb.widerspruchEmpfohlen && abgelehnt > 0 && (
-        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberLight, color: '#92400e' }} title="KI-Empfehlung — kein laufender Widerspruch">
+      {kb.widerspruchStatus === 'gesendet' || kb.widerspruchStatus === 'beantwortet' ? (
+        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#eff6ff', color: '#1d4ed8' }}
+          title={kb.widerspruchStatus === 'beantwortet' ? 'AXA hat geantwortet' : 'Widerspruch wurde abgesendet'}>
+          📨 Widerspruch {kb.widerspruchStatus === 'beantwortet' ? 'beantwortet' : 'aktiv'}
+        </span>
+      ) : kb.widerspruchStatus === 'erfolgreich' ? (
+        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: mintLight, color: '#065f46' }}>
+          ✓ Widerspruch erfolgreich
+        </span>
+      ) : kb.widerspruchEmpfohlen && abgelehnt > 0 ? (
+        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberLight, color: '#92400e' }} title="KI-Empfehlung — noch nicht eingereicht">
           ⚡ Widerspruch empfohlen
         </span>
-      )}
+      ) : null}
     </div>
   )
 }
