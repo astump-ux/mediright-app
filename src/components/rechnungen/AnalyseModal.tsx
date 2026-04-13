@@ -288,9 +288,11 @@ function WiderspruchPanel({
 
   function handleMailto() {
     const subject = encodeURIComponent(editableBetreff)
-    // mailto body has ~2000 char limit in most clients — use Gmail button for full text
-    const shortBody = encodeURIComponent(editableBody.slice(0, 1800) + (editableBody.length > 1800 ? '\n\n[Bitte vollständigen Text aus Zwischenablage einfügen]' : ''))
-    window.location.href = `mailto:?subject=${subject}&body=${shortBody}`
+    const body = encodeURIComponent(editableBody)
+    // Use anchor click instead of location.href to avoid navigating away from the page
+    const a = document.createElement('a')
+    a.href = `mailto:?subject=${subject}&body=${body}`
+    a.click()
   }
 
   async function handleMarkSent() {
@@ -401,7 +403,7 @@ function WiderspruchPanel({
         </div>
 
         <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>
-          💡 Gmail &amp; Outlook öffnen den vollständigen Text direkt im Browser. "Anderes Programm" öffnet Apple Mail, Thunderbird etc. via mailto (nur bei kurzen Texten vollständig).
+          💡 Alle Buttons übergeben Betreff &amp; vollständigen Text automatisch. Gmail &amp; Outlook öffnen im Browser, "Anderes Programm" öffnet den auf deinem Rechner konfigurierten Mail-Client.
         </div>
       </div>
     </div>
