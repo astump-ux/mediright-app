@@ -2,6 +2,7 @@ import { getDashboardData } from "@/lib/dashboard-queries";
 import { mockDashboard } from "@/lib/mockData";
 import KPIGrid from "@/components/dashboard/KPIGrid";
 import PrognoseBar from "@/components/dashboard/PrognoseBar";
+import SavingsProgress from "@/components/dashboard/SavingsProgress";
 import ArztSection from "@/components/dashboard/ArztSection";
 import KasseSection from "@/components/dashboard/KasseSection";
 import GesundheitsSection from "@/components/dashboard/GesundheitsSection";
@@ -9,6 +10,7 @@ import ChronikSection from "@/components/dashboard/ChronikSection";
 import VorgaengeTable from "@/components/dashboard/VorgaengeTable";
 import UpsellBand from "@/components/dashboard/UpsellBand";
 import EmptyState from "@/components/dashboard/EmptyState";
+import FloatingCTA from "@/components/dashboard/FloatingCTA";
 
 export default async function DashboardPage() {
   // Fetch real data; fall back to mock in development if not logged in
@@ -60,6 +62,7 @@ export default async function DashboardPage() {
       ) : (
         <>
           <KPIGrid data={data} />
+          <SavingsProgress data={data} />
           <PrognoseBar data={data} />
           <ArztSection aerzte={data.aerzte} />
           <KasseSection stats={data.kasse} />
@@ -69,6 +72,7 @@ export default async function DashboardPage() {
           <UpsellBand data={data} />
         </>
       )}
+      <FloatingCTA />
     </>
   );
 }

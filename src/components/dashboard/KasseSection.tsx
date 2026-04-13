@@ -116,12 +116,48 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
           </p>
           <MiniLineChart data={stats.ablehnungsrate} rateReal={realRate} />
           {isAboveAvg ? (
-            <div className="rounded-lg px-3 py-2.5 text-sm flex gap-2" style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b" }}>
-              <span>🔺</span>
-              <span>
-                <strong>Ablehnungsrate aktuell {realRate}%</strong> — über dem {kasseName}-Durchschnitt (Ø 8%). {stats.ablehnungsrate.length > 1 ? "Trend steigend." : ""}
-              </span>
-            </div>
+            <>
+              <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b" }}>
+                <div className="flex gap-2 mb-2">
+                  <span>🔺</span>
+                  <span>
+                    <strong>Ablehnungsrate aktuell {realRate}%</strong> — über dem {kasseName}-Durchschnitt (Ø 8%). {stats.ablehnungsrate.length > 1 ? "Trend steigend." : ""}
+                  </span>
+                </div>
+                {/* Guided solution path */}
+                <div className="rounded-md p-2.5 mt-1" style={{ background: "rgba(255,255,255,0.6)", border: "1px solid #fca5a5" }}>
+                  <p className="text-[11px] font-bold mb-2" style={{ color: "#7c2d12" }}>Was können Sie tun?</p>
+                  <div className="flex flex-col gap-1.5">
+                    {[
+                      "Prüfen Sie die konkreten Ablehnungsgründe unter 'Kassenabrechnung'",
+                      "Nutzen Sie unsere Widerspruchs-Vorlage für anfechtbare Positionen",
+                      "Frist beachten: Widerspruch innerhalb von 4 Wochen nach Bescheid",
+                    ].map((step, i) => (
+                      <div key={i} className="flex items-start gap-2 text-[11px]" style={{ color: "#7c2d12" }}>
+                        <span className="font-bold flex-shrink-0">{i + 1}.</span>
+                        <span>{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 mt-2.5">
+                    <a
+                      href="/kassenabrechnung"
+                      className="text-[11px] font-bold px-3 py-1.5 rounded-full"
+                      style={{ background: "#b91c1c", color: "white" }}
+                    >
+                      Ablehnungen prüfen →
+                    </a>
+                    <a
+                      href="/widersprueche"
+                      className="text-[11px] font-bold px-3 py-1.5 rounded-full"
+                      style={{ background: "white", color: "#b91c1c", border: "1px solid #fca5a5" }}
+                    >
+                      Widerspruch erstellen
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </>
           ) : (
             <div className="rounded-lg px-3 py-2.5 text-sm flex gap-2" style={{ background: "#f0fdf4", border: "1px solid #6ee7b7", color: "#065f46" }}>
               <span>✓</span>
