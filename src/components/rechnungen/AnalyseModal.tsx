@@ -279,6 +279,13 @@ function WiderspruchPanel({
     window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${body}`, '_blank')
   }
 
+  function handleOutlook() {
+    const subject = encodeURIComponent(editableBetreff)
+    const body = encodeURIComponent(editableBody)
+    // Tries Outlook.com first; Office 365 users are also covered as both use the same deeplink format
+    window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${subject}&body=${body}`, '_blank')
+  }
+
   function handleMailto() {
     const subject = encodeURIComponent(editableBetreff)
     // mailto body has ~2000 char limit in most clients — use Gmail button for full text
@@ -362,8 +369,19 @@ function WiderspruchPanel({
             In Gmail öffnen
           </button>
           <button
+            onClick={handleOutlook}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#eff6ff', color: '#0078d4', display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+              <rect width="24" height="24" rx="3" fill="#0078d4"/>
+              <path d="M12 6C8.686 6 6 8.686 6 12s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6zm0 10.5c-2.485 0-4.5-2.015-4.5-4.5S9.515 7.5 12 7.5s4.5 2.015 4.5 4.5-2.015 4.5-4.5 4.5z" fill="white"/>
+              <path d="M19 6h-3.5v1.5H19V14l-7 3.5L5 14V7.5h3.5V6H5a1.5 1.5 0 0 0-1.5 1.5v7a1.5 1.5 0 0 0 .87 1.36l7 3.5a1.5 1.5 0 0 0 1.26 0l7-3.5A1.5 1.5 0 0 0 20.5 14.5v-7A1.5 1.5 0 0 0 19 6z" fill="white"/>
+            </svg>
+            In Outlook öffnen
+          </button>
+          <button
             onClick={handleMailto}
-            title="Öffnet Standard-E-Mail-Programm (Outlook, Apple Mail etc.)"
+            title="Apple Mail, Thunderbird etc."
             style={{ fontSize: 12, fontWeight: 500, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', cursor: 'pointer', background: 'white', color: '#64748b' }}
           >
             Anderes Programm
@@ -383,7 +401,7 @@ function WiderspruchPanel({
         </div>
 
         <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>
-          💡 "In Gmail öffnen" startet Gmail im Browser mit vollständig vorausgefülltem Text. "Anderes Programm" öffnet Outlook, Apple Mail etc. (nur bei kurzen Texten vollständig).
+          💡 Gmail &amp; Outlook öffnen den vollständigen Text direkt im Browser. "Anderes Programm" öffnet Apple Mail, Thunderbird etc. via mailto (nur bei kurzen Texten vollständig).
         </div>
       </div>
     </div>
