@@ -21,7 +21,7 @@ export default async function RechnungenPage() {
         goae_positionen, claude_analyse,
         kasse_pdf_storage_path, kasse_analyse,
         kassenabrechnung_id,
-        kassenabrechnungen ( id, bescheiddatum, referenznummer, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, widerspruch_status, kasse_analyse ),
+        kassenabrechnungen ( id, bescheiddatum, referenznummer, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, kasse_analyse ),
         aerzte ( name, fachgebiet )
       `)
       .eq('user_id', user.id)
@@ -36,7 +36,6 @@ export default async function RechnungenPage() {
         betrag_erstattet: number | null
         betrag_abgelehnt: number | null
         widerspruch_empfohlen: boolean
-        widerspruch_status: string | null
         kasse_analyse: Record<string, unknown> | null
       }
 
@@ -88,7 +87,7 @@ export default async function RechnungenPage() {
             betragErstattet: kassenabrechnung.betrag_erstattet,
             betragAbgelehnt: kassenabrechnung.betrag_abgelehnt,
             widerspruchEmpfohlen: kassenabrechnung.widerspruch_empfohlen,
-            widerspruchStatus: kassenabrechnung.widerspruch_status ?? 'keiner',
+            widerspruchStatus: 'keiner', // populated after migration 011 is applied
           } : null,
           kasseGruppe,
           kasseAnalyseNew,
