@@ -16,7 +16,7 @@ const slate = '#64748b'
 
 // ── Plain-language translations for technical Ablehnungsgründe ──────────────
 const LAIENSATZ: Array<{ match: string; erklaerung: string }> = [
-  { match: 'analogziffer',           erklaerung: 'Die Kasse behauptet, diese Leistung existiert in der offiziellen GOÄ-Tabelle nicht und darf deshalb nicht abgerechnet werden.' },
+  { match: 'analogziffer',           erklaerung: 'Diese Leistung hat in der GOÄ keinen eigenen Abrechnungscode. Der Arzt hat sie deshalb "analog" über eine ähnliche Ziffer abgerechnet. Die Kasse bestreitet hier, dass genau diese Analogziffer für die erbrachte Leistung zulässig ist — nicht dass die Leistung generell nicht existiert.' },
   { match: '§ 4 abs',               erklaerung: 'Mehrere Leistungen wurden gleichzeitig abgerechnet — laut Kasse darf nur eine davon bezahlt werden (sog. "Zielleistungsprinzip").' },
   { match: 'zielleistung',           erklaerung: 'Diese Position ist aus Sicht der Kasse in einer anderen Leistung "enthalten" und wird deshalb nicht separat erstattet.' },
   { match: 'schwellenwert',          erklaerung: 'Der abgerechnete Faktor liegt über dem Standardsatz (2,3×). Ohne schriftliche Begründung des Arztes darf die Kasse kürzen.' },
@@ -205,7 +205,10 @@ function KassenbescheidSection({
   const schritte = analyse?.naechsteSchritte ?? null
   const widerspruch = analyse?.widerspruchEmpfohlen ?? bescheid?.widerspruchEmpfohlen ?? false
   const begruendung = analyse?.widerspruchBegruendung ?? null
-  const ablehnungsgruende = analyse?.ablehnungsgruende ?? []
+
+  // Determine action type from positions: widerspruch_kasse (appeal insurance) vs korrektur_arzt (fix with doctor)
+  const hasKasseAction = abgelehntePos.some(p => (p as {aktionstyp?: string}).aktionstyp === 'widerspruch_kasse' || (p as {aktionstyp?: string}).aktionstyp == null)
+  const hasArztAction  = abgelehntePos.some(p => (p as {aktionstyp?: string}).aktionstyp === 'korrektur_arzt')
 
   const erfolgColor = erfolg == null ? slate : erfolg >= 70 ? '#22c55e' : erfolg >= 40 ? amber : red
   const erfolgBg    = erfolg == null ? '#f1f5f9' : erfolg >= 70 ? mintLight : erfolg >= 40 ? amberLight : redLight
@@ -244,35 +247,22 @@ function KassenbescheidSection({
         </div>
       )}
 
-      {/* Ablehnungsgründe with plain-language toggle */}
-      {ablehnungsgruende.length > 0 && (
-        <div style={{ background: '#fef2f2', borderRadius: 10, padding: '10px 14px', marginBottom: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#991b1b', marginBottom: 4 }}>
-            Ablehnungsgründe der Kasse
-            <span style={{ fontSize: 11, fontWeight: 400, color: slate, marginLeft: 8 }}>
-              (💬 = Erklärung in einfacher Sprache)
-            </span>
-          </div>
-          {ablehnungsgruende.map((g, i) => <AblehnungsgrundRow key={i} text={g} />)}
-        </div>
-      )}
-
       {/* Widerspruchsanalyse */}
       {widerspruch && (
         <div style={{ background: amberLight, border: `1px solid ${amber}`, borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13 }}>⚡ Widerspruch empfohlen</div>
+            <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13 }}>⚡ Handlungsempfehlung</div>
             {erfolg != null && (
               <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: erfolgBg, color: erfolgColor }}>
-                {erfolg} % Erfolg
+                {erfolg} % Erfolgsaussicht
               </span>
             )}
           </div>
           {begruendung && (
-            <p style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6, marginBottom: schritte ? 10 : 0 }}>{begruendung}</p>
+            <p style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6, marginBottom: 12 }}>{begruendung}</p>
           )}
           {schritte && schritte.length > 0 && (
-            <div>
+            <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                 Nächste Schritte
               </div>
@@ -286,12 +276,27 @@ function KassenbescheidSection({
               ))}
             </div>
           )}
-          <div style={{ marginTop: 12 }}>
-            <a href="/widersprueche"
-              style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: '#b45309', color: 'white', textDecoration: 'none', display: 'inline-block' }}>
-              Widerspruch erstellen →
-            </a>
+          {/* Split CTAs based on aktionstyp */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {hasKasseAction && (
+              <a href="/widersprueche"
+                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: '#b45309', color: 'white', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                ⚖️ Widerspruch bei AXA einlegen
+              </a>
+            )}
+            {hasArztAction && (
+              <span
+                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: 'white', color: '#92400e', border: `1px solid ${amber}`, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'default' }}
+                title="Kontaktieren Sie Ihre Arztpraxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung für den abgerechneten Faktor.">
+                🩺 Arzt um Korrektur bitten
+              </span>
+            )}
           </div>
+          {hasArztAction && (
+            <div style={{ fontSize: 11, color: '#92400e', marginTop: 8, fontStyle: 'italic' }}>
+              💬 "Arzt um Korrektur bitten": Kontaktieren Sie die Praxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung für den erhöhten Faktor (§12 Abs. 3 GOÄ).
+            </div>
+          )}
         </div>
       )}
 
@@ -594,17 +599,7 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
                 </table>
               </div>
 
-              {(kData.ablehnungsgruende ?? []).length > 0 && (
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 4 }}>
-                    Ablehnungsgründe
-                    <span style={{ fontSize: 11, fontWeight: 400, color: slate, marginLeft: 8 }}>(💬 = Erklärung in einfacher Sprache)</span>
-                  </div>
-                  <div style={{ background: '#fef2f2', borderRadius: 10, padding: '8px 14px' }}>
-                    {kData.ablehnungsgruende!.map((g, i) => <AblehnungsgrundRow key={i} text={g} />)}
-                  </div>
-                </div>
-              )}
+              {/* Ablehnungsgründe deliberately omitted — already shown inline per Position via 💬 tooltip */}
             </>
           )}
         </div>

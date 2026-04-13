@@ -16,7 +16,7 @@ const slate = '#64748b'
 const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }> = {
   erstattet: { bg: mintLight, color: '#065f46', label: 'Erstattet' },
   abgelehnt: { bg: redLight, color: '#991b1b', label: 'Abgelehnt' },
-  pruefen:   { bg: amberLight, color: '#92400e', label: 'Prüfen' },
+  pruefen:   { bg: amberLight, color: '#92400e', label: '⚡ KI-Hinweis' },
   offen:     { bg: '#f1f5f9', color: slate, label: 'Offen' },
 }
 
@@ -118,7 +118,7 @@ function KassenbescheidBadge({ v }: { v: VorgangRow }) {
           ✗ {abgelehnt.toFixed(2).replace('.', ',')} € abgelehnt
         </span>
       )}
-      {kb.widerspruchEmpfohlen && (
+      {kb.widerspruchEmpfohlen && abgelehnt > 0 && (
         <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberLight, color: '#92400e' }} title="KI-Empfehlung — kein laufender Widerspruch">
           ⚡ Widerspruch empfohlen
         </span>

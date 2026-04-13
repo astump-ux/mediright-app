@@ -3,7 +3,7 @@ import type { Status } from "@/types";
 const statusConfig: Record<Status, { label: string; bg: string; color: string }> = {
   erstattet:  { label: "Erstattet",  bg: "#d1fae5", color: "#059669" },
   abgelehnt:  { label: "Abgelehnt",  bg: "#fee2e2", color: "#b91c1c" },
-  pruefen:    { label: "Prüfen",     bg: "#fef3c7", color: "#92400e" },
+  pruefen:    { label: "⚡ KI-Hinweis", bg: "#fef3c7", color: "#92400e" },
   offen:      { label: "Offen",      bg: "#f1f5f9", color: "#475569" },
 };
 
