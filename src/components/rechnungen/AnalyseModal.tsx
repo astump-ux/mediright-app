@@ -273,9 +273,15 @@ function WiderspruchPanel({
     setTimeout(() => setCopied(false), 2500)
   }
 
+  function handleGmail() {
+    const subject = encodeURIComponent(editableBetreff)
+    const body = encodeURIComponent(editableBody)
+    window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${body}`, '_blank')
+  }
+
   function handleMailto() {
     const subject = encodeURIComponent(editableBetreff)
-    // mailto body has ~2000 char limit in most clients — use copy for full text
+    // mailto body has ~2000 char limit in most clients — use Gmail button for full text
     const shortBody = encodeURIComponent(editableBody.slice(0, 1800) + (editableBody.length > 1800 ? '\n\n[Bitte vollständigen Text aus Zwischenablage einfügen]' : ''))
     window.location.href = `mailto:?subject=${subject}&body=${shortBody}`
   }
@@ -346,10 +352,21 @@ function WiderspruchPanel({
             {copied ? '✓ Kopiert!' : '📋 Text kopieren'}
           </button>
           <button
-            onClick={handleMailto}
-            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#eff6ff', color: '#1d4ed8' }}
+            onClick={handleGmail}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#eff6ff', color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            📧 E-Mail-Programm öffnen
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+              <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z" fill="#EA4335"/>
+              <path d="M0 5.457v13.909c0 .904.732 1.636 1.636 1.636h3.819V11.73L12 16.64l6.545-4.91v9.273h3.819A1.636 1.636 0 0 0 24 19.366V5.457c0-2.023-2.309-3.178-3.927-1.964L18.545 4.64 12 9.548 5.455 4.64 3.927 3.493C2.309 2.28 0 3.434 0 5.457z" fill="#4285F4" opacity="0"/>
+            </svg>
+            In Gmail öffnen
+          </button>
+          <button
+            onClick={handleMailto}
+            title="Öffnet Standard-E-Mail-Programm (Outlook, Apple Mail etc.)"
+            style={{ fontSize: 12, fontWeight: 500, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', cursor: 'pointer', background: 'white', color: '#64748b' }}
+          >
+            Anderes Programm
           </button>
           <div style={{ flex: 1 }} />
           {!markedSent ? (
@@ -366,7 +383,7 @@ function WiderspruchPanel({
         </div>
 
         <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>
-          💡 Tipp: "Text kopieren" → in E-Mail-Programm einfügen. "E-Mail-Programm öffnen" funktioniert nur bei kurzen Texten vollständig.
+          💡 "In Gmail öffnen" startet Gmail im Browser mit vollständig vorausgefülltem Text. "Anderes Programm" öffnet Outlook, Apple Mail etc. (nur bei kurzen Texten vollständig).
         </div>
       </div>
     </div>
