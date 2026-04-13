@@ -162,6 +162,11 @@ export const mockDashboard: DashboardData = {
     totalAbgelehnt: 147,
     totalSelbstbehalt: 150,
     widerspruchPotenzial: 147,
+    fachgruppenStats: [
+      { fach: "Innere Medizin", vorgaenge: 3, eingereicht: 687, abgelehnt: 127, ablehnungsquote: 18 },
+      { fach: "Labor",          vorgaenge: 4, eingereicht: 312, abgelehnt: 74,  ablehnungsquote: 24 },
+      { fach: "Dermatologie",   vorgaenge: 2, eingereicht: 214, abgelehnt: 0,   ablehnungsquote: 0  },
+    ],
   },
   ausgabenNachFach: [
     { fach: "Innere Medizin", betrag: 687, icon: "❤️", farbe: "#fca5a5" },

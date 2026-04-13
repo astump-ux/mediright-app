@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from './supabase-server'
-import type { DashboardData, Vorgang, Arzt, KasseStats, VorsorgeItem, EigenanteilBreakdown } from '@/types'
+import type { DashboardData, Vorgang, Arzt, KasseStats, FachgruppeStats, VorsorgeItem, EigenanteilBreakdown } from '@/types'
 
 // Icons/colors for Fachgebiete
 const FACH_META: Record<string, { icon: string; farbe: string }> = {
@@ -369,6 +369,28 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 
   const kasseName = (profile as { pkv_name?: string })?.pkv_name ?? profile?.versicherung ?? 'AXA'
 
+  // ── Fachgruppen-Benchmark: group aerzte by fachrichtung, compute Ablehnungsquote ──
+  const fachMap2 = new Map<string, { vorgaenge: number; eingereicht: number; abgelehnt: number }>()
+  for (const a of aerzte) {
+    if (!a.eingereichtBeiKasse || a.eingereichtBeiKasse === 0) continue
+    const key = a.fachrichtung ?? 'Sonstige'
+    const existing = fachMap2.get(key) ?? { vorgaenge: 0, eingereicht: 0, abgelehnt: 0 }
+    fachMap2.set(key, {
+      vorgaenge:   existing.vorgaenge   + a.besuche,
+      eingereicht: existing.eingereicht + (a.eingereichtBeiKasse ?? 0),
+      abgelehnt:   existing.abgelehnt   + (a.abgelehntVonKasse   ?? 0),
+    })
+  }
+  const fachgruppenStats: FachgruppeStats[] = Array.from(fachMap2.entries())
+    .map(([fach, d]) => ({
+      fach,
+      vorgaenge:       d.vorgaenge,
+      eingereicht:     Math.round(d.eingereicht),
+      abgelehnt:       Math.round(d.abgelehnt),
+      ablehnungsquote: d.eingereicht > 0 ? Math.round((d.abgelehnt / d.eingereicht) * 100) : 0,
+    }))
+    .sort((a, b) => b.eingereicht - a.eingereicht) // highest volume first
+
   const kasse: KasseStats = {
     erstattungsquote,
     erstattungsquoteAvg: 89,
@@ -381,6 +403,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     totalSelbstbehalt: Math.round(totalSelbstbehalt),
     widerspruchPotenzial: Math.round(widerspruchPotenzial),
     kasseName,
+    fachgruppenStats,
   }
 
   // Ausgaben nach Fach

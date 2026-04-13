@@ -31,6 +31,14 @@ export interface Arzt {
   eingereichtBeiKasse?: number;
 }
 
+export interface FachgruppeStats {
+  fach: string;           // e.g. "Innere Medizin"
+  vorgaenge: number;      // number of Vorgänge in current year
+  eingereicht: number;    // € eingereicht bei Kasse
+  abgelehnt: number;      // € abgelehnt
+  ablehnungsquote: number; // % = abgelehnt/eingereicht*100
+}
+
 export interface KasseStats {
   erstattungsquote: number;
   erstattungsquoteAvg: number;
@@ -43,6 +51,7 @@ export interface KasseStats {
   totalSelbstbehalt: number;
   widerspruchPotenzial: number;
   kasseName: string;
+  fachgruppenStats: FachgruppeStats[];
 }
 
 export interface VorsorgeItem {

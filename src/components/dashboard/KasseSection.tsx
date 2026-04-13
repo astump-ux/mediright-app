@@ -2,6 +2,38 @@ import type { KasseStats } from "@/types";
 import Card from "@/components/ui/Card";
 import { SectionBadge } from "@/components/ui/Badge";
 
+// PKV industry average Ablehnungsquote by Fachgebiet (%)
+// Source: anonymised PKV market estimates — used as benchmark only
+const FACH_BENCHMARK: Record<string, number> = {
+  'allgemeinmedizin':   5,
+  'hausarzt':           5,
+  'innere medizin':     8,
+  'internist':          8,
+  'labor':             15,
+  'radiologie':         6,
+  'orthopädie':        10,
+  'chirurgie':          5,
+  'dermatologie':       7,
+  'hno':                6,
+  'gynäkologie':        6,
+  'neurologie':         9,
+  'augenheilkunde':     5,
+  'urologie':           7,
+  'kardiologie':        8,
+  'gastroenterologie':  9,
+  'psychiatrie':       12,
+  'psychotherapie':    14,
+  'zahnmedizin':       18,
+  'physiotherapie':    11,
+  'default':            8,
+}
+
+function normalizeFach(fach: string): string {
+  return fach.toLowerCase().trim()
+    .replace(/dr\.\s*/g, '')
+    .replace(/\s+/g, ' ')
+}
+
 function MiniLineChart({ data, rateReal }: { data: number[]; rateReal: number }) {
   // Need at least 2 points for a meaningful line; data is guaranteed to have >= 2
   const pts = data.length >= 2 ? data : [0, rateReal];
@@ -173,7 +205,9 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
           <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
             👥 Sie im Vergleich — {kasseName} Kunden
           </p>
-          <p className="text-[10px] text-slate-400 mb-3">Basierend auf anonymisierten Daten ähnlicher Tarife (n=847)</p>
+          <p className="text-[10px] text-slate-400 mb-3">Ablehnungsquote je Fachgebiet vs. PKV-Durchschnitt (anonymisierte Referenzwerte)</p>
+
+          {/* Erstattungsquote overall — always shown */}
           <BenchmarkRow
             label="Erstattungsquote gesamt"
             sub="Anteil der erstatteten Rechnungsbeträge"
@@ -183,24 +217,37 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
             avgVal={`Ø ${stats.erstattungsquoteAvg}%`}
             variant={stats.erstattungsquote >= stats.erstattungsquoteAvg ? "good" : "warn"}
           />
-          <BenchmarkRow
-            label="Internist — Ø Faktor Ihrer Rechnungen"
-            sub="GOÄ-Abrechnungsfaktor Innere Medizin"
-            youPct={70}
-            avgPct={43}
-            youVal="3,5×"
-            avgVal="Ø 2,1×"
-            variant="bad"
-          />
-          <BenchmarkRow
-            label="Labor — Analogziffer-Ablehnungsrate"
-            sub="Anteil abgelehnter Analogpositionen"
-            youPct={38}
-            avgPct={22}
-            youVal="38%"
-            avgVal="Ø PKV: 22%"
-            variant="warn"
-          />
+
+          {/* Dynamic per-Fachgruppe: Ablehnungsquote Sie vs. Benchmark */}
+          {stats.fachgruppenStats.length > 0
+            ? stats.fachgruppenStats.map((fg) => {
+                const bench = FACH_BENCHMARK[normalizeFach(fg.fach)] ?? FACH_BENCHMARK['default']
+                const variant: "good" | "warn" | "bad" =
+                  fg.ablehnungsquote <= bench ? "good"
+                  : fg.ablehnungsquote <= bench * 1.75 ? "warn"
+                  : "bad"
+                // bar: user's rate relative to bench*2 (cap at 100)
+                const youPctBar = Math.min(100, Math.round((fg.ablehnungsquote / (bench * 2 || 1)) * 50))
+                const avgPctBar = Math.min(100, Math.round((bench / (bench * 2 || 1)) * 50))
+                return (
+                  <BenchmarkRow
+                    key={fg.fach}
+                    label={`${fg.fach} — Ablehnungsquote`}
+                    sub={`${fg.vorgaenge} Vorgang${fg.vorgaenge !== 1 ? "änge" : ""} · € ${fg.eingereicht.toLocaleString("de-DE")} eingereicht`}
+                    youPct={youPctBar}
+                    avgPct={avgPctBar}
+                    youVal={fg.ablehnungsquote === 0 ? "0%" : `${fg.ablehnungsquote}%`}
+                    avgVal={`Ø PKV: ${bench}%`}
+                    variant={variant}
+                  />
+                )
+              })
+            : (
+              <div className="text-xs text-slate-400 py-2 text-center">
+                Noch keine Kassenbescheide zum Vergleich vorhanden
+              </div>
+            )
+          }
         </Card>
       </div>
 
