@@ -16,7 +16,7 @@ const slate = '#64748b'
 const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }> = {
   erstattet: { bg: mintLight, color: '#065f46', label: 'Erstattet' },
   abgelehnt: { bg: redLight, color: '#991b1b', label: 'Abgelehnt' },
-  pruefen:   { bg: amberLight, color: '#92400e', label: '⚡ KI-Hinweis' },
+  pruefen:   { bg: amberLight, color: '#92400e', label: '⚡ Widerspruch empfohlen' },
   offen:     { bg: '#f1f5f9', color: slate, label: 'Offen' },
 }
 
