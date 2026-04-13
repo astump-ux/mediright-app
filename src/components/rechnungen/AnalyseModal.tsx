@@ -267,44 +267,62 @@ function WiderspruchPanel({
 
   const fullText = `Betreff: ${editableBetreff}\n\n${editableBody}`
 
+  async function patchStatus(status: 'gesendet' | 'erstellt') {
+    if (!kassenbescheidId) return
+    await fetch(`/api/kassenabrechnungen/${kassenbescheidId}/widerspruch-status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    })
+  }
+
   async function handleCopy() {
     await navigator.clipboard.writeText(fullText)
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
   }
 
-  function handleGmail() {
+  async function handleGmail() {
     const subject = encodeURIComponent(editableBetreff)
     const body = encodeURIComponent(editableBody)
     window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${body}`, '_blank')
+    setMarkedSent(true)
+    await patchStatus('gesendet')
   }
 
-  function handleOutlook() {
+  async function handleOutlook() {
     const subject = encodeURIComponent(editableBetreff)
     const body = encodeURIComponent(editableBody)
-    // Tries Outlook.com first; Office 365 users are also covered as both use the same deeplink format
     window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${subject}&body=${body}`, '_blank')
+    setMarkedSent(true)
+    await patchStatus('gesendet')
   }
 
-  function handleMailto() {
+  async function handleMailto() {
     const subject = encodeURIComponent(editableBetreff)
     const body = encodeURIComponent(editableBody)
-    // Use anchor click instead of location.href to avoid navigating away from the page
     const a = document.createElement('a')
     a.href = `mailto:?subject=${subject}&body=${body}`
     a.click()
+    setMarkedSent(true)
+    await patchStatus('gesendet')
   }
 
   async function handleMarkSent() {
-    if (!kassenbescheidId) { setMarkedSent(true); return }
     setSending(true)
     try {
-      await fetch(`/api/kassenabrechnungen/${kassenbescheidId}/widerspruch-status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'gesendet' }),
-      })
+      await patchStatus('gesendet')
       setMarkedSent(true)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function handleUndoSent() {
+    setSending(true)
+    try {
+      await patchStatus('erstellt')
+      setMarkedSent(false)
     } finally {
       setSending(false)
     }
@@ -398,7 +416,17 @@ function WiderspruchPanel({
               {sending ? '…' : '✓ Als gesendet markieren'}
             </button>
           ) : (
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46', padding: '7px 0' }}>✓ Als gesendet markiert</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46' }}>✓ Als gesendet markiert</span>
+              <button
+                onClick={handleUndoSent}
+                disabled={sending}
+                title="Rückgängig — noch nicht gesendet"
+                style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #e2e8f0', cursor: sending ? 'wait' : 'pointer', background: 'white', color: '#94a3b8' }}
+              >
+                {sending ? '…' : 'Rückgängig'}
+              </button>
+            </div>
           )}
         </div>
 
