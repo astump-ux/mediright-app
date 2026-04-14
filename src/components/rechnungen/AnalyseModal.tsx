@@ -1,8 +1,6 @@
 'use client'
-
 import { useState } from 'react'
 import type { KasseRechnungGruppe, KasseAnalyseResult } from '@/lib/goae-analyzer'
-
 const navy = '#0f172a'
 const mint = '#10b981'
 const mintLight = '#d1fae5'
@@ -13,7 +11,6 @@ const redLight = '#fee2e2'
 const blue = '#3b82f6'
 const blueLight = '#eff6ff'
 const slate = '#64748b'
-
 // ── Plain-language translations for technical Ablehnungsgründe ──────────────
 const LAIENSATZ: Array<{ match: string; erklaerung: string }> = [
   { match: 'analogziffer',           erklaerung: 'Diese Leistung hat in der GOÄ keinen eigenen Abrechnungscode. Der Arzt hat sie deshalb "analog" über eine ähnliche Ziffer abgerechnet. Die Kasse bestreitet hier, dass genau diese Analogziffer für die erbrachte Leistung zulässig ist — nicht dass die Leistung generell nicht existiert.' },
@@ -27,7 +24,6 @@ const LAIENSATZ: Array<{ match: string; erklaerung: string }> = [
   { match: 'doppelberechnung',       erklaerung: 'Diese Leistung wurde laut Kasse in der gleichen Sitzung bereits mit einer anderen Ziffer abgerechnet.' },
   { match: 'igel',                   erklaerung: 'Diese Leistung gilt als individuelle Gesundheitsleistung (IGeL) und wird von der PKV nicht immer erstattet.' },
 ]
-
 function laiensatzFor(text: string): string | null {
   const lower = text.toLowerCase()
   for (const entry of LAIENSATZ) {
@@ -35,9 +31,7 @@ function laiensatzFor(text: string): string | null {
   }
   return null
 }
-
 // ── Shared sub-components ────────────────────────────────────────────────────
-
 function KpiBox({ label, value, warn, good, sub }: { label: string; value: string; warn?: boolean; good?: boolean; sub?: string }) {
   const bg = good ? mintLight : warn ? amberLight : '#f8fafc'
   const color = good ? '#065f46' : warn ? '#92400e' : navy
@@ -49,7 +43,6 @@ function KpiBox({ label, value, warn, good, sub }: { label: string; value: strin
     </div>
   )
 }
-
 function FlagBadge({ flag }: { flag?: string }) {
   if (!flag || flag === 'ok') return (
     <span style={{ background: mintLight, color: '#065f46', fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>✓ OK</span>
@@ -61,13 +54,11 @@ function FlagBadge({ flag }: { flag?: string }) {
     <span style={{ background: redLight, color: '#991b1b', fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>🔴 Hoch</span>
   )
 }
-
 function StatusBadge({ status }: { status: string }) {
   if (status === 'erstattet') return <span style={{ background: mintLight, color: '#065f46', fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>✓ Erstattet</span>
   if (status === 'gekuerzt')  return <span style={{ background: amberLight, color: '#92400e', fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>⚠ Gekürzt</span>
   return <span style={{ background: redLight, color: '#991b1b', fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>✗ Abgelehnt</span>
 }
-
 /** Inline Ablehnungsgrund with plain-language toggle */
 function AblehnungsgrundRow({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
@@ -97,7 +88,6 @@ function AblehnungsgrundRow({ text }: { text: string }) {
     </div>
   )
 }
-
 /** Numbered section divider */
 function SectionHeader({ num, title, sub, accent }: { num: number; title: string; sub: string; accent: string }) {
   return (
@@ -115,9 +105,7 @@ function SectionHeader({ num, title, sub, accent }: { num: number; title: string
     </div>
   )
 }
-
 // ── Types ────────────────────────────────────────────────────────────────────
-
 interface GoaePosition {
   ziffer: string
   bezeichnung: string
@@ -125,7 +113,6 @@ interface GoaePosition {
   betrag: number
   flag?: 'ok' | 'pruefe' | 'hoch'
 }
-
 interface KassePosition {
   ziffer: string
   bezeichnung: string
@@ -137,7 +124,6 @@ interface KassePosition {
   widerspruchWahrscheinlichkeit?: number | null
   confidence?: number | null
 }
-
 interface GoaeAnalyse {
   arztName?: string
   arztFachgebiet?: string
@@ -150,7 +136,6 @@ interface GoaeAnalyse {
   einsparpotenzial?: number
   zusammenfassung?: string
 }
-
 interface KasseAnalyse {
   referenznummer?: string
   bescheiddatum?: string
@@ -166,7 +151,6 @@ interface KasseAnalyse {
   naechsteSchritte?: string[] | null
   zusammenfassung?: string
 }
-
 interface KassenbescheidSummary {
   id: string
   bescheiddatum: string | null
@@ -176,7 +160,6 @@ interface KassenbescheidSummary {
   widerspruchEmpfohlen: boolean
   widerspruchStatus?: string
 }
-
 interface AnalyseModalProps {
   type: 'rechnung' | 'kasse'
   data: GoaeAnalyse | KasseAnalyse
@@ -185,15 +168,17 @@ interface AnalyseModalProps {
   kassenbescheid?: KassenbescheidSummary | null
   onClose: () => void
 }
-
-// ── Widerspruch letter generator (template-based, no API call) ───────────────
-
+// ── Confidence label helper ───────────────────────────────────────────────────
+function confidenceLabel(c: number | null | undefined): string | null {
+  if (c == null) return null
+  if (c >= 70) return 'hoch'
+  if (c >= 40) return 'mittel'
+  return 'niedrig'
+}
+// ── Widerspruch letter generator ─────────────────────────────────────────────
 const AXA_PLACEHOLDER_ADDRESS = `AXA Krankenversicherung AG\nKundenservice / Leistungsabteilung\n[⚠️ PLATZHALTER: Adresse aus Ihrem Versicherungsschein eintragen!]`
-
 function generateWiderspruchLetter({
-  bescheid,
-  gruppe,
-  analyse,
+  bescheid, gruppe, analyse,
 }: {
   bescheid: KassenbescheidSummary | null | undefined
   gruppe: KasseRechnungGruppe | null | undefined
@@ -207,53 +192,34 @@ function generateWiderspruchLetter({
   const abgelehnt = (gruppe?.betragAbgelehnt ?? bescheid?.betragAbgelehnt ?? 0).toFixed(2)
   const abgelehntePos = gruppe?.positionen?.filter(p => p.status === 'abgelehnt' || p.status === 'gekuerzt') ?? []
   const begruendung = analyse?.widerspruchBegruendung ?? 'Die Ablehnung ist aus meiner Sicht nicht gerechtfertigt.'
-
   const posListe = abgelehntePos.length > 0
     ? abgelehntePos.map(p =>
         `  - Ziffer ${p.ziffer} "${p.bezeichnung}": ${p.betragEingereicht?.toFixed(2) ?? '?'} € eingereicht, ${p.betragErstattet?.toFixed(2) ?? '0.00'} € erstattet`
       ).join('\n')
     : '  [Bitte betroffene Positionen eintragen]'
-
   const betreff = `Widerspruch gegen Leistungsbescheid vom ${bescheidDatum} – Referenz ${ref}`
-
   const body = `${AXA_PLACEHOLDER_ADDRESS}
-
 ${heute}
-
 Betreff: ${betreff}
 Versicherungsnehmer: [Ihr vollständiger Name]
 Versicherungsnummer: [Ihre Versicherungsnummer]
-
 Sehr geehrte Damen und Herren,
-
 hiermit lege ich fristgerecht Widerspruch gegen Ihren Leistungsbescheid vom ${bescheidDatum} (Referenz: ${ref}) ein.
-
 Sie haben Leistungen in Höhe von ${abgelehnt} € nicht erstattet. Ich bin der Auffassung, dass diese Entscheidung nicht gerechtfertigt ist und bitte Sie um eine erneute Prüfung.
-
 Betroffene Positionen:
 ${posListe}
-
 Begründung meines Widerspruchs:
 ${begruendung}
-
 Ich bitte Sie daher, Ihre Entscheidung zu überprüfen und mir den abgelehnten Betrag von ${abgelehnt} € vollständig zu erstatten. Sollten Sie an Ihrer Entscheidung festhalten, behalte ich mir vor, die Ombudsstelle für private Kranken- und Pflegeversicherung (www.pkv-ombudsmann.de) einzuschalten.
-
 Bitte bestätigen Sie den Eingang dieses Widerspruchs schriftlich.
-
 Mit freundlichen Grüßen,
-
 [Ihr vollständiger Name]
 [Ihre Adresse]
 [Telefon / E-Mail]`
-
   return { betreff, body }
 }
-
 function WiderspruchPanel({
-  bescheid,
-  gruppe,
-  analyse,
-  kassenbescheidId,
+  bescheid, gruppe, analyse, kassenbescheidId,
 }: {
   bescheid: KassenbescheidSummary | null | undefined
   gruppe: KasseRechnungGruppe | null | undefined
@@ -263,13 +229,9 @@ function WiderspruchPanel({
   const [copied, setCopied] = useState(false)
   const [markedSent, setMarkedSent] = useState(false)
   const [sending, setSending] = useState(false)
-
   const { betreff, body } = generateWiderspruchLetter({ bescheid, gruppe, analyse })
   const [editableBetreff, setEditableBetreff] = useState(betreff)
   const [editableBody, setEditableBody] = useState(body)
-
-  const fullText = `Betreff: ${editableBetreff}\n\n${editableBody}`
-
   async function patchStatus(status: 'gesendet' | 'erstellt') {
     if (!kassenbescheidId) return
     const res = await fetch(`/api/kassenabrechnungen/${kassenbescheidId}/widerspruch-status`, {
@@ -282,204 +244,185 @@ function WiderspruchPanel({
       console.error('[widerspruch-status PATCH]', res.status, err)
     }
   }
-
   async function handleCopy() {
-    await navigator.clipboard.writeText(fullText)
+    await navigator.clipboard.writeText(`Betreff: ${editableBetreff}\n\n${editableBody}`)
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
   }
-
   async function handleGmail() {
-    const subject = encodeURIComponent(editableBetreff)
-    const body = encodeURIComponent(editableBody)
-    window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${body}`, '_blank')
+    window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editableBetreff)}&body=${encodeURIComponent(editableBody)}`, '_blank')
     setMarkedSent(true)
     await patchStatus('gesendet')
   }
-
   async function handleOutlook() {
-    const subject = encodeURIComponent(editableBetreff)
-    const body = encodeURIComponent(editableBody)
-    window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${subject}&body=${body}`, '_blank')
+    window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editableBetreff)}&body=${encodeURIComponent(editableBody)}`, '_blank')
     setMarkedSent(true)
     await patchStatus('gesendet')
   }
-
   async function handleMailto() {
-    const subject = encodeURIComponent(editableBetreff)
-    const body = encodeURIComponent(editableBody)
     const a = document.createElement('a')
-    a.href = `mailto:?subject=${subject}&body=${body}`
+    a.href = `mailto:?subject=${encodeURIComponent(editableBetreff)}&body=${encodeURIComponent(editableBody)}`
     a.click()
     setMarkedSent(true)
     await patchStatus('gesendet')
   }
-
-  async function handleMarkSent() {
-    setSending(true)
-    try {
-      await patchStatus('gesendet')
-      setMarkedSent(true)
-    } finally {
-      setSending(false)
-    }
-  }
-
   async function handleUndoSent() {
     setSending(true)
-    try {
-      await patchStatus('erstellt')
-      setMarkedSent(false)
-    } finally {
-      setSending(false)
-    }
+    try { await patchStatus('erstellt'); setMarkedSent(false) }
+    finally { setSending(false) }
   }
-
   return (
     <div style={{ marginTop: 16, border: `2px solid ${amber}`, borderRadius: 12, overflow: 'hidden' }}>
-      {/* Panel header */}
       <div style={{ background: amberLight, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontWeight: 700, color: '#92400e', fontSize: 14 }}>📧 Widerspruch per E-Mail</span>
         <span style={{ fontSize: 12, color: '#92400e' }}>— Text bearbeiten, dann kopieren oder direkt öffnen</span>
       </div>
-
-      {/* AXA address placeholder warning */}
       <div style={{ background: '#fff7ed', borderBottom: '1px solid #fed7aa', padding: '8px 16px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
         <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
         <div style={{ fontSize: 12, color: '#9a3412' }}>
-          <strong>Empfängeradresse ist ein PLATZHALTER.</strong> Bitte die korrekte AXA-Adresse aus Ihrem Versicherungsschein eintragen, bevor Sie die E-Mail absenden. Ebenso: Name, Versicherungsnummer und Adresse ergänzen.
+          <strong>Empfängeradresse ist ein PLATZHALTER.</strong> Bitte die korrekte AXA-Adresse aus Ihrem Versicherungsschein eintragen, bevor Sie die E-Mail absenden.
         </div>
       </div>
-
       <div style={{ padding: 16, background: 'white' }}>
-        {/* Betreff */}
         <div style={{ marginBottom: 10 }}>
-          <label style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>
-            Betreff
-          </label>
-          <input
-            value={editableBetreff}
-            onChange={e => setEditableBetreff(e.target.value)}
-            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, color: navy, boxSizing: 'border-box' }}
-          />
+          <label style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>Betreff</label>
+          <input value={editableBetreff} onChange={e => setEditableBetreff(e.target.value)}
+            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, color: navy, boxSizing: 'border-box' }} />
         </div>
-
-        {/* Body */}
         <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>
-            E-Mail-Text
-          </label>
-          <textarea
-            value={editableBody}
-            onChange={e => setEditableBody(e.target.value)}
-            rows={16}
-            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }}
-          />
+          <label style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>E-Mail-Text</label>
+          <textarea value={editableBody} onChange={e => setEditableBody(e.target.value)} rows={16}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
         </div>
-
-        {/* Action buttons */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button
-            onClick={handleCopy}
-            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? mintLight : '#f1f5f9', color: copied ? '#065f46' : navy, transition: 'all 0.2s' }}
-          >
+          <button onClick={handleCopy}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? mintLight : '#f1f5f9', color: copied ? '#065f46' : navy }}>
             {copied ? '✓ Kopiert!' : '📋 Text kopieren'}
           </button>
-          <button
-            onClick={handleGmail}
-            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#eff6ff', color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-              <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z" fill="#EA4335"/>
-              <path d="M0 5.457v13.909c0 .904.732 1.636 1.636 1.636h3.819V11.73L12 16.64l6.545-4.91v9.273h3.819A1.636 1.636 0 0 0 24 19.366V5.457c0-2.023-2.309-3.178-3.927-1.964L18.545 4.64 12 9.548 5.455 4.64 3.927 3.493C2.309 2.28 0 3.434 0 5.457z" fill="#4285F4" opacity="0"/>
-            </svg>
+          <button onClick={handleGmail}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#eff6ff', color: '#1d4ed8' }}>
             In Gmail öffnen
           </button>
-          <button
-            onClick={handleOutlook}
-            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#eff6ff', color: '#0078d4', display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-              <rect width="24" height="24" rx="3" fill="#0078d4"/>
-              <path d="M12 6C8.686 6 6 8.686 6 12s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6zm0 10.5c-2.485 0-4.5-2.015-4.5-4.5S9.515 7.5 12 7.5s4.5 2.015 4.5 4.5-2.015 4.5-4.5 4.5z" fill="white"/>
-              <path d="M19 6h-3.5v1.5H19V14l-7 3.5L5 14V7.5h3.5V6H5a1.5 1.5 0 0 0-1.5 1.5v7a1.5 1.5 0 0 0 .87 1.36l7 3.5a1.5 1.5 0 0 0 1.26 0l7-3.5A1.5 1.5 0 0 0 20.5 14.5v-7A1.5 1.5 0 0 0 19 6z" fill="white"/>
-            </svg>
+          <button onClick={handleOutlook}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#eff6ff', color: '#0078d4' }}>
             In Outlook öffnen
           </button>
-          <button
-            onClick={handleMailto}
-            title="Apple Mail, Thunderbird etc."
-            style={{ fontSize: 12, fontWeight: 500, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', cursor: 'pointer', background: 'white', color: '#64748b' }}
-          >
+          <button onClick={handleMailto}
+            style={{ fontSize: 12, fontWeight: 500, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', cursor: 'pointer', background: 'white', color: '#64748b' }}>
             Anderes Programm
           </button>
           <div style={{ flex: 1 }} />
           {!markedSent ? (
-            <button
-              onClick={handleMarkSent}
-              disabled={sending}
-              style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 8, border: `1px solid ${amber}`, cursor: sending ? 'wait' : 'pointer', background: 'white', color: '#92400e' }}
-            >
+            <button onClick={async () => { setSending(true); try { await patchStatus('gesendet'); setMarkedSent(true) } finally { setSending(false) } }} disabled={sending}
+              style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 8, border: `1px solid ${amber}`, cursor: sending ? 'wait' : 'pointer', background: 'white', color: '#92400e' }}>
               {sending ? '…' : '✓ Als gesendet markieren'}
             </button>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46' }}>✓ Als gesendet markiert</span>
-              <button
-                onClick={handleUndoSent}
-                disabled={sending}
-                title="Rückgängig — noch nicht gesendet"
-                style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #e2e8f0', cursor: sending ? 'wait' : 'pointer', background: 'white', color: '#94a3b8' }}
-              >
+              <button onClick={handleUndoSent} disabled={sending}
+                style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #e2e8f0', cursor: sending ? 'wait' : 'pointer', background: 'white', color: '#94a3b8' }}>
                 {sending ? '…' : 'Rückgängig'}
               </button>
             </div>
           )}
         </div>
-
         <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>
-          💡 Alle Buttons übergeben Betreff &amp; vollständigen Text automatisch. Gmail &amp; Outlook öffnen im Browser, "Anderes Programm" öffnet den auf deinem Rechner konfigurierten Mail-Client.
+          💡 Gmail &amp; Outlook öffnen im Browser, "Anderes Programm" öffnet deinen konfigurierten Mail-Client (Apple Mail, Thunderbird etc.).
         </div>
       </div>
     </div>
   )
 }
-
-// ── Kassenbescheid section (used inside GOÄ modal as Section 2) ──────────────
-
+// ── Kassenbescheid section ────────────────────────────────────────────────────
 function KassenbescheidSection({
-  gruppe,
-  analyse,
-  bescheid,
+  gruppe, analyse, bescheid,
 }: {
   gruppe: KasseRechnungGruppe | null | undefined
   analyse: KasseAnalyseResult | null | undefined
   bescheid: KassenbescheidSummary | null | undefined
 }) {
   const [showWiderspruchPanel, setShowWiderspruchPanel] = useState(false)
+  const [showPositionen, setShowPositionen]             = useState(true)
+  const [showSchritte, setShowSchritte]                 = useState(true)
 
-  const erstattet = gruppe?.betragErstattet ?? bescheid?.betragErstattet ?? 0
-  const abgelehnt = gruppe?.betragAbgelehnt ?? bescheid?.betragAbgelehnt ?? 0
-  const eingereicht = gruppe?.betragEingereicht ?? 0
-  const datum = bescheid?.bescheiddatum
+  const erstattet  = gruppe?.betragErstattet ?? bescheid?.betragErstattet ?? 0
+  const abgelehnt  = gruppe?.betragAbgelehnt ?? bescheid?.betragAbgelehnt ?? 0
+  const datum      = bescheid?.bescheiddatum
     ? new Date(bescheid.bescheiddatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : null
-
-  const abgelehntePos = gruppe?.positionen?.filter(p => p.status === 'abgelehnt' || p.status === 'gekuerzt') ?? []
-  const erfolg = analyse?.widerspruchErfolgswahrscheinlichkeit ?? null
-  const schritte = analyse?.naechsteSchritte ?? null
-  const widerspruch = analyse?.widerspruchEmpfohlen ?? bescheid?.widerspruchEmpfohlen ?? false
-  const begruendung = analyse?.widerspruchBegruendung ?? null
-
-  // Determine action type from positions: widerspruch_kasse (appeal insurance) vs korrektur_arzt (fix with doctor)
-  const hasKasseAction = abgelehntePos.some(p => (p as {aktionstyp?: string}).aktionstyp === 'widerspruch_kasse' || (p as {aktionstyp?: string}).aktionstyp == null)
-  const hasArztAction  = abgelehntePos.some(p => (p as {aktionstyp?: string}).aktionstyp === 'korrektur_arzt')
+  const abgelehntePos   = gruppe?.positionen?.filter(p => p.status === 'abgelehnt' || p.status === 'gekuerzt') ?? []
+  const erfolg          = analyse?.widerspruchErfolgswahrscheinlichkeit ?? null
+  const schritte        = analyse?.naechsteSchritte ?? null
+  const widerspruch     = analyse?.widerspruchEmpfohlen ?? bescheid?.widerspruchEmpfohlen ?? false
+  const begruendung     = analyse?.widerspruchBegruendung ?? null
+  const hasKasseAction  = abgelehntePos.some(p => (p as {aktionstyp?: string}).aktionstyp === 'widerspruch_kasse' || (p as {aktionstyp?: string}).aktionstyp == null)
+  const hasArztAction   = abgelehntePos.some(p => (p as {aktionstyp?: string}).aktionstyp === 'korrektur_arzt')
 
   const erfolgColor = erfolg == null ? slate : erfolg >= 70 ? '#22c55e' : erfolg >= 40 ? amber : red
   const erfolgBg    = erfolg == null ? '#f1f5f9' : erfolg >= 70 ? mintLight : erfolg >= 40 ? amberLight : redLight
 
+  // ── Active Widerspruch status ──────────────────────────────────────────────
+  const widerspruchStatus = bescheid?.widerspruchStatus
+  const widerspruchActive = ['gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'].includes(widerspruchStatus ?? '')
+  const statusIcon: Record<string, string> = {
+    gesendet:    '📨',
+    beantwortet: '💬',
+    erfolgreich: '✅',
+    abgelehnt:   '❌',
+  }
+  const statusLabel: Record<string, string> = {
+    gesendet:    'Widerspruch gesendet — läuft',
+    beantwortet: 'AXA hat geantwortet — Aktion nötig',
+    erfolgreich: 'Widerspruch erfolgreich',
+    abgelehnt:   'Widerspruch endabgelehnt',
+  }
+  const statusColor: Record<string, { bg: string; color: string; border: string }> = {
+    gesendet:    { bg: blueLight,  color: '#1d4ed8', border: '#93c5fd' },
+    beantwortet: { bg: amberLight, color: '#92400e', border: '#fcd34d' },
+    erfolgreich: { bg: mintLight,  color: '#065f46', border: '#6ee7b7' },
+    abgelehnt:   { bg: redLight,   color: '#991b1b', border: '#fca5a5' },
+  }
+
   return (
     <div>
+      {/* ── Widerspruch status banner (when active) ── */}
+      {widerspruchActive && widerspruchStatus && (
+        <div style={{
+          background: statusColor[widerspruchStatus].bg,
+          border: `1.5px solid ${statusColor[widerspruchStatus].border}`,
+          borderRadius: 12,
+          padding: '12px 16px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 22 }}>{statusIcon[widerspruchStatus]}</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: statusColor[widerspruchStatus].color }}>
+                {statusLabel[widerspruchStatus]}
+              </div>
+              <div style={{ fontSize: 11, color: statusColor[widerspruchStatus].color, opacity: 0.8, marginTop: 1 }}>
+                Alle Details und Kommunikation im Widerspruchs-Tab
+              </div>
+            </div>
+          </div>
+          <a
+            href="/widersprueche"
+            style={{
+              fontSize: 12, fontWeight: 700, padding: '7px 16px', borderRadius: 8,
+              background: statusColor[widerspruchStatus].color, color: 'white',
+              textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap',
+            }}
+          >
+            → Zum Verfahren
+          </a>
+        </div>
+      )}
+
       {datum && (
         <div style={{ fontSize: 12, color: slate, marginBottom: 12 }}>
           🏥 Bescheid vom {datum}
@@ -487,51 +430,83 @@ function KassenbescheidSection({
         </div>
       )}
 
-      {/* Abgelehnte Positionen */}
+      {/* ── Abgelehnte Positionen (collapsible) ── */}
       {abgelehntePos.length > 0 && (
         <div style={{ border: `1px solid #fecaca`, borderRadius: 10, overflow: 'visible', marginBottom: 14 }}>
-          <div style={{ background: '#fff1f2', padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#991b1b' }}>
-            ❌ Abgelehnte / Gekürzte Positionen
+          <div
+            onClick={() => setShowPositionen(v => !v)}
+            style={{ background: '#fff1f2', padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#991b1b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
+          >
+            <span>❌ Abgelehnte &amp; Gekürzte Positionen ({abgelehntePos.length})</span>
+            <span style={{ fontSize: 11, opacity: 0.7 }}>{showPositionen ? '▲ einklappen' : '▼ ausklappen'}</span>
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: '#fef2f2' }}>
-                <th style={{ padding: '6px 10px', textAlign: 'left', color: '#991b1b', fontWeight: 600 }}>Ziffer</th>
-                <th style={{ padding: '6px 10px', textAlign: 'left', color: '#991b1b', fontWeight: 600 }}>Bezeichnung</th>
-                <th style={{ padding: '6px 10px', textAlign: 'right', color: '#991b1b', fontWeight: 600 }}>Eingereicht</th>
-                <th style={{ padding: '6px 10px', textAlign: 'right', color: '#991b1b', fontWeight: 600 }}>Erstattet</th>
-                <th style={{ padding: '6px 10px', textAlign: 'center', color: '#991b1b', fontWeight: 600 }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {abgelehntePos.map((pos, i) => (
-                <AbgelehnteRow key={i} pos={pos} even={i % 2 === 0} />
-              ))}
-            </tbody>
-          </table>
+          {showPositionen && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#fef2f2' }}>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', color: '#991b1b', fontWeight: 600 }}>Ziffer</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', color: '#991b1b', fontWeight: 600 }}>Bezeichnung</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', color: '#991b1b', fontWeight: 600 }}>Eingereicht</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', color: '#991b1b', fontWeight: 600 }}>Erstattet</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'center', color: '#991b1b', fontWeight: 600 }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {abgelehntePos.map((pos, i) => (
+                  <AbgelehnteRow key={i} pos={pos} even={i % 2 === 0} />
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
-      {/* Widerspruchsanalyse */}
+      {/* ── Handlungsempfehlung ── */}
       {widerspruch && (
         <div style={{ background: amberLight, border: `1px solid ${amber}`, borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13 }}>⚡ Handlungsempfehlung</div>
+            {/* ── Probability + Confidence display ── */}
             {erfolg != null && (
-              <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: erfolgBg, color: erfolgColor }}>
-                {erfolg} % Erfolgsaussicht
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'white', borderRadius: 10, padding: '6px 12px', border: `1px solid ${erfolgColor}22` }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: erfolgColor, lineHeight: 1 }}>{erfolg}%</div>
+                  <div style={{ fontSize: 10, color: slate, marginTop: 2 }}>Erfolgschance</div>
+                </div>
+                {(() => {
+                  // Derive aggregate confidence from positions
+                  const avgConf = abgelehntePos.length > 0
+                    ? abgelehntePos.reduce((s, p) => s + ((p as {confidence?: number | null}).confidence ?? 60), 0) / abgelehntePos.length
+                    : null
+                  const label = confidenceLabel(avgConf)
+                  const confColor = label === 'hoch' ? '#065f46' : label === 'mittel' ? '#92400e' : slate
+                  const confBg   = label === 'hoch' ? mintLight : label === 'mittel' ? amberLight : '#f1f5f9'
+                  return label ? (
+                    <div style={{ borderLeft: '1px solid #e2e8f0', paddingLeft: 10 }}>
+                      <div style={{ fontSize: 10, color: slate, marginBottom: 3 }}>KI-Konfidenz</div>
+                      <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: confBg, color: confColor }}>
+                        {label}
+                      </span>
+                    </div>
+                  ) : null
+                })()}
+              </div>
             )}
           </div>
           {begruendung && (
             <p style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6, marginBottom: 12 }}>{begruendung}</p>
           )}
+          {/* ── Nächste Schritte (collapsible) ── */}
           {schritte && schritte.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                Nächste Schritte
+              <div
+                onClick={() => setShowSchritte(v => !v)}
+                style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: showSchritte ? 6 : 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
+              >
+                <span>Nächste Schritte ({schritte.length})</span>
+                <span style={{ fontWeight: 400, fontSize: 11, opacity: 0.7 }}>{showSchritte ? '▲' : '▼'}</span>
               </div>
-              {schritte.map((s, i) => (
+              {showSchritte && schritte.map((s, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 5 }}>
                   <span style={{ flexShrink: 0, width: 18, height: 18, borderRadius: '50%', background: amber, color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {i + 1}
@@ -541,19 +516,17 @@ function KassenbescheidSection({
               ))}
             </div>
           )}
-          {/* Split CTAs based on aktionstyp */}
+          {/* CTAs */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {hasKasseAction && (
-              <button
-                onClick={() => setShowWiderspruchPanel(v => !v)}
-                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: showWiderspruchPanel ? '#92400e' : '#b45309', color: 'white', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {hasKasseAction && !widerspruchActive && (
+              <button onClick={() => setShowWiderspruchPanel(v => !v)}
+                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: showWiderspruchPanel ? '#92400e' : '#b45309', color: 'white', border: 'none', cursor: 'pointer' }}>
                 {showWiderspruchPanel ? '▲ E-Mail schließen' : '⚖️ Widerspruch per E-Mail erstellen'}
               </button>
             )}
             {hasArztAction && (
-              <span
-                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: 'white', color: '#92400e', border: `1px solid ${amber}`, display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                title="Kontaktieren Sie Ihre Arztpraxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung für den abgerechneten Faktor.">
+              <span style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: 'white', color: '#92400e', border: `1px solid ${amber}`, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                title="Kontaktieren Sie Ihre Arztpraxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung.">
                 🩺 Arzt um Korrektur bitten
               </span>
             )}
@@ -566,48 +539,42 @@ function KassenbescheidSection({
         </div>
       )}
 
-      {/* No rejection = all good */}
       {abgelehnt === 0 && abgelehntePos.length === 0 && !widerspruch && (
         <div style={{ background: mintLight, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#065f46' }}>
           ✓ Kasse hat alles erstattet — kein Handlungsbedarf.
         </div>
       )}
 
-      {/* Widerspruch E-Mail Panel — inline, toggled by CTA */}
       {showWiderspruchPanel && (
-        <WiderspruchPanel
-          bescheid={bescheid}
-          gruppe={gruppe}
-          analyse={analyse}
-          kassenbescheidId={bescheid?.id}
-        />
+        <WiderspruchPanel bescheid={bescheid} gruppe={gruppe} analyse={analyse} kassenbescheidId={bescheid?.id} />
       )}
     </div>
   )
 }
-
-/** Extracted to avoid useState-in-loop (hooks in map) */
+/** Probability pill per position — probability + confidence as label */
 function ProbabilityPill({ wahrscheinlichkeit, confidence }: { wahrscheinlichkeit?: number | null; confidence?: number | null }) {
   if (wahrscheinlichkeit == null) return null
-  const bg = wahrscheinlichkeit >= 50 ? amberLight : wahrscheinlichkeit >= 20 ? '#fef9c3' : '#f1f5f9'
-  const color = wahrscheinlichkeit >= 50 ? '#92400e' : wahrscheinlichkeit >= 20 ? '#854d0e' : '#64748b'
-  const label = wahrscheinlichkeit >= 50 ? '⚡' : wahrscheinlichkeit >= 20 ? '⚠️' : '✗'
+  const bg    = wahrscheinlichkeit >= 50 ? amberLight : wahrscheinlichkeit >= 20 ? '#fef9c3' : '#f1f5f9'
+  const color = wahrscheinlichkeit >= 50 ? '#92400e'  : wahrscheinlichkeit >= 20 ? '#854d0e' : '#64748b'
+  const label = wahrscheinlichkeit >= 50 ? '⚡'       : wahrscheinlichkeit >= 20 ? '⚠️'      : '✗'
+  const confLabel = confidenceLabel(confidence)
+  const confColor = confLabel === 'hoch' ? '#065f46' : confLabel === 'mittel' ? '#92400e' : slate
+  const confBg    = confLabel === 'hoch' ? mintLight  : confLabel === 'mittel' ? amberLight : '#f1f5f9'
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: bg, color }}
-        title="Geschätzte Widerspruchs-Erfolgswahrscheinlichkeit (KI)">
-        {label} {wahrscheinlichkeit} % Erfolg
+      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: bg, color }}
+        title="Geschätzte Widerspruchs-Erfolgschance (KI-Prognose)">
+        {label} {wahrscheinlichkeit}% Erfolgschance
       </span>
-      {confidence != null && (
-        <span style={{ fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 20, background: '#f1f5f9', color: '#64748b' }}
-          title="Konfidenz der KI-Einschätzung — wie sicher ist diese Prognose?">
-          KI-Konfidenz {confidence} %
+      {confLabel && (
+        <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: confBg, color: confColor }}
+          title="Wie verlässlich ist diese KI-Prognose?">
+          Konfidenz {confLabel}
         </span>
       )}
     </span>
   )
 }
-
 function AbgelehnteRow({ pos, even }: { pos: KassePosition; even: boolean }) {
   const [showErkl, setShowErkl] = useState(false)
   const erklaerung = pos.ablehnungsgrund ? laiensatzFor(pos.ablehnungsgrund) : null
@@ -640,14 +607,6 @@ function AbgelehnteRow({ pos, even }: { pos: KassePosition; even: boolean }) {
             <ProbabilityPill wahrscheinlichkeit={pos.widerspruchWahrscheinlichkeit} confidence={pos.confidence} />
           </div>
         )}
-        {pos.aktionstyp !== 'widerspruch_kasse' && pos.confidence != null && (
-          <div style={{ marginTop: 4 }}>
-            <span style={{ fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 20, background: '#f1f5f9', color: '#64748b' }}
-              title="Konfidenz der KI-Einschätzung">
-              KI-Konfidenz {pos.confidence} %
-            </span>
-          </div>
-        )}
       </td>
       <td style={{ padding: '6px 10px', textAlign: 'right', color: slate }}>{pos.betragEingereicht?.toFixed(2)} €</td>
       <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: pos.betragErstattet > 0 ? amber : red }}>
@@ -657,8 +616,6 @@ function AbgelehnteRow({ pos, even }: { pos: KassePosition; even: boolean }) {
     </tr>
   )
 }
-
-/** Same pattern for Kasse standalone modal positionen rows */
 function KassePositionRow({ pos, even }: { pos: KassePosition; even: boolean }) {
   const [showErkl, setShowErkl] = useState(false)
   const erklaerung = pos.ablehnungsgrund ? laiensatzFor(pos.ablehnungsgrund) : null
@@ -698,25 +655,19 @@ function KassePositionRow({ pos, even }: { pos: KassePosition; even: boolean }) 
     </tr>
   )
 }
-
 // ── Main Modal ───────────────────────────────────────────────────────────────
-
 export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew, kassenbescheid, onClose }: AnalyseModalProps) {
   const isRechnung = type === 'rechnung'
   const rData = data as GoaeAnalyse
   const kData = data as KasseAnalyse
-
-  const goaePotenzial   = rData.einsparpotenzial ?? 0
-  const kassePotenzial  = kasseGruppe?.betragAbgelehnt ?? kassenbescheid?.betragAbgelehnt ?? 0
-
+  const goaePotenzial  = rData.einsparpotenzial ?? 0
+  const kassePotenzial = kasseGruppe?.betragAbgelehnt ?? kassenbescheid?.betragAbgelehnt ?? 0
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div style={{ background: 'white', borderRadius: 16, width: '100%', maxWidth: 720, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.4)' }}>
-
-        {/* Header */}
         <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: isRechnung ? navy : '#1e3a5f' }}>
           <div>
             <div style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>
@@ -730,49 +681,24 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
           </div>
           <button onClick={onClose} style={{ color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, lineHeight: 1 }}>✕</button>
         </div>
-
-        {/* Content */}
         <div style={{ overflowY: 'auto', padding: 24, fontFamily: "'DM Sans', system-ui, sans-serif" }}>
-
-          {/* Zusammenfassung */}
           {(isRechnung ? rData.zusammenfassung : kData.zusammenfassung) && (
             <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 16px', marginBottom: 8, fontSize: 14, color: '#334155', lineHeight: 1.6 }}>
               {isRechnung ? rData.zusammenfassung : kData.zusammenfassung}
             </div>
           )}
-
-          {/* ═══════ RECHNUNG MODAL — two-section layout ══════════════════ */}
           {isRechnung && (
             <>
-              {/* ── Section 1: Ist die Rechnung korrekt? (Arzt) ── */}
-              <SectionHeader
-                num={1}
-                title="Ist die Rechnung korrekt?"
-                sub="GOÄ-Prüfung: Faktoren, Ziffern-Logik, Begründungspflicht"
-                accent={navy}
-              />
-
+              <SectionHeader num={1} title="Ist die Rechnung korrekt?" sub="GOÄ-Prüfung: Faktoren, Ziffern-Logik, Begründungspflicht" accent={navy} />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
                 <KpiBox label="Rechnungsbetrag" value={`${rData.betragGesamt?.toFixed(2) ?? '–'} €`} />
-                <KpiBox
-                  label="Max. Faktor"
-                  value={`${rData.maxFaktor ?? '–'}×`}
-                  warn={rData.flagFaktorUeberSchwellenwert}
-                  sub={rData.maxFaktor && rData.maxFaktor > 2.3 ? '§12 GOÄ — Begründung prüfen' : undefined}
-                />
-                <KpiBox
-                  label="Korrektur-Potenzial (Arzt)"
-                  value={goaePotenzial > 0 ? `${goaePotenzial.toFixed(2)} €` : '–'}
-                  warn={goaePotenzial > 0}
-                  sub={goaePotenzial > 0 ? 'Arzt hat zu hoch abgerechnet' : 'Keine GOÄ-Beanstandung'}
-                />
+                <KpiBox label="Max. Faktor" value={`${rData.maxFaktor ?? '–'}×`} warn={rData.flagFaktorUeberSchwellenwert} sub={rData.maxFaktor && rData.maxFaktor > 2.3 ? '§12 GOÄ — Begründung prüfen' : undefined} />
+                <KpiBox label="Korrektur-Potenzial (Arzt)" value={goaePotenzial > 0 ? `${goaePotenzial.toFixed(2)} €` : '–'} warn={goaePotenzial > 0} sub={goaePotenzial > 0 ? 'Arzt hat zu hoch abgerechnet' : 'Keine GOÄ-Beanstandung'} />
               </div>
-
               {(rData.flagFehlendeBegrundung || rData.flagFaktorUeberSchwellenwert) && (
                 <div style={{ background: redLight, border: `1px solid ${red}`, borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#991b1b' }}>
                   {rData.flagFehlendeBegrundung && (
-                    <div>
-                      ⚠ Faktor über 2,3× ohne schriftliche Begründung — der Arzt muss das nachliefern (§12 Abs. 3 GOÄ).
+                    <div>⚠ Faktor über 2,3× ohne schriftliche Begründung — der Arzt muss das nachliefern (§12 Abs. 3 GOÄ).
                       <span style={{ display: 'block', fontSize: 12, color: '#7f1d1d', marginTop: 3 }}>
                         👉 Fordern Sie die Begründung beim Arzt an. Ohne sie kann die Kasse kürzen.
                       </span>
@@ -783,10 +709,7 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
                   )}
                 </div>
               )}
-
-              <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 8 }}>
-                GOÄ-Positionen ({rData.goaePositionen?.length ?? 0})
-              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 8 }}>GOÄ-Positionen ({rData.goaePositionen?.length ?? 0})</div>
               <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
@@ -811,29 +734,14 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
                   </tbody>
                 </table>
               </div>
-
-              {/* ── Section 2: Muss die Kasse zahlen? ── */}
-              <SectionHeader
-                num={2}
-                title="Muss die Kasse zahlen?"
-                sub="Erstattungs-Check: Was hat AXA erstattet, was abgelehnt — und warum?"
-                accent="#b45309"
-              />
-
-              {/* Widerspruch-Potenzial KPI — only when there is rejection */}
+              <SectionHeader num={2} title="Muss die Kasse zahlen?" sub="Erstattungs-Check: Was hat AXA erstattet, was abgelehnt — und warum?" accent="#b45309" />
               {kassePotenzial > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
                   <KpiBox label="Eingereicht bei Kasse" value={`${kasseGruppe?.betragEingereicht?.toFixed(2) ?? '–'} €`} />
                   <KpiBox label="Erstattet" value={`${(kasseGruppe?.betragErstattet ?? kassenbescheid?.betragErstattet ?? 0).toFixed(2)} €`} good />
-                  <KpiBox
-                    label="Widerspruch-Potenzial (Kasse)"
-                    value={`${kassePotenzial.toFixed(2)} €`}
-                    warn
-                    sub="Kann angefochten werden"
-                  />
+                  <KpiBox label="Widerspruch-Potenzial (Kasse)" value={`${kassePotenzial.toFixed(2)} €`} warn sub="Kann angefochten werden" />
                 </div>
               )}
-
               {(kassenbescheid || kasseGruppe)
                 ? <KassenbescheidSection gruppe={kasseGruppe} analyse={kasseAnalyseNew} bescheid={kassenbescheid} />
                 : (
@@ -841,39 +749,28 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
                     <div style={{ fontSize: 28, marginBottom: 8 }}>📬</div>
                     <div style={{ fontWeight: 600, color: navy, marginBottom: 4 }}>Kassenbescheid noch nicht vorhanden</div>
                     <div style={{ fontSize: 12 }}>Sobald Sie den Bescheid einreichen, erscheint hier die automatische Analyse.</div>
-                    <a href="/kassenabrechnung" style={{ display: 'inline-block', marginTop: 12, fontSize: 12, fontWeight: 600, color: blue, textDecoration: 'none' }}>
-                      → Kassenbescheid einreichen
-                    </a>
                   </div>
                 )
               }
             </>
           )}
-
-          {/* ═══════ KASSE MODAL — standalone Kassenbescheid view ════════ */}
           {!isRechnung && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
                 <KpiBox label="Eingereicht" value={`${kData.betragEingereicht?.toFixed(2) ?? '–'} €`} />
                 <KpiBox label="Erstattet" value={`${kData.betragErstattet?.toFixed(2) ?? '–'} €`} good />
-                <KpiBox
-                  label="Abgelehnt / Offen"
-                  value={`${kData.betragAbgelehnt?.toFixed(2) ?? '–'} €`}
-                  warn={(kData.betragAbgelehnt ?? 0) > 0}
-                  sub={(kData.betragAbgelehnt ?? 0) > 0 ? '→ Widerspruch möglich' : undefined}
-                />
+                <KpiBox label="Abgelehnt / Offen" value={`${kData.betragAbgelehnt?.toFixed(2) ?? '–'} €`} warn={(kData.betragAbgelehnt ?? 0) > 0} sub={(kData.betragAbgelehnt ?? 0) > 0 ? '→ Widerspruch möglich' : undefined} />
               </div>
-
               {kData.widerspruchEmpfohlen && (
                 <div style={{ background: amberLight, border: `1px solid ${amber}`, borderRadius: 10, padding: '12px 16px', marginBottom: 20 }}>
-                  <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13, marginBottom: 4 }}>
+                  <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10 }}>
                     ⚡ Widerspruch empfohlen
                     {kData.widerspruchErfolgswahrscheinlichkeit != null && (
-                      <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                        background: kData.widerspruchErfolgswahrscheinlichkeit >= 70 ? mintLight : kData.widerspruchErfolgswahrscheinlichkeit >= 40 ? amberLight : redLight,
-                        color: kData.widerspruchErfolgswahrscheinlichkeit >= 70 ? '#065f46' : kData.widerspruchErfolgswahrscheinlichkeit >= 40 ? '#92400e' : '#991b1b',
-                      }}>
-                        {kData.widerspruchErfolgswahrscheinlichkeit} % Erfolg
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'white', borderRadius: 8, padding: '4px 10px', border: '1px solid #fcd34d' }}>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: kData.widerspruchErfolgswahrscheinlichkeit >= 70 ? '#22c55e' : kData.widerspruchErfolgswahrscheinlichkeit >= 40 ? amber : red, lineHeight: 1 }}>
+                          {kData.widerspruchErfolgswahrscheinlichkeit}%
+                        </span>
+                        <span style={{ fontSize: 10, color: slate }}>Erfolgschance</span>
                       </span>
                     )}
                   </div>
@@ -891,10 +788,7 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
                   )}
                 </div>
               )}
-
-              <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 8 }}>
-                Positionen ({kData.positionen?.length ?? 0})
-              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 8 }}>Positionen ({kData.positionen?.length ?? 0})</div>
               <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 20 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
@@ -913,8 +807,6 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
                   </tbody>
                 </table>
               </div>
-
-              {/* Ablehnungsgründe deliberately omitted — already shown inline per Position via 💬 tooltip */}
             </>
           )}
         </div>
