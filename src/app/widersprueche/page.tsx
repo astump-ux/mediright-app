@@ -54,20 +54,19 @@ export default async function WiderspruchPage() {
     .in('widerspruch_status', ['erstellt', 'gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'])
     .order('created_at', { ascending: false })
 
-  // DEBUG — remove after fixing
-  if (kasseErr || !kassenabrechnungen?.length) {
+ // Empty state (no active Widerspruchsverfahren)
+  if (!kassenabrechnungen?.length) {
     return (
       <div style={{ padding: 24 }}>
-        <h1 style={{ fontFamily: "'DM Serif Display', Georgia, serif", fontSize: 26, color: '#0f172a', fontWeight: 400, margin: '0 0 16px' }}>
-          Widerspruchsverfahren — Debug
+        <h1 style={{ fontFamily: "'DM Serif Display', Georgia, serif", fontSize: 26, color: '#0f172a', fontWeight: 400, margin: '0 0 8px' }}>
+          Widerspruchsverfahren
         </h1>
-        <div style={{ background: '#fef2f2', borderRadius: 12, padding: 16, fontSize: 13, fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: '#991b1b', marginBottom: 16 }}>
-          {kasseErr ? `Query Error: ${JSON.stringify(kasseErr)}` : 'Keine Ergebnisse'}
-        </div>
-        <div style={{ background: '#f1f5f9', borderRadius: 12, padding: 16, fontSize: 12, fontFamily: 'monospace' }}>
-          user.id: {user.id}{'\n'}
-          kassenabrechnungen count: {kassenabrechnungen?.length ?? 'null'}{'\n'}
-          kasseErr: {kasseErr ? JSON.stringify(kasseErr) : 'none'}
+        <p style={{ color: '#64748b', fontSize: 13, marginTop: 4, marginBottom: 32 }}>
+          KI-gestützte Kommunikationsbegleitung
+        </p>
+        <div style={{ textAlign: 'center', padding: '60px 24px', color: '#94a3b8', fontSize: 14 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
+          Keine aktiven Widerspruchsverfahren
         </div>
       </div>
     )
