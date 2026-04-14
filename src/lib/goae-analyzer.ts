@@ -226,6 +226,16 @@ export interface KassePosition {
    * - null                → position is fine or no clear action
    */
   aktionstyp?: 'widerspruch_kasse' | 'korrektur_arzt' | null
+  /**
+   * Estimated probability (0–100) that a Widerspruch on this specific position would succeed.
+   * Only relevant when aktionstyp === 'widerspruch_kasse'. Null for erstattet/korrektur_arzt.
+   */
+  widerspruchWahrscheinlichkeit?: number | null
+  /**
+   * Confidence (0–100) of the AI in its assessment for this position.
+   * High = clear-cut case, low = ambiguous/context-dependent.
+   */
+  confidence?: number | null
 }
 
 /**
@@ -306,6 +316,20 @@ Jede Position mit status "gekuerzt" oder "abgelehnt" MUSS ein aktionstyp-Feld er
     * Rechnung formal fehlerhaft (falsche Nummer, fehlendes Datum etc.)
 Für "erstattet"-Positionen: aktionstyp = null.
 
+WIDERSPRUCHSWAHRSCHEINLICHKEIT + CONFIDENCE PRO POSITION:
+Für jede Position mit aktionstyp "widerspruch_kasse" MUSS ein widerspruchWahrscheinlichkeit-Wert (0–100) gesetzt werden:
+  * 70–90: Formaler Fehler der Kasse (falsche GOÄ-Anwendung, fehlende Begründung)
+  * 50–70: Streitig (medizinische Notwendigkeit unklar, IGeL-Abgrenzung)
+  * 20–50: Vertragliche Ausschlüsse, aber Ermessensspielraum vorhanden
+  * < 20: Eindeutiger Vertragsausschluss, kaum Erfolgsaussicht
+Für alle anderen Positionen: widerspruchWahrscheinlichkeit = null.
+
+Für JEDE Position MUSS ein confidence-Wert (0–100) gesetzt werden:
+  * 85–100: Eindeutiger Fall, klare Rechtslage
+  * 65–85: Wahrscheinliche Einschätzung, geringe Ambiguität
+  * 40–65: Ambiguität vorhanden, abhängig von weiteren Unterlagen
+  * < 40: Sehr unsicher, nur mit vollständiger Akte beurteilbar
+
 Gib deine Antwort AUSSCHLIESSLICH als valides JSON zurück, ohne Markdown-Formatierung.`
 
 const DEFAULT_KASSE_USER_PROMPT = `Analysiere diesen PKV-Erstattungsbescheid vollständig.
@@ -344,7 +368,9 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
           "betragErstattet": 0.00,
           "status": "abgelehnt",
           "ablehnungsgrund": "Analogziffer nicht anerkannt",
-          "aktionstyp": "widerspruch_kasse"
+          "aktionstyp": "widerspruch_kasse",
+          "widerspruchWahrscheinlichkeit": 65,
+          "confidence": 72
         },
         {
           "ziffer": "3",
@@ -353,7 +379,9 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
           "betragErstattet": 9.33,
           "status": "gekuerzt",
           "ablehnungsgrund": "Faktor 3,5× ohne §12-Begründung",
-          "aktionstyp": "korrektur_arzt"
+          "aktionstyp": "korrektur_arzt",
+          "widerspruchWahrscheinlichkeit": null,
+          "confidence": 88
         }
       ]
     }
@@ -394,7 +422,9 @@ WICHTIG:
 - "selbstbehaltJahresgrenze": Der Jahres-Selbstbehalt-Gesamtbetrag laut Vertrag.
   Null wenn nicht angegeben.
 - Status-Werte für positionen: "erstattet" | "gekuerzt" | "abgelehnt"
-- aktionstyp für gekuerzt/abgelehnt: "widerspruch_kasse" | "korrektur_arzt" (null für erstattet)`
+- aktionstyp für gekuerzt/abgelehnt: "widerspruch_kasse" | "korrektur_arzt" (null für erstattet)
+- widerspruchWahrscheinlichkeit: 0–100 nur wenn aktionstyp="widerspruch_kasse", sonst null
+- confidence: 0–100 für JEDE Position (Sicherheit der KI-Einschätzung)`
 
 export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseResult> {
   const [systemPrompt, userPrompt, model] = await Promise.all([

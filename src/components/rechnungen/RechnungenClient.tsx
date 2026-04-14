@@ -16,7 +16,7 @@ const slate = '#64748b'
 const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }> = {
   erstattet: { bg: mintLight, color: '#065f46', label: 'Erstattet' },
   abgelehnt: { bg: redLight, color: '#991b1b', label: 'Abgelehnt' },
-  pruefen:   { bg: amberLight, color: '#92400e', label: '⚡ Widerspruch empfohlen' },
+  pruefen:   { bg: '#f1f5f9', color: slate, label: 'In Prüfung' },
   offen:     { bg: '#f1f5f9', color: slate, label: 'Offen' },
 }
 
@@ -28,6 +28,7 @@ interface KassenbescheidSummary {
   betragAbgelehnt: number | null
   widerspruchEmpfohlen: boolean
   widerspruchStatus?: string
+  widerspruchErfolgswahrscheinlichkeit?: number | null
 }
 
 interface VorgangRow {
@@ -128,11 +129,36 @@ function KassenbescheidBadge({ v }: { v: VorgangRow }) {
         <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: mintLight, color: '#065f46' }}>
           ✓ Widerspruch erfolgreich
         </span>
-      ) : kb.widerspruchEmpfohlen && abgelehnt > 0 ? (
-        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberLight, color: '#92400e' }} title="KI-Empfehlung — noch nicht eingereicht">
-          ⚡ Widerspruch empfohlen
-        </span>
-      ) : null}
+      ) : abgelehnt > 0 ? (() => {
+        const p = kb.widerspruchErfolgswahrscheinlichkeit
+        // Probability-based badge (requires abgelehnt > 0)
+        if (p != null && p >= 50) return (
+          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberLight, color: '#92400e' }}
+            title={`KI-Einschätzung: ${p} % Erfolgswahrscheinlichkeit`}>
+            ⚡ Widerspruch empfohlen · {p} %
+          </span>
+        )
+        if (p != null && p >= 20) return (
+          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#fef9c3', color: '#854d0e' }}
+            title={`KI-Einschätzung: ${p} % Erfolgswahrscheinlichkeit`}>
+            ⚠️ Widerspruch möglich · {p} %
+          </span>
+        )
+        if (p != null && p < 20) return (
+          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: '#f1f5f9', color: '#64748b' }}
+            title={`KI-Einschätzung: ${p} % Erfolgswahrscheinlichkeit`}>
+            ✗ Widerspruch nicht empfohlen · {p} %
+          </span>
+        )
+        // Fallback: no probability data yet → use boolean
+        if (kb.widerspruchEmpfohlen) return (
+          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberLight, color: '#92400e' }}
+            title="KI-Empfehlung — noch nicht eingereicht">
+            ⚡ Widerspruch empfohlen
+          </span>
+        )
+        return null
+      })() : null}
     </div>
   )
 }

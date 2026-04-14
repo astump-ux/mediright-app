@@ -89,6 +89,7 @@ export default async function RechnungenPage() {
             betragAbgelehnt: kassenabrechnung.betrag_abgelehnt,
             widerspruchEmpfohlen: kassenabrechnung.widerspruch_empfohlen,
             widerspruchStatus: kassenabrechnung.widerspruch_status ?? 'keiner',
+            widerspruchErfolgswahrscheinlichkeit: (kassenabrechnung.kasse_analyse as { widerspruchErfolgswahrscheinlichkeit?: number | null } | null)?.widerspruchErfolgswahrscheinlichkeit ?? null,
           } : null,
           kasseGruppe,
           kasseAnalyseNew,

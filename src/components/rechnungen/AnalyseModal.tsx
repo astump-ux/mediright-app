@@ -580,6 +580,27 @@ function KassenbescheidSection({
 }
 
 /** Extracted to avoid useState-in-loop (hooks in map) */
+function ProbabilityPill({ wahrscheinlichkeit, confidence }: { wahrscheinlichkeit?: number | null; confidence?: number | null }) {
+  if (wahrscheinlichkeit == null) return null
+  const bg = wahrscheinlichkeit >= 50 ? amberLight : wahrscheinlichkeit >= 20 ? '#fef9c3' : '#f1f5f9'
+  const color = wahrscheinlichkeit >= 50 ? '#92400e' : wahrscheinlichkeit >= 20 ? '#854d0e' : '#64748b'
+  const label = wahrscheinlichkeit >= 50 ? '⚡' : wahrscheinlichkeit >= 20 ? '⚠️' : '✗'
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: bg, color }}
+        title="Geschätzte Widerspruchs-Erfolgswahrscheinlichkeit (KI)">
+        {label} {wahrscheinlichkeit} % Erfolg
+      </span>
+      {confidence != null && (
+        <span style={{ fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 20, background: '#f1f5f9', color: '#64748b' }}
+          title="Konfidenz der KI-Einschätzung — wie sicher ist diese Prognose?">
+          KI-Konfidenz {confidence} %
+        </span>
+      )}
+    </span>
+  )
+}
+
 function AbgelehnteRow({ pos, even }: { pos: KassePosition; even: boolean }) {
   const [showErkl, setShowErkl] = useState(false)
   const erklaerung = pos.ablehnungsgrund ? laiensatzFor(pos.ablehnungsgrund) : null
@@ -605,6 +626,19 @@ function AbgelehnteRow({ pos, even }: { pos: KassePosition; even: boolean }) {
                 )}
               </>
             )}
+          </div>
+        )}
+        {pos.aktionstyp === 'widerspruch_kasse' && (
+          <div style={{ marginTop: 4 }}>
+            <ProbabilityPill wahrscheinlichkeit={pos.widerspruchWahrscheinlichkeit} confidence={pos.confidence} />
+          </div>
+        )}
+        {pos.aktionstyp !== 'widerspruch_kasse' && pos.confidence != null && (
+          <div style={{ marginTop: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 20, background: '#f1f5f9', color: '#64748b' }}
+              title="Konfidenz der KI-Einschätzung">
+              KI-Konfidenz {pos.confidence} %
+            </span>
           </div>
         )}
       </td>
@@ -643,6 +677,11 @@ function KassePositionRow({ pos, even }: { pos: KassePosition; even: boolean }) 
                 )}
               </>
             )}
+          </div>
+        )}
+        {(pos.widerspruchWahrscheinlichkeit != null || pos.confidence != null) && (
+          <div style={{ marginTop: 4 }}>
+            <ProbabilityPill wahrscheinlichkeit={pos.widerspruchWahrscheinlichkeit} confidence={pos.confidence} />
           </div>
         )}
       </td>
