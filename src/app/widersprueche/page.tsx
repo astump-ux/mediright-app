@@ -47,28 +47,27 @@ export default async function WiderspruchPage() {
     )
   }
 
-  const { data: kassenabrechnungen } = await getSupabaseAdmin()
+  const { data: kassenabrechnungen, error: kasseErr } = await getSupabaseAdmin()
     .from('kassenabrechnungen')
     .select('id, bescheiddatum, referenznummer, betrag_abgelehnt, widerspruch_status, widerspruch_gesendet_am, kasse_analyse')
     .eq('user_id', user.id)
     .in('widerspruch_status', ['erstellt', 'gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'])
     .order('created_at', { ascending: false })
 
-  if (!kassenabrechnungen?.length) {
+  // DEBUG — remove after fixing
+  if (kasseErr || !kassenabrechnungen?.length) {
     return (
-      <div>
-        <h1 style={{ fontFamily: "'DM Serif Display', Georgia, serif", fontSize: 26, color: '#0f172a', fontWeight: 400, margin: '0 0 8px' }}>
-          Widerspruchsverfahren
+      <div style={{ padding: 24 }}>
+        <h1 style={{ fontFamily: "'DM Serif Display', Georgia, serif", fontSize: 26, color: '#0f172a', fontWeight: 400, margin: '0 0 16px' }}>
+          Widerspruchsverfahren — Debug
         </h1>
-        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 32 }}>
-          Sobald du einen Widerspruch einreichst, erscheint er hier mit vollem Kommunikationsverlauf.
-        </p>
-        <div style={{ textAlign: 'center', padding: '60px 20px', background: 'white', borderRadius: 16, color: '#94a3b8' }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
-          <div style={{ fontWeight: 600, color: '#64748b' }}>Keine aktiven Widerspruchsverfahren</div>
-          <div style={{ fontSize: 13, marginTop: 6 }}>
-            Widersprüche werden angelegt wenn du im Analyse-Modal auf &ldquo;Widerspruch per E-Mail erstellen&rdquo; klickst.
-          </div>
+        <div style={{ background: '#fef2f2', borderRadius: 12, padding: 16, fontSize: 13, fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: '#991b1b', marginBottom: 16 }}>
+          {kasseErr ? `Query Error: ${JSON.stringify(kasseErr)}` : 'Keine Ergebnisse'}
+        </div>
+        <div style={{ background: '#f1f5f9', borderRadius: 12, padding: 16, fontSize: 12, fontFamily: 'monospace' }}>
+          user.id: {user.id}{'\n'}
+          kassenabrechnungen count: {kassenabrechnungen?.length ?? 'null'}{'\n'}
+          kasseErr: {kasseErr ? JSON.stringify(kasseErr) : 'none'}
         </div>
       </div>
     )
