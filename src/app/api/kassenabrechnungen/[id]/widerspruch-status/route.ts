@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
 const VALID_STATUSES = ['keiner', 'erstellt', 'gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt']
 
@@ -8,8 +9,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const supabase = await createServerSupabaseClient()
 
+  // Auth via user client (cookie-based)
+  const supabase = await createServerSupabaseClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -22,16 +24,20 @@ export async function PATCH(
     return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` }, { status: 400 })
   }
 
-  // RLS on kassenabrechnungen ensures user can only update their own rows.
-  // We just verify the row exists for this user before updating.
-  const { data: ka } = await supabase
+  // Use admin client for the write — verify ownership via user_id column
+  const admin = getSupabaseAdmin()
+
+  const { data: ka, error: lookupErr } = await admin
     .from('kassenabrechnungen')
-    .select('id')
+    .select('id, user_id')
     .eq('id', id)
     .single()
 
-  if (!ka) {
+  if (lookupErr || !ka) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  if (ka.user_id !== user.id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const updates: Record<string, unknown> = { widerspruch_status: status }
@@ -39,7 +45,7 @@ export async function PATCH(
     updates.widerspruch_gesendet_am = new Date().toISOString()
   }
 
-  const { error: updateErr } = await supabase
+  const { error: updateErr } = await admin
     .from('kassenabrechnungen')
     .update(updates)
     .eq('id', id)

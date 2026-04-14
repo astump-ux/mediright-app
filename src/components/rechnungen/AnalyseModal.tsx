@@ -272,11 +272,15 @@ function WiderspruchPanel({
 
   async function patchStatus(status: 'gesendet' | 'erstellt') {
     if (!kassenbescheidId) return
-    await fetch(`/api/kassenabrechnungen/${kassenbescheidId}/widerspruch-status`, {
+    const res = await fetch(`/api/kassenabrechnungen/${kassenbescheidId}/widerspruch-status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      console.error('[widerspruch-status PATCH]', res.status, err)
+    }
   }
 
   async function handleCopy() {
