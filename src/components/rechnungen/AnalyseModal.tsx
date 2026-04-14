@@ -524,14 +524,14 @@ function KassenbescheidSection({
                 {showWiderspruchPanel ? '▲ E-Mail schließen' : '⚖️ Widerspruch per E-Mail erstellen'}
               </button>
             )}
-            {hasArztAction && (
+            {hasArztAction && !widerspruchActive && (
               <span style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: 'white', color: '#92400e', border: `1px solid ${amber}`, display: 'inline-flex', alignItems: 'center', gap: 5 }}
                 title="Kontaktieren Sie Ihre Arztpraxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung.">
                 🩺 Arzt um Korrektur bitten
               </span>
             )}
           </div>
-          {hasArztAction && (
+          {hasArztAction && !widerspruchActive && (
             <div style={{ fontSize: 11, color: '#92400e', marginTop: 8, fontStyle: 'italic' }}>
               💬 Kontaktieren Sie die Praxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung für den erhöhten Faktor (§12 Abs. 3 GOÄ).
             </div>

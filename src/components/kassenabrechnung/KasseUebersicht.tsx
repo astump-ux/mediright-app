@@ -22,6 +22,23 @@ function quoteColor(q: number): string {
   return "#ef4444";
 }
 
+function confidenceLabel(c: number | null | undefined): string | null {
+  if (c == null) return null;
+  if (c >= 70) return "hoch";
+  if (c >= 40) return "mittel";
+  return "niedrig";
+}
+
+// ── Widerspruch status config ─────────────────────────────────────────────────
+const WIDERSPRUCH_STATUS_CFG: Record<string, { icon: string; label: string; bg: string; color: string; border: string }> = {
+  erstellt:    { icon: "📝", label: "Widerspruch erstellt",         bg: "#f1f5f9", color: "#64748b", border: "#cbd5e1" },
+  gesendet:    { icon: "📨", label: "Widerspruch gesendet — läuft", bg: "#eff6ff", color: "#1d4ed8", border: "#93c5fd" },
+  beantwortet: { icon: "💬", label: "AXA hat geantwortet",          bg: "#fffbeb", color: "#92400e", border: "#fcd34d" },
+  erfolgreich: { icon: "✅", label: "Widerspruch erfolgreich",       bg: "#ecfdf5", color: "#065f46", border: "#6ee7b7" },
+  abgelehnt:   { icon: "❌", label: "Widerspruch endabgelehnt",      bg: "#fef2f2", color: "#991b1b", border: "#fca5a5" },
+};
+const WIDERSPRUCH_ACTIVE = ["gesendet", "beantwortet", "erfolgreich", "abgelehnt"];
+
 // ── KPI header ────────────────────────────────────────────────────────────────
 
 function KPIBar({ kasseBescheide, unmatched }: { kasseBescheide: KasseBescheid[]; unmatched: UnmatchedVorgang[] }) {
@@ -29,10 +46,9 @@ function KPIBar({ kasseBescheide, unmatched }: { kasseBescheide: KasseBescheid[]
   const totalErstattet   = kasseBescheide.reduce((s, k) => s + (k.betrag_erstattet  ?? 0), 0);
   const totalAbgelehnt   = kasseBescheide.reduce((s, k) => s + (k.betrag_abgelehnt  ?? 0), 0);
   const avgQuote = totalEingereicht > 0 ? (totalErstattet / totalEingereicht) * 100 : 0;
-  const unmatchedKasse   = kasseBescheide.reduce(
+  const unmatchedKasse = kasseBescheide.reduce(
     (s, k) => s + (k.rechnungen?.filter(r => !r.matchedVorgangId).length ?? 0), 0
   );
-
   const currentYear = new Date().getFullYear().toString();
   const currentYearBescheide = kasseBescheide.filter(k => k.bescheiddatum?.startsWith(currentYear));
   const latestWithSelbstbehalt = currentYearBescheide.find(k => k.selbstbehalt_verbleibend != null);
@@ -40,28 +56,21 @@ function KPIBar({ kasseBescheide, unmatched }: { kasseBescheide: KasseBescheid[]
   const selbstbehaltJahresgrenze = latestWithSelbstbehalt?.selbstbehalt_jahresgrenze ?? null;
   const selbstbehaltGenutzt = selbstbehaltJahresgrenze != null && selbstbehaltVerbleibend != null
     ? selbstbehaltJahresgrenze - selbstbehaltVerbleibend
-    : kasseBescheide
-        .filter(k => k.bescheiddatum?.startsWith(currentYear))
-        .reduce((s, k) => s + (k.selbstbehalt_abgezogen ?? 0), 0);
+    : kasseBescheide.filter(k => k.bescheiddatum?.startsWith(currentYear)).reduce((s, k) => s + (k.selbstbehalt_abgezogen ?? 0), 0);
 
   const kpis = [
-    { label: "Gesamt eingereicht",    value: fmt(totalEingereicht), accent: "var(--navy)" },
-    { label: "Gesamt erstattet",      value: fmt(totalErstattet),   accent: "#22c55e" },
-    { label: "Gesamt abgelehnt",      value: fmt(totalAbgelehnt),   accent: totalAbgelehnt > 0 ? "#ef4444" : "var(--text-muted)" },
-    { label: "Ø Erstattungsquote",    value: avgQuote.toFixed(0) + " %", accent: quoteColor(avgQuote) },
+    { label: "Gesamt eingereicht",     value: fmt(totalEingereicht), accent: "var(--navy)" },
+    { label: "Gesamt erstattet",        value: fmt(totalErstattet),   accent: "#22c55e" },
+    { label: "Gesamt abgelehnt",        value: fmt(totalAbgelehnt),   accent: totalAbgelehnt > 0 ? "#ef4444" : "var(--text-muted)" },
+    { label: "Ø Erstattungsquote",      value: avgQuote.toFixed(0) + " %", accent: quoteColor(avgQuote) },
     { label: "Offene Kassenpositionen", value: String(unmatchedKasse), accent: unmatchedKasse > 0 ? "#f59e0b" : "#22c55e" },
-    { label: "Rechnungen ohne Kasse", value: String(unmatched.length), accent: unmatched.length > 0 ? "#f59e0b" : "#22c55e" },
+    { label: "Rechnungen ohne Kasse",   value: String(unmatched.length), accent: unmatched.length > 0 ? "#f59e0b" : "#22c55e" },
   ];
 
   return (
     <div className="flex flex-col gap-4 mb-8">
       {(selbstbehaltVerbleibend != null || selbstbehaltGenutzt > 0) && (
-        <SelbstbehaltBanner
-          verbleibend={selbstbehaltVerbleibend}
-          jahresgrenze={selbstbehaltJahresgrenze}
-          genutzt={selbstbehaltGenutzt}
-          year={currentYear}
-        />
+        <SelbstbehaltBanner verbleibend={selbstbehaltVerbleibend} jahresgrenze={selbstbehaltJahresgrenze} genutzt={selbstbehaltGenutzt} year={currentYear} />
       )}
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
         {kpis.map((k) => (
@@ -123,12 +132,17 @@ function SelbstbehaltBanner({ verbleibend, jahresgrenze, genutzt, year }: {
   );
 }
 
-// ── Rejected positions detail panel ──────────────────────────────────────────
+// ── AblehnungsPanel ───────────────────────────────────────────────────────────
 
 function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
-  const analyse = kasse.kasse_analyse as KasseAnalyseResult | null;
+  const [showPositionen, setShowPositionen] = useState(true);
+  const [showSchritte, setShowSchritte]     = useState(true);
 
-  // Collect all abgelehnte/gekürzte positions across all rechnungen
+  const analyse = kasse.kasse_analyse as KasseAnalyseResult | null;
+  const widerspruchStatus = kasse.widerspruch_status ?? null;
+  const widerspruchActive = WIDERSPRUCH_ACTIVE.includes(widerspruchStatus ?? "");
+  const statusCfg = widerspruchStatus ? WIDERSPRUCH_STATUS_CFG[widerspruchStatus] : null;
+
   const abgelehnte: Array<{ arztName: string; pos: KassePosition }> = [];
   for (const gruppe of kasse.rechnungen) {
     for (const pos of gruppe.positionen ?? []) {
@@ -147,23 +161,53 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
   if (abgelehnte.length === 0 && ablehnungsgruende.length === 0) return null;
 
   const erfolgColor = erfolg == null ? "#64748b" : erfolg >= 70 ? "#22c55e" : erfolg >= 40 ? "#f59e0b" : "#ef4444";
-  const erfolgBg    = erfolg == null ? "#f1f5f9" : erfolg >= 70 ? "#dcfce7" : erfolg >= 40 ? "#fef3c7" : "#fee2e2";
+
+  // Aggregate confidence from positions
+  const confValues = abgelehnte
+    .map(a => (a.pos as { widerspruchWahrscheinlichkeit?: number | null; confidence?: number | null }).confidence)
+    .filter((c): c is number => c != null);
+  const avgConf   = confValues.length > 0 ? confValues.reduce((s, c) => s + c, 0) / confValues.length : null;
+  const confLabel = confidenceLabel(avgConf);
+  const confColor = confLabel === "hoch" ? "#065f46" : confLabel === "mittel" ? "#92400e" : "#64748b";
+  const confBg    = confLabel === "hoch" ? "#dcfce7"  : confLabel === "mittel" ? "#fef3c7"  : "#f1f5f9";
 
   return (
     <div className="mt-4 rounded-xl overflow-hidden" style={{ border: "1.5px solid #fecaca" }}>
-      {/* Header */}
-      <div className="px-5 py-3 flex items-center gap-2" style={{ background: "#fff1f2" }}>
+
+      {/* ── Widerspruch status banner ── */}
+      {widerspruchActive && statusCfg && (
+        <div className="px-5 py-3 flex items-center justify-between gap-3"
+          style={{ background: statusCfg.bg, borderBottom: `1.5px solid ${statusCfg.border}` }}>
+          <div className="flex items-center gap-3">
+            <span style={{ fontSize: 20 }}>{statusCfg.icon}</span>
+            <div>
+              <p className="text-sm font-bold" style={{ color: statusCfg.color }}>{statusCfg.label}</p>
+              <p className="text-xs" style={{ color: statusCfg.color, opacity: 0.75 }}>Alle Details im Widerspruchs-Tab</p>
+            </div>
+          </div>
+          <a href="/widersprueche"
+            className="text-xs font-bold px-4 py-2 rounded-lg no-underline flex-shrink-0"
+            style={{ background: statusCfg.color, color: "white" }}>
+            → Zum Verfahren
+          </a>
+        </div>
+      )}
+
+      {/* ── Abgelehnte Positionen (collapsible) ── */}
+      <div
+        className="px-5 py-3 flex items-center gap-2 cursor-pointer select-none"
+        style={{ background: "#fff1f2" }}
+        onClick={() => setShowPositionen(v => !v)}
+      >
         <span>❌</span>
-        <span className="text-sm font-semibold" style={{ color: "#991b1b" }}>
-          Abgelehnte & Gekürzte Positionen
+        <span className="text-sm font-semibold flex-1" style={{ color: "#991b1b" }}>
+          Abgelehnte &amp; Gekürzte Positionen ({abgelehnte.length})
         </span>
-        <span className="ml-auto text-xs font-mono" style={{ color: "#ef4444" }}>
-          −{fmt(kasse.betrag_abgelehnt)}
-        </span>
+        <span className="text-xs font-mono" style={{ color: "#ef4444" }}>−{fmt(kasse.betrag_abgelehnt)}</span>
+        <span className="text-xs ml-2" style={{ color: "#ef4444", opacity: 0.6 }}>{showPositionen ? "▲ einklappen" : "▼ ausklappen"}</span>
       </div>
 
-      {/* Positions table */}
-      {abgelehnte.length > 0 && (
+      {showPositionen && abgelehnte.length > 0 && (
         <table className="w-full text-sm border-t" style={{ borderColor: "#fecaca" }}>
           <thead>
             <tr style={{ background: "#fef2f2" }}>
@@ -175,36 +219,48 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
             </tr>
           </thead>
           <tbody>
-            {abgelehnte.map(({ arztName, pos }, i) => (
-              <tr key={i} className="border-t" style={{ borderColor: "#fecaca", background: i % 2 === 0 ? "white" : "#fff5f5" }}>
-                <td className="px-5 py-2.5 font-mono text-xs font-semibold" style={{ color: "#991b1b" }}>{pos.ziffer}</td>
-                <td className="px-4 py-2.5">
-                  <div className="font-medium text-xs" style={{ color: "#1e293b" }}>{pos.bezeichnung}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "#64748b" }}>{arztName}</div>
-                  {pos.ablehnungsgrund && (
-                    <div className="text-xs mt-1 italic" style={{ color: "#dc2626" }}>
-                      → {pos.ablehnungsgrund}
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-right font-mono text-xs" style={{ color: "#475569" }}>{fmt(pos.betragEingereicht)}</td>
-                <td className="px-4 py-2.5 text-right font-mono text-xs font-semibold" style={{ color: pos.betragErstattet > 0 ? "#f59e0b" : "#ef4444" }}>
-                  {fmt(pos.betragErstattet)}
-                </td>
-                <td className="px-4 py-2.5 text-center">
-                  {pos.status === "abgelehnt"
-                    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-lg" style={{ background: "#fee2e2", color: "#991b1b" }}>✗ Abgelehnt</span>
-                    : <span className="text-xs font-semibold px-2 py-0.5 rounded-lg" style={{ background: "#fef3c7", color: "#92400e" }}>⚠ Gekürzt</span>
-                  }
-                </td>
-              </tr>
-            ))}
+            {abgelehnte.map(({ arztName, pos }, i) => {
+              const posExt = pos as { widerspruchWahrscheinlichkeit?: number | null; confidence?: number | null };
+              const p = posExt.widerspruchWahrscheinlichkeit;
+              const pColor = p != null ? (p >= 50 ? "#92400e" : p >= 20 ? "#854d0e" : "#64748b") : "";
+              const pBg    = p != null ? (p >= 50 ? "#fef3c7" : p >= 20 ? "#fef9c3" : "#f1f5f9")  : "";
+              const pIcon  = p != null ? (p >= 50 ? "⚡" : p >= 20 ? "⚠️" : "✗") : "";
+              return (
+                <tr key={i} className="border-t" style={{ borderColor: "#fecaca", background: i % 2 === 0 ? "white" : "#fff5f5" }}>
+                  <td className="px-5 py-2.5 font-mono text-xs font-semibold" style={{ color: "#991b1b" }}>{pos.ziffer}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="font-medium text-xs" style={{ color: "#1e293b" }}>{pos.bezeichnung}</div>
+                    <div className="text-xs mt-0.5" style={{ color: "#64748b" }}>{arztName}</div>
+                    {pos.ablehnungsgrund && (
+                      <div className="text-xs mt-1 italic" style={{ color: "#dc2626" }}>→ {pos.ablehnungsgrund}</div>
+                    )}
+                    {p != null && (
+                      <span className="inline-flex items-center gap-1 mt-1.5">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: pBg, color: pColor }}>
+                          {pIcon} {p}% Erfolgschance
+                        </span>
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-xs" style={{ color: "#475569" }}>{fmt(pos.betragEingereicht)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-xs font-semibold" style={{ color: pos.betragErstattet > 0 ? "#f59e0b" : "#ef4444" }}>
+                    {fmt(pos.betragErstattet)}
+                  </td>
+                  <td className="px-4 py-2.5 text-center">
+                    {pos.status === "abgelehnt"
+                      ? <span className="text-xs font-semibold px-2 py-0.5 rounded-lg" style={{ background: "#fee2e2", color: "#991b1b" }}>✗ Abgelehnt</span>
+                      : <span className="text-xs font-semibold px-2 py-0.5 rounded-lg" style={{ background: "#fef3c7", color: "#92400e" }}>⚠ Gekürzt</span>
+                    }
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
 
-      {/* Ablehnungsgründe */}
-      {ablehnungsgruende.length > 0 && (
+      {/* ── Ablehnungsgründe ── */}
+      {showPositionen && ablehnungsgruende.length > 0 && (
         <div className="px-5 py-4 border-t" style={{ borderColor: "#fecaca", background: "#fff8f8" }}>
           <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#991b1b" }}>Ablehnungsgründe der Kasse</p>
           <div className="flex flex-col gap-1.5">
@@ -218,47 +274,58 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
         </div>
       )}
 
-      {/* Widerspruchs-Analyse */}
-      {widerspruch && (
+      {/* ── Handlungsempfehlung (nur wenn Widerspruch empfohlen UND noch nicht aktiv) ── */}
+      {widerspruch && !widerspruchActive && (
         <div className="border-t" style={{ borderColor: "#fecaca" }}>
           <div className="px-5 py-4" style={{ background: "#fffbeb" }}>
-            {/* Headline + Erfolgsquote */}
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <span>⚡</span>
-                <p className="text-sm font-semibold" style={{ color: "#92400e" }}>Widerspruch empfohlen</p>
+                <p className="text-sm font-semibold" style={{ color: "#92400e" }}>Handlungsempfehlung</p>
               </div>
               {erfolg != null && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: "#92400e" }}>Erfolgswahrscheinlichkeit</span>
-                  <span className="text-sm font-bold px-3 py-0.5 rounded-xl" style={{ background: erfolgBg, color: erfolgColor }}>
-                    {erfolg} %
-                  </span>
+                <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "white", border: "1px solid #fcd34d" }}>
+                  <div className="text-right">
+                    <div className="font-extrabold leading-none" style={{ fontSize: 22, color: erfolgColor }}>{erfolg}%</div>
+                    <div className="text-xs mt-0.5" style={{ color: "#64748b" }}>Erfolgschance</div>
+                  </div>
+                  {confLabel && (
+                    <div className="pl-2 border-l" style={{ borderColor: "#e2e8f0" }}>
+                      <div className="text-xs mb-1" style={{ color: "#64748b" }}>KI-Konfidenz</div>
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: confBg, color: confColor }}>{confLabel}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Begründung */}
             {begruendung && (
               <p className="text-sm mb-4" style={{ color: "#78350f", lineHeight: 1.6 }}>{begruendung}</p>
             )}
 
-            {/* Nächste Schritte */}
             {schritte && schritte.length > 0 && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#92400e" }}>
-                  Empfohlene nächste Schritte
-                </p>
-                <div className="flex flex-col gap-2">
-                  {schritte.map((s, i) => (
-                    <div key={i} className="flex gap-3 items-start">
-                      <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#f59e0b", color: "white" }}>
-                        {i + 1}
-                      </span>
-                      <p className="text-sm" style={{ color: "#78350f", lineHeight: 1.5 }}>{s}</p>
-                    </div>
-                  ))}
+                <div
+                  className="flex items-center justify-between cursor-pointer select-none mb-2"
+                  onClick={() => setShowSchritte(v => !v)}
+                >
+                  <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "#92400e" }}>
+                    Nächste Schritte ({schritte.length})
+                  </p>
+                  <span className="text-xs" style={{ color: "#92400e", opacity: 0.6 }}>{showSchritte ? "▲" : "▼"}</span>
                 </div>
+                {showSchritte && (
+                  <div className="flex flex-col gap-2">
+                    {schritte.map((s, i) => (
+                      <div key={i} className="flex gap-3 items-start">
+                        <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#f59e0b", color: "white" }}>
+                          {i + 1}
+                        </span>
+                        <p className="text-sm" style={{ color: "#78350f", lineHeight: 1.5 }}>{s}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -276,6 +343,10 @@ function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
     ? (kasse.betrag_erstattet / kasse.betrag_eingereicht) * 100
     : 0;
 
+  const widerspruchStatus = kasse.widerspruch_status ?? null;
+  const widerspruchActive = WIDERSPRUCH_ACTIVE.includes(widerspruchStatus ?? "");
+  const statusCfg = widerspruchStatus ? WIDERSPRUCH_STATUS_CFG[widerspruchStatus] : null;
+
   const allGruppen: Array<{
     gruppe: KasseRechnungGruppe | null;
     vorgang: KasseBescheid["vorgaenge"][0] | null;
@@ -283,7 +354,6 @@ function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
   }> = [];
 
   const linkedVorgangIds = new Set(kasse.vorgaenge.map((v) => v.id));
-
   for (const g of kasse.rechnungen) {
     const matchedVorgang = kasse.vorgaenge.find((v) => v.id === g.matchedVorgangId) ?? null;
     allGruppen.push({ gruppe: g, vorgang: matchedVorgang, status: matchedVorgang ? "matched" : "unmatched-kasse" });
@@ -315,11 +385,19 @@ function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {kasse.widerspruch_empfohlen && (
-            <span className="text-xs font-semibold px-2 py-1 rounded-lg" style={{ background: "#fef3c7", color: "#92400e" }}>⚡ Widerspruch</span>
-          )}
-          <span className="text-sm font-bold px-3 py-1 rounded-xl" style={{ background: `${quoteColor(quote)}15`, color: quoteColor(quote) }}>
-            {quote.toFixed(0)} %
+          {/* Widerspruch status badge */}
+          {widerspruchActive && statusCfg ? (
+            <span className="text-xs font-semibold px-2 py-1 rounded-lg"
+              style={{ background: statusCfg.bg, color: statusCfg.color, border: `1px solid ${statusCfg.border}` }}>
+              {statusCfg.icon} {widerspruchStatus === "gesendet" ? "Widerspruch läuft" : statusCfg.label}
+            </span>
+          ) : kasse.widerspruch_empfohlen ? (
+            <span className="text-xs font-semibold px-2 py-1 rounded-lg" style={{ background: "#fef3c7", color: "#92400e" }}>⚡ Widerspruch empfohlen</span>
+          ) : null}
+          {/* Erstattungsquote — clearly labelled */}
+          <span className="text-xs font-bold px-3 py-1 rounded-xl" title="Erstattungsquote"
+            style={{ background: `${quoteColor(quote)}15`, color: quoteColor(quote) }}>
+            {quote.toFixed(0)}% erstattet
           </span>
           <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>{open ? "▲" : "▼"}</span>
         </div>
@@ -344,12 +422,12 @@ function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
                 </thead>
                 <tbody>
                   {allGruppen.map((row, i) => {
-                    const arztName   = row.gruppe?.arztName ?? row.vorgang?.arzt_name ?? "—";
-                    const datum      = row.gruppe?.rechnungsdatum ?? row.vorgang?.rechnungsdatum;
+                    const arztName    = row.gruppe?.arztName ?? row.vorgang?.arzt_name ?? "—";
+                    const datum       = row.gruppe?.rechnungsdatum ?? row.vorgang?.rechnungsdatum;
                     const eingereicht = row.gruppe?.betragEingereicht ?? row.vorgang?.betrag_gesamt;
-                    const erstattet  = row.gruppe?.betragErstattet;
-                    const abgelehnt  = row.gruppe?.betragAbgelehnt ?? 0;
-                    const matched    = row.status === "matched" || row.status === "linked-vorgang";
+                    const erstattet   = row.gruppe?.betragErstattet;
+                    const abgelehnt   = row.gruppe?.betragAbgelehnt ?? 0;
+                    const matched     = row.status === "matched" || row.status === "linked-vorgang";
                     return (
                       <tr key={i} className="border-t" style={{ borderColor: "var(--border)", background: i % 2 === 0 ? "transparent" : "var(--bg-subtle)" }}>
                         <td className="px-5 py-3 font-medium" style={{ color: "var(--text-primary)" }}>
@@ -398,8 +476,6 @@ function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
               </table>
             </div>
           )}
-
-          {/* Ablehnungsanalyse — shown when there are rejected items */}
           {kasse.betrag_abgelehnt > 0 && <AblehnungsPanel kasse={kasse} />}
         </div>
       )}
@@ -407,7 +483,7 @@ function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
   );
 }
 
-// ── Unmatched Arztrechnungen section ──────────────────────────────────────────
+// ── Unmatched Arztrechnungen ───────────────────────────────────────────────────
 
 function UnmatchedSection({ vorgaenge }: { vorgaenge: UnmatchedVorgang[] }) {
   if (vorgaenge.length === 0) return null;

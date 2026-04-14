@@ -16,6 +16,7 @@ export interface KasseBescheid {
   betrag_erstattet: number
   betrag_abgelehnt: number
   widerspruch_empfohlen: boolean
+  widerspruch_status: string | null
   selbstbehalt_abgezogen: number | null
   selbstbehalt_verbleibend: number | null
   selbstbehalt_jahresgrenze: number | null
@@ -43,7 +44,6 @@ export interface UnmatchedVorgang {
 }
 
 export default async function KassenPage() {
-  // Auth check
   const cookieStore = await cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,14 +55,12 @@ export default async function KassenPage() {
 
   const admin = getSupabaseAdmin()
 
-  // Load kassenabrechnungen
   const { data: kassenRaw } = await admin
     .from('kassenabrechnungen')
-    .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, selbstbehalt_abgezogen, selbstbehalt_verbleibend, selbstbehalt_jahresgrenze, pdf_storage_path, kasse_analyse')
+    .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, widerspruch_status, selbstbehalt_abgezogen, selbstbehalt_verbleibend, selbstbehalt_jahresgrenze, pdf_storage_path, kasse_analyse')
     .eq('user_id', user.id)
     .order('bescheiddatum', { ascending: false })
 
-  // Load all vorgaenge for this user
   const { data: vorgaengeRaw } = await admin
     .from('vorgaenge')
     .select('id, arzt_name, rechnungsdatum, rechnungsnummer, betrag_gesamt, kasse_match_status, kassenabrechnung_id, pdf_storage_path, status')
@@ -71,8 +69,6 @@ export default async function KassenPage() {
     .order('rechnungsdatum', { ascending: false })
 
   const vorgaenge = vorgaengeRaw ?? []
-
-  // Group vorgaenge by kassenabrechnung_id
   const vorgangByKasse = new Map<string, typeof vorgaenge>()
   const unmatchedVorgaenge: UnmatchedVorgang[] = []
 
@@ -93,7 +89,6 @@ export default async function KassenPage() {
     }
   }
 
-  // Build KasseBescheid objects
   const kasseBescheide: KasseBescheid[] = (kassenRaw ?? []).map(k => ({
     id: k.id,
     bescheiddatum: k.bescheiddatum,
@@ -102,6 +97,7 @@ export default async function KassenPage() {
     betrag_erstattet: k.betrag_erstattet,
     betrag_abgelehnt: k.betrag_abgelehnt,
     widerspruch_empfohlen:     k.widerspruch_empfohlen,
+    widerspruch_status:        k.widerspruch_status ?? null,
     selbstbehalt_abgezogen:    k.selbstbehalt_abgezogen    ?? null,
     selbstbehalt_verbleibend:  k.selbstbehalt_verbleibend  ?? null,
     selbstbehalt_jahresgrenze: k.selbstbehalt_jahresgrenze ?? null,
@@ -125,10 +121,7 @@ export default async function KassenPage() {
       <main className="max-w-[1100px] mx-auto px-6 py-8 w-full">
         <div className="flex items-end justify-between mb-6">
           <div>
-            <h1
-              className="text-3xl mb-1"
-              style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: 'var(--navy)' }}
-            >
+            <h1 className="text-3xl mb-1" style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: 'var(--navy)' }}>
               Kassenabrechnungen
             </h1>
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -136,10 +129,7 @@ export default async function KassenPage() {
             </p>
           </div>
         </div>
-        <KasseUebersicht
-          kasseBescheide={kasseBescheide}
-          unmatchedVorgaenge={unmatchedVorgaenge}
-        />
+        <KasseUebersicht kasseBescheide={kasseBescheide} unmatchedVorgaenge={unmatchedVorgaenge} />
       </main>
     </>
   )
