@@ -133,6 +133,9 @@ interface KassePosition {
   betragErstattet: number
   status: 'erstattet' | 'gekuerzt' | 'abgelehnt'
   ablehnungsgrund?: string | null
+  aktionstyp?: 'widerspruch_kasse' | 'korrektur_arzt' | null
+  widerspruchWahrscheinlichkeit?: number | null
+  confidence?: number | null
 }
 
 interface GoaeAnalyse {
