@@ -91,7 +91,8 @@ export default async function WiderspruchPage() {
 
   const faelle: WiderspruchFall[] = kassenabrechnungen.map(k => {
     const linked = vorgaenge?.find(v => v.kassenabrechnung_id === k.id)
-    const arzt = linked?.aerzte as { name: string } | null
+    const arztRow = linked?.aerzte as unknown as { name: string }[] | { name: string } | null
+    const arzt = Array.isArray(arztRow) ? (arztRow[0] ?? null) : arztRow
     return {
       id: k.id,
       bescheiddatum: k.bescheiddatum,
