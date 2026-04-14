@@ -207,9 +207,15 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {vorgaenge.map(v => {
-          const s = STATUS_STYLES[v.status] ?? STATUS_STYLES.offen
           const isDownloading = downloading.startsWith(v.id)
           const hasKassenbescheid = !!v.kassenbescheid
+          const kb = v.kassenbescheid
+          const kbAbgelehnt = (v.kasseGruppe?.betragAbgelehnt ?? kb?.betragAbgelehnt ?? 0)
+          // If Kassenbescheid exists with no rejection → show as erstattet regardless of DB status
+          const effectiveStatus = hasKassenbescheid && kbAbgelehnt === 0
+            ? 'erstattet'
+            : v.status
+          const s = STATUS_STYLES[effectiveStatus] ?? STATUS_STYLES.offen
 
           return (
             <div key={v.id} style={{
