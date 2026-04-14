@@ -22,20 +22,16 @@ export async function PATCH(
     return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` }, { status: 400 })
   }
 
-  // Verify ownership via kassenabrechnungen → vorgaenge → user_id
-  const { data: ka, error: lookupErr } = await supabase
+  // RLS on kassenabrechnungen ensures user can only update their own rows.
+  // We just verify the row exists for this user before updating.
+  const { data: ka } = await supabase
     .from('kassenabrechnungen')
-    .select('id, vorgaenge!inner(user_id)')
+    .select('id')
     .eq('id', id)
     .single()
 
-  if (lookupErr || !ka) {
+  if (!ka) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-
-  const vg = ka.vorgaenge as unknown as { user_id: string }
-  if (vg.user_id !== user.id) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const updates: Record<string, unknown> = { widerspruch_status: status }
