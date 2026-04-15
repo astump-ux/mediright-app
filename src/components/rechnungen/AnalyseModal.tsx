@@ -334,6 +334,122 @@ function WiderspruchPanel({
     </div>
   )
 }
+// ── Arzt-Korrektur letter generator ──────────────────────────────────────────
+function generateArztKorrekturLetter({
+  arztName, korrekturPos, rechnungsdatum,
+}: {
+  arztName: string | null | undefined
+  korrekturPos: KassePosition[]
+  rechnungsdatum?: string | null
+}): { betreff: string; body: string } {
+  const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const datum = rechnungsdatum
+    ? new Date(rechnungsdatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : '[Rechnungsdatum]'
+  const arzt = arztName ?? '[Arztpraxis]'
+  const posListe = korrekturPos.length > 0
+    ? korrekturPos.map(p =>
+        `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": Faktor ${p.faktor}×, ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht`
+      ).join('\n')
+    : '  [Bitte betroffene Positionen eintragen]'
+  const betreff = `Bitte um Rechnungskorrektur – Rechnung vom ${datum}`
+  const body = `${arzt}
+[Adresse der Praxis – bitte eintragen]
+
+${heute}
+
+Betreff: ${betreff}
+
+Sehr geehrte Damen und Herren,
+
+ich wende mich bezüglich Ihrer Rechnung vom ${datum} an Sie. Meine private Krankenversicherung (AXA) hat folgende Positionen nicht erstattet und hat darauf hingewiesen, dass eine Korrektur der Rechnung oder eine ergänzende Begründung erforderlich ist:
+
+Betroffene Positionen:
+${posListe}
+
+Ich bitte Sie daher, entweder:
+1. Eine korrigierte Rechnung auszustellen, oder
+2. Mir eine schriftliche Begründung für den erhöhten Abrechnungsfaktor gemäß § 12 Abs. 3 GOÄ zuzusenden, die ich zur Erstattung bei meiner Versicherung einreichen kann.
+
+Für Rückfragen stehe ich Ihnen gerne zur Verfügung.
+
+Mit freundlichen Grüßen,
+[Ihr vollständiger Name]
+[Ihre Adresse]
+[Telefon / E-Mail]`
+  return { betreff, body }
+}
+
+function ArztKorrekturPanel({
+  arztName, korrekturPos, rechnungsdatum,
+}: {
+  arztName: string | null | undefined
+  korrekturPos: KassePosition[]
+  rechnungsdatum?: string | null
+}) {
+  const { betreff, body } = generateArztKorrekturLetter({ arztName, korrekturPos, rechnungsdatum })
+  const [editBetreff, setEditBetreff] = useState(betreff)
+  const [editBody, setEditBody]       = useState(body)
+  const [copied, setCopied]           = useState(false)
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(`Betreff: ${editBetreff}\n\n${editBody}`)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2500)
+  }
+  function handleGmail() {
+    window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')
+  }
+  function handleOutlook() {
+    window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')
+  }
+  function handleMailto() {
+    const a = document.createElement('a')
+    a.href = `mailto:?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`
+    a.click()
+  }
+  return (
+    <div style={{ marginTop: 16, border: `2px solid #fb923c`, borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ background: '#fff7ed', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontWeight: 700, color: '#9a3412', fontSize: 14 }}>🩺 Schreiben an Arztpraxis</span>
+        <span style={{ fontSize: 12, color: '#9a3412' }}>— Text bearbeiten, dann kopieren oder öffnen</span>
+      </div>
+      <div style={{ padding: 16, background: 'white' }}>
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>Betreff</label>
+          <input value={editBetreff} onChange={e => setEditBetreff(e.target.value)}
+            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, color: navy, boxSizing: 'border-box' }} />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>Brief-Text</label>
+          <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={16}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button onClick={handleCopy}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? mintLight : '#f1f5f9', color: copied ? '#065f46' : navy }}>
+            {copied ? '✓ Kopiert!' : '📋 Text kopieren'}
+          </button>
+          <button onClick={handleGmail}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#eff6ff', color: '#1d4ed8' }}>
+            In Gmail öffnen
+          </button>
+          <button onClick={handleOutlook}
+            style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#e8f4fd', color: '#0078d4' }}>
+            In Outlook öffnen
+          </button>
+          <button onClick={handleMailto}
+            style={{ fontSize: 12, fontWeight: 500, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', cursor: 'pointer', background: 'white', color: '#64748b' }}>
+            Anderes Programm
+          </button>
+        </div>
+        <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>
+          💡 Bitte die Adresse der Praxis vor dem Versenden eintragen.
+        </div>
+      </div>
+    </div>
+  )
+}
 // ── Kassenbescheid section ────────────────────────────────────────────────────
 function KassenbescheidSection({
   gruppe, analyse, bescheid,
@@ -343,6 +459,7 @@ function KassenbescheidSection({
   bescheid: KassenbescheidSummary | null | undefined
 }) {
   const [showWiderspruchPanel, setShowWiderspruchPanel] = useState(false)
+  const [showArztPanel, setShowArztPanel]               = useState(false)
   const [showPositionen, setShowPositionen]             = useState(true)
   const [showSchritte, setShowSchritte]                 = useState(true)
 
@@ -525,17 +642,11 @@ function KassenbescheidSection({
               </button>
             )}
             {hasArztAction && !widerspruchActive && (
-              <span style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: 'white', color: '#92400e', border: `1px solid ${amber}`, display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                title="Kontaktieren Sie Ihre Arztpraxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung.">
-                🩺 Arzt um Korrektur bitten
-              </span>
+              <button onClick={() => setShowArztPanel(v => !v)}
+                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: showArztPanel ? '#9a3412' : 'white', color: showArztPanel ? 'white' : '#92400e', border: `1px solid ${amber}`, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                {showArztPanel ? '▲ Schreiben schließen' : '🩺 Arzt um Korrektur bitten'}
+              </button>
             )}
-          </div>
-          {hasArztAction && !widerspruchActive && (
-            <div style={{ fontSize: 11, color: '#92400e', marginTop: 8, fontStyle: 'italic' }}>
-              💬 Kontaktieren Sie die Praxis und bitten Sie um eine korrigierte Rechnung oder eine schriftliche Begründung für den erhöhten Faktor (§12 Abs. 3 GOÄ).
-            </div>
-          )}
         </div>
       )}
 
@@ -547,6 +658,13 @@ function KassenbescheidSection({
 
       {showWiderspruchPanel && (
         <WiderspruchPanel bescheid={bescheid} gruppe={gruppe} analyse={analyse} kassenbescheidId={bescheid?.id} />
+      )}
+      {showArztPanel && (
+        <ArztKorrekturPanel
+          arztName={gruppe?.arztName}
+          korrekturPos={abgelehntePos.filter(p => (p as {aktionstyp?: string}).aktionstyp === 'korrektur_arzt')}
+          rechnungsdatum={bescheid?.bescheiddatum}
+        />
       )}
     </div>
   )

@@ -134,9 +134,154 @@ function SelbstbehaltBanner({ verbleibend, jahresgrenze, genutzt, year }: {
 
 // ── AblehnungsPanel ───────────────────────────────────────────────────────────
 
+// ── Widerspruch letter generator ─────────────────────────────────────────────
+function generateWiderspruchLetterKasse(kasse: KasseBescheid, analyse: KasseAnalyseResult | null) {
+  const heute = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const bescheidDatum = kasse.bescheiddatum
+    ? new Date(kasse.bescheiddatum).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "[Datum des Bescheids]";
+  const ref = kasse.referenznummer ?? "[Ihre Referenznummer]";
+  const abgelehnt = kasse.betrag_abgelehnt.toFixed(2);
+  const begruendung = analyse?.widerspruchBegruendung ?? "Die Ablehnung ist aus meiner Sicht nicht gerechtfertigt.";
+  const allPos = kasse.rechnungen.flatMap(g => (g.positionen ?? []).filter(p => p.status === "abgelehnt" || p.status === "gekuerzt"));
+  const posListe = allPos.length > 0
+    ? allPos.map(p => `  - Ziffer ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht, ${(p.betragErstattet ?? 0).toFixed(2)} € erstattet`).join("\n")
+    : "  [Bitte betroffene Positionen eintragen]";
+  const betreff = `Widerspruch gegen Leistungsbescheid vom ${bescheidDatum} – Referenz ${ref}`;
+  const body = `AXA Krankenversicherung AG\nKundenservice / Leistungsabteilung\n[⚠️ PLATZHALTER: Adresse aus Ihrem Versicherungsschein eintragen!]
+
+${heute}
+
+Betreff: ${betreff}
+Versicherungsnehmer: [Ihr vollständiger Name]
+Versicherungsnummer: [Ihre Versicherungsnummer]
+
+Sehr geehrte Damen und Herren,
+
+hiermit lege ich fristgerecht Widerspruch gegen Ihren Leistungsbescheid vom ${bescheidDatum} (Referenz: ${ref}) ein.
+
+Sie haben Leistungen in Höhe von ${abgelehnt} € nicht erstattet. Ich bin der Auffassung, dass diese Entscheidung nicht gerechtfertigt ist und bitte Sie um eine erneute Prüfung.
+
+Betroffene Positionen:
+${posListe}
+
+Begründung meines Widerspruchs:
+${begruendung}
+
+Ich bitte Sie daher, Ihre Entscheidung zu überprüfen und mir den abgelehnten Betrag von ${abgelehnt} € vollständig zu erstatten. Sollten Sie an Ihrer Entscheidung festhalten, behalte ich mir vor, die Ombudsstelle für private Kranken- und Pflegeversicherung (www.pkv-ombudsmann.de) einzuschalten.
+
+Bitte bestätigen Sie den Eingang dieses Widerspruchs schriftlich.
+
+Mit freundlichen Grüßen,
+[Ihr vollständiger Name]
+[Ihre Adresse]
+[Telefon / E-Mail]`;
+  return { betreff, body };
+}
+
+// ── Arzt-Korrektur letter generator ──────────────────────────────────────────
+function generateArztKorrekturLetterKasse(kasse: KasseBescheid) {
+  const heute = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const korrekturPos = kasse.rechnungen.flatMap(g =>
+    (g.positionen ?? [])
+      .filter(p => (p as {aktionstyp?: string}).aktionstyp === "korrektur_arzt")
+      .map(p => ({ arztName: g.arztName, pos: p }))
+  );
+  const arztName = korrekturPos[0]?.arztName ?? kasse.vorgaenge[0]?.arzt_name ?? "[Arztpraxis]";
+  const posListe = korrekturPos.length > 0
+    ? korrekturPos.map(({ pos: p }) => `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": Faktor ${p.faktor}×, ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht`).join("\n")
+    : "  [Bitte betroffene Positionen eintragen]";
+  const betreff = `Bitte um Rechnungskorrektur – Ihre Abrechnung`;
+  const body = `${arztName}\n[Adresse der Praxis – bitte eintragen]
+
+${heute}
+
+Betreff: ${betreff}
+
+Sehr geehrte Damen und Herren,
+
+ich wende mich bezüglich Ihrer Abrechnung an Sie. Meine private Krankenversicherung (AXA) hat folgende Positionen nicht erstattet und hat darauf hingewiesen, dass eine Korrektur der Rechnung oder eine ergänzende Begründung erforderlich ist:
+
+Betroffene Positionen:
+${posListe}
+
+Ich bitte Sie daher, entweder:
+1. Eine korrigierte Rechnung auszustellen, oder
+2. Mir eine schriftliche Begründung für den erhöhten Abrechnungsfaktor gemäß § 12 Abs. 3 GOÄ zuzusenden, die ich zur Erstattung bei meiner Versicherung einreichen kann.
+
+Mit freundlichen Grüßen,
+[Ihr vollständiger Name]
+[Ihre Adresse]
+[Telefon / E-Mail]`;
+  return { betreff, body };
+}
+
+// ── Email panel ───────────────────────────────────────────────────────────────
+function EmailPanel({ title, betreff: initBetreff, body: initBody, borderColor, headerBg, headerColor, warning }: {
+  title: string; betreff: string; body: string;
+  borderColor: string; headerBg: string; headerColor: string; warning?: string;
+}) {
+  const [editBetreff, setEditBetreff] = useState(initBetreff);
+  const [editBody, setEditBody]       = useState(initBody);
+  const [copied, setCopied]           = useState(false);
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(`Betreff: ${editBetreff}\n\n${editBody}`);
+    setCopied(true); setTimeout(() => setCopied(false), 2500);
+  }
+  return (
+    <div className="mt-4 rounded-xl overflow-hidden" style={{ border: `2px solid ${borderColor}` }}>
+      <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: headerBg }}>
+        <span className="font-bold text-sm" style={{ color: headerColor }}>{title}</span>
+        <span className="text-xs" style={{ color: headerColor }}>— Text bearbeiten, dann kopieren oder öffnen</span>
+      </div>
+      {warning && (
+        <div className="px-4 py-2 flex gap-2 items-start" style={{ background: "#fff7ed", borderBottom: "1px solid #fed7aa" }}>
+          <span className="text-base flex-shrink-0">⚠️</span>
+          <p className="text-xs" style={{ color: "#9a3412" }}>{warning}</p>
+        </div>
+      )}
+      <div className="p-4 bg-white">
+        <div className="mb-2.5">
+          <label className="block text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "#64748b" }}>Betreff</label>
+          <input value={editBetreff} onChange={e => setEditBetreff(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg text-sm" style={{ border: "1px solid #e2e8f0", color: "#0f172a", boxSizing: "border-box" as const }} />
+        </div>
+        <div className="mb-3.5">
+          <label className="block text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "#64748b" }}>E-Mail / Brief-Text</label>
+          <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={14}
+            className="w-full px-3 py-2.5 rounded-lg text-xs" style={{ border: "1px solid #e2e8f0", color: "#0f172a", lineHeight: 1.6, fontFamily: "monospace", resize: "vertical", boxSizing: "border-box" as const }} />
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          <button onClick={handleCopy}
+            className="text-sm font-bold px-4 py-2 rounded-lg border-none cursor-pointer"
+            style={{ background: copied ? "#ecfdf5" : "#f1f5f9", color: copied ? "#065f46" : "#0f172a" }}>
+            {copied ? "✓ Kopiert!" : "📋 Text kopieren"}
+          </button>
+          <button onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, "_blank")}
+            className="text-sm font-bold px-4 py-2 rounded-lg border-none cursor-pointer" style={{ background: "#eff6ff", color: "#1d4ed8" }}>
+            In Gmail öffnen
+          </button>
+          <button onClick={() => window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, "_blank")}
+            className="text-sm font-bold px-4 py-2 rounded-lg border-none cursor-pointer" style={{ background: "#e8f4fd", color: "#0078d4" }}>
+            In Outlook öffnen
+          </button>
+          <button onClick={() => { const a = document.createElement("a"); a.href = `mailto:?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`; a.click(); }}
+            className="text-xs px-3 py-2 rounded-lg cursor-pointer" style={{ border: "1px solid #e2e8f0", background: "white", color: "#64748b" }}>
+            Anderes Programm
+          </button>
+        </div>
+        <p className="text-xs mt-2.5" style={{ color: "#94a3b8" }}>💡 Gmail &amp; Outlook öffnen im Browser, "Anderes Programm" öffnet deinen Mail-Client.</p>
+      </div>
+    </div>
+  );
+}
+
 function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
   const [showPositionen, setShowPositionen] = useState(true);
   const [showSchritte, setShowSchritte]     = useState(true);
+  const [showWiderspruchPanel, setShowWiderspruchPanel] = useState(false);
+  const [showArztPanel, setShowArztPanel]               = useState(false);
 
   const analyse = kasse.kasse_analyse as KasseAnalyseResult | null;
   const widerspruchStatus = kasse.widerspruch_status ?? null;
@@ -151,6 +296,12 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
       }
     }
   }
+
+  const hasKasseAction = abgelehnte.some(a => {
+    const at = (a.pos as {aktionstyp?: string}).aktionstyp;
+    return at === "widerspruch_kasse" || at == null;
+  });
+  const hasArztAction  = abgelehnte.some(a => (a.pos as {aktionstyp?: string}).aktionstyp === "korrektur_arzt");
 
   const ablehnungsgruende = analyse?.ablehnungsgruende ?? [];
   const widerspruch       = analyse?.widerspruchEmpfohlen ?? false;
@@ -313,9 +464,53 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
                 )}
               </div>
             )}
+
+            {/* ── CTAs ── */}
+            <div className="flex flex-wrap gap-2 mt-4">
+              {hasKasseAction && (
+                <button
+                  onClick={() => { setShowWiderspruchPanel(v => !v); setShowArztPanel(false); }}
+                  className="text-xs font-bold px-3.5 py-2 rounded-lg border-none cursor-pointer"
+                  style={{ background: showWiderspruchPanel ? "#92400e" : "#b45309", color: "white" }}>
+                  {showWiderspruchPanel ? "▲ E-Mail schließen" : "⚖️ Widerspruch per E-Mail erstellen"}
+                </button>
+              )}
+              {hasArztAction && (
+                <button
+                  onClick={() => { setShowArztPanel(v => !v); setShowWiderspruchPanel(false); }}
+                  className="text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer"
+                  style={{ background: showArztPanel ? "#9a3412" : "white", color: showArztPanel ? "white" : "#92400e", border: "1px solid #f59e0b" }}>
+                  {showArztPanel ? "▲ Schreiben schließen" : "🩺 Arzt um Korrektur bitten"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
+
+      {/* ── Email panels ── */}
+      {showWiderspruchPanel && (() => {
+        const { betreff, body } = generateWiderspruchLetterKasse(kasse, analyse);
+        return (
+          <EmailPanel
+            title="📧 Widerspruch per E-Mail"
+            betreff={betreff} body={body}
+            borderColor="#f59e0b" headerBg="#fffbeb" headerColor="#92400e"
+            warning="Empfängeradresse ist ein PLATZHALTER. Bitte die korrekte AXA-Adresse aus Ihrem Versicherungsschein eintragen, bevor Sie die E-Mail absenden."
+          />
+        );
+      })()}
+      {showArztPanel && (() => {
+        const { betreff, body } = generateArztKorrekturLetterKasse(kasse);
+        return (
+          <EmailPanel
+            title="🩺 Schreiben an Arztpraxis"
+            betreff={betreff} body={body}
+            borderColor="#fb923c" headerBg="#fff7ed" headerColor="#9a3412"
+            warning="Bitte die Adresse der Praxis vor dem Versenden eintragen."
+          />
+        );
+      })()}
     </div>
   );
 }
