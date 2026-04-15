@@ -5,6 +5,71 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const anthropic = new Anthropic()
 
+// ── Fallback prompts (used when DB has no entry yet) ──────────────────────────
+const FALLBACK_KASSE_PROMPT = `Du bist ein PKV-Experte und Rechtsberater für Kassenstreitigkeiten (AXA ActiveMe-U).
+
+KONTEXT DES WIDERSPRUCHSVERFAHRENS:
+- AXA Bescheid vom: {{bescheiddatum}}
+- Referenznummer: {{referenznummer}}
+- Betrag abgelehnt: {{betrag_abgelehnt}} €
+- Ablehnungsgründe: {{ablehnungsgruende}}
+
+BISHERIGER KOMMUNIKATIONSVERLAUF:
+{{thread}}
+
+AKTUELLES EINGEHENDES SCHREIBEN (von AXA):
+{{inhalt}}
+
+AUFGABE:
+1. Analysiere das eingegangene AXA-Schreiben präzise und kurz (max. 3 Sätze)
+2. Bewerte die aktuelle Lage: Welche Handlungsoptionen bestehen?
+3. Erstelle einen konkreten Vorschlag für den nächsten Kommunikationsschritt
+
+Antworte NUR mit diesem JSON (kein Text davor oder danach):
+{
+  "ki_analyse": "Kurze Analyse was das Schreiben bedeutet (max. 3 Sätze, Laiensprache)",
+  "naechster_schritt_erklaerung": "Was jetzt zu tun ist und warum (1-2 Sätze)",
+  "ki_vorschlag_betreff": "Betreff für Antwortschreiben",
+  "ki_vorschlag_inhalt": "Vollständiger Brieftext für Antwort (förmlich, professionell, auf Deutsch)",
+  "ki_naechster_empfaenger": "kasse | arzt | keiner",
+  "ki_dringlichkeit": "hoch | mittel | niedrig",
+  "ki_naechste_frist": "YYYY-MM-DD wenn eine Frist genannt wurde, sonst null"
+}`
+
+const FALLBACK_ARZT_PROMPT = `Du bist ein PKV-Experte und Berater für Kassenstreitigkeiten (AXA ActiveMe-U).
+
+KONTEXT DES WIDERSPRUCHSVERFAHRENS:
+- AXA Bescheid vom: {{bescheiddatum}}
+- Referenznummer: {{referenznummer}}
+- Betrag abgelehnt: {{betrag_abgelehnt}} €
+- Ablehnungsgründe: {{ablehnungsgruende}}
+
+BISHERIGER KOMMUNIKATIONSVERLAUF:
+{{thread}}
+
+AKTUELLES EINGEHENDES SCHREIBEN (vom Arzt):
+{{inhalt}}
+
+AUFGABE:
+1. Analysiere das eingegangene Arztschreiben / die ärztliche Stellungnahme präzise (max. 3 Sätze)
+2. Prüfe: Adressiert das Schreiben die konkreten AXA-Ablehnungsgründe direkt? Was fehlt ggf. noch?
+3. Erstelle einen konkreten Vorschlag für den nächsten Schritt
+
+Antworte NUR mit diesem JSON (kein Text davor oder danach):
+{
+  "ki_analyse": "Kurze Analyse der ärztlichen Stellungnahme (max. 3 Sätze, Laiensprache)",
+  "naechster_schritt_erklaerung": "Was jetzt zu tun ist und warum (1-2 Sätze)",
+  "ki_vorschlag_betreff": "Betreff für nächstes Schreiben",
+  "ki_vorschlag_inhalt": "Vollständiger Brieftext für nächste Kommunikation (förmlich, professionell, auf Deutsch)",
+  "ki_naechster_empfaenger": "kasse | arzt | keiner",
+  "ki_dringlichkeit": "hoch | mittel | niedrig",
+  "ki_naechste_frist": "YYYY-MM-DD wenn eine Frist genannt wurde, sonst null"
+}`
+
+function fillPlaceholders(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`)
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -51,37 +116,29 @@ export async function POST(
   }).join('\n\n---\n\n')
 
   const ablehnungsgruende = (kasseAnalyse?.ablehnungsgruende as string[] | null)?.join(', ') ?? 'unbekannt'
-  const betragAbgelehnt = kasse?.betrag_abgelehnt ?? 0
+  const betragAbgelehnt   = kasse?.betrag_abgelehnt ?? 0
 
-  const prompt = `Du bist ein PKV-Experte und Rechtsberater für Kassenstreitigkeiten (AXA ActiveMe-U).
+  // ── Load prompt from DB (or fall back to hardcoded) ──────────────────────────
+  const isArzt     = komm.kommunikationspartner === 'arzt'
+  const promptKey  = isArzt ? 'ki_widerspruch_arzt_prompt' : 'ki_widerspruch_kasse_prompt'
+  const fallback   = isArzt ? FALLBACK_ARZT_PROMPT : FALLBACK_KASSE_PROMPT
 
-KONTEXT DES WIDERSPRUCHSVERFAHRENS:
-- AXA Bescheid vom: ${kasse?.bescheiddatum ?? 'unbekannt'}
-- Referenznummer: ${kasse?.referenznummer ?? 'unbekannt'}
-- Betrag abgelehnt: ${betragAbgelehnt.toFixed(2)} €
-- Ablehnungsgründe: ${ablehnungsgruende}
+  const { data: settingRow } = await getSupabaseAdmin()
+    .from('app_settings')
+    .select('value')
+    .eq('key', promptKey)
+    .single()
 
-BISHERIGER KOMMUNIKATIONSVERLAUF:
-${threadSummary}
+  const promptTemplate = (settingRow?.value && settingRow.value.trim()) ? settingRow.value : fallback
 
-AKTUELLES EINGEHENDES SCHREIBEN (${komm.kommunikationspartner === 'kasse' ? 'von AXA' : 'vom Arzt'}):
-${komm.inhalt}
-
-AUFGABE:
-1. Analysiere das eingegangene Schreiben präzise und kurz (max. 3 Sätze)
-2. Bewerte die aktuelle Lage: Welche Handlungsoptionen bestehen?
-3. Erstelle einen konkreten Vorschlag für den nächsten Kommunikationsschritt
-
-Antworte NUR mit diesem JSON (kein Text davor oder danach):
-{
-  "ki_analyse": "Kurze Analyse was das Schreiben bedeutet (max. 3 Sätze, Laiensprache)",
-  "naechster_schritt_erklaerung": "Was jetzt zu tun ist und warum (1-2 Sätze)",
-  "ki_vorschlag_betreff": "Betreff für Antwortschreiben",
-  "ki_vorschlag_inhalt": "Vollständiger Brieftext für Antwort (förmlich, professionell, auf Deutsch)",
-  "ki_naechster_empfaenger": "kasse | arzt | keiner",
-  "ki_dringlichkeit": "hoch | mittel | niedrig",
-  "ki_naechste_frist": "YYYY-MM-DD wenn eine Frist genannt wurde, sonst null"
-}`
+  const prompt = fillPlaceholders(promptTemplate, {
+    bescheiddatum:    kasse?.bescheiddatum ?? 'unbekannt',
+    referenznummer:   kasse?.referenznummer ?? 'unbekannt',
+    betrag_abgelehnt: betragAbgelehnt.toFixed(2),
+    ablehnungsgruende,
+    thread:           threadSummary,
+    inhalt:           komm.inhalt,
+  })
 
   try {
     const response = await anthropic.messages.create({

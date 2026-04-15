@@ -259,21 +259,6 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
         </table>
       )}
 
-      {/* ── Ablehnungsgründe ── */}
-      {showPositionen && ablehnungsgruende.length > 0 && (
-        <div className="px-5 py-4 border-t" style={{ borderColor: "#fecaca", background: "#fff8f8" }}>
-          <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "#991b1b" }}>Ablehnungsgründe der Kasse</p>
-          <div className="flex flex-col gap-1.5">
-            {ablehnungsgruende.map((g, i) => (
-              <div key={i} className="flex gap-2 items-start text-xs" style={{ color: "#475569" }}>
-                <span style={{ color: "#ef4444", flexShrink: 0 }}>•</span>
-                <span>{g}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── Handlungsempfehlung (nur wenn Widerspruch empfohlen UND noch nicht aktiv) ── */}
       {widerspruch && !widerspruchActive && (
         <div className="border-t" style={{ borderColor: "#fecaca" }}>

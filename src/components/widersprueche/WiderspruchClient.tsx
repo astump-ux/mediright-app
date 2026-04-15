@@ -49,6 +49,34 @@ function KommunikationModal({
   const [editBetreff, setEditBetreff] = useState('')
   const [editBody, setEditBody]       = useState('')
   const [copied, setCopied]           = useState(false)
+  const [archived, setArchived]       = useState(false)
+  const [archiving, setArchiving]     = useState(false)
+
+  async function logOutgoing() {
+    if (archived || archiving || !result) return
+    setArchiving(true)
+    try {
+      const res = await fetch('/api/widerspruch-kommunikationen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kassenabrechnungen_id: fall.id,
+          richtung: 'ausgehend',
+          kommunikationspartner: result.ki_naechster_empfaenger === 'arzt' ? 'arzt' : 'kasse',
+          typ: 'antwort',
+          datum: new Date().toISOString().split('T')[0],
+          betreff: editBetreff,
+          inhalt: editBody,
+        }),
+      })
+      const saved = await res.json()
+      if (res.ok) {
+        setArchived(true)
+        onAdded(saved)
+      }
+    } catch { /* silently ignore */ }
+    finally { setArchiving(false) }
+  }
 
   async function handleAnalyse() {
     if (!inhalt.trim()) return
@@ -183,19 +211,33 @@ function KommunikationModal({
                           <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={14}
                             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 12, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
                         </div>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          <button onClick={handleCopy}
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <button onClick={() => { handleCopy(); logOutgoing() }}
                             style={{ fontSize: 13, fontWeight: 700, padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? mintL : grey, color: copied ? '#065f46' : navy }}>
                             {copied ? '✓ Kopiert' : '📋 Kopieren'}
                           </button>
-                          <button onClick={openGmail}
+                          <button onClick={() => { openGmail(); logOutgoing() }}
                             style={{ fontSize: 13, fontWeight: 700, padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: blueL, color: '#1d4ed8' }}>
                             In Gmail öffnen
                           </button>
-                          <button onClick={openOutlook}
+                          <button onClick={() => { openOutlook(); logOutgoing() }}
                             style={{ fontSize: 13, fontWeight: 700, padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#e8f4fd', color: '#0078d4' }}>
                             In Outlook öffnen
                           </button>
+                          {archived && (
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46', background: mintL, padding: '4px 12px', borderRadius: 20 }}>
+                              ✓ Brief archiviert
+                            </span>
+                          )}
+                          {!archived && !archiving && (
+                            <button onClick={logOutgoing}
+                              style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 8, border: '1.5px solid #e2e8f0', background: 'white', color: slate, cursor: 'pointer' }}>
+                              📁 Manuell archivieren
+                            </button>
+                          )}
+                          {archiving && (
+                            <span style={{ fontSize: 12, color: slate }}>Archiviert…</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -307,8 +349,9 @@ function WiderspruchCard({ fall }: { fall: WiderspruchFall }) {
   const bescheiddatum   = fall.bescheiddatum ? formatDate(fall.bescheiddatum) : '—'
   const isClosed        = fall.widerspruch_status === 'erfolgreich' || fall.widerspruch_status === 'abgelehnt'
 
-  // Show synthetic placeholder when sent but no komunikation logged yet
-  const showSentPlaceholder = kommunikationen.length === 0
+  // Show synthetic placeholder when sent but no outgoing communication logged yet
+  const hasOutgoing = kommunikationen.some(k => k.richtung === 'ausgehend')
+  const showSentPlaceholder = !hasOutgoing
     && ['gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'].includes(fall.widerspruch_status)
 
   const latestIncoming  = [...kommunikationen].reverse().find(k => k.richtung === 'eingehend')
