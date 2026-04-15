@@ -189,7 +189,7 @@ function generateArztKorrekturLetterKasse(kasse: KasseBescheid) {
   );
   const arztName = korrekturPos[0]?.arztName ?? kasse.vorgaenge[0]?.arzt_name ?? "[Arztpraxis]";
   const posListe = korrekturPos.length > 0
-    ? korrekturPos.map(({ pos: p }) => `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": Faktor ${p.faktor}×, ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht`).join("\n")
+    ? korrekturPos.map(({ pos: p }) => `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht`).join("\n")
     : "  [Bitte betroffene Positionen eintragen]";
   const betreff = `Bitte um Rechnungskorrektur – Ihre Abrechnung`;
   const body = `${arztName}\n[Adresse der Praxis – bitte eintragen]

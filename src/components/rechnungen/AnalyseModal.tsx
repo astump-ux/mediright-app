@@ -349,7 +349,7 @@ function generateArztKorrekturLetter({
   const arzt = arztName ?? '[Arztpraxis]'
   const posListe = korrekturPos.length > 0
     ? korrekturPos.map(p =>
-        `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": Faktor ${p.faktor}×, ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht`
+        `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht`
       ).join('\n')
     : '  [Bitte betroffene Positionen eintragen]'
   const betreff = `Bitte um Rechnungskorrektur – Rechnung vom ${datum}`
