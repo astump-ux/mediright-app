@@ -1,7 +1,18 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { KasseBescheid, UnmatchedVorgang } from "@/app/kassenabrechnung/page";
 import type { KasseRechnungGruppe, KasseAnalyseResult, KassePosition } from "@/lib/goae-analyzer";
+import { getSupabaseClient } from "@/lib/supabase";
+
+function useUserFullName(): string {
+  const [name, setName] = useState("[Ihr vollständiger Name]");
+  useEffect(() => {
+    getSupabaseClient()
+      .from("profiles").select("full_name").single()
+      .then(({ data }) => { if (data?.full_name) setName(data.full_name); });
+  }, []);
+  return name;
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -135,7 +146,7 @@ function SelbstbehaltBanner({ verbleibend, jahresgrenze, genutzt, year }: {
 // ── AblehnungsPanel ───────────────────────────────────────────────────────────
 
 // ── Widerspruch letter generator ─────────────────────────────────────────────
-function generateWiderspruchLetterKasse(kasse: KasseBescheid, analyse: KasseAnalyseResult | null) {
+function generateWiderspruchLetterKasse(kasse: KasseBescheid, analyse: KasseAnalyseResult | null, userName = "[Ihr vollständiger Name]") {
   const heute = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
   const bescheidDatum = kasse.bescheiddatum
     ? new Date(kasse.bescheiddatum).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -153,7 +164,7 @@ function generateWiderspruchLetterKasse(kasse: KasseBescheid, analyse: KasseAnal
 ${heute}
 
 Betreff: ${betreff}
-Versicherungsnehmer: [Ihr vollständiger Name]
+Versicherungsnehmer: ${userName}
 Versicherungsnummer: [Ihre Versicherungsnummer]
 
 Sehr geehrte Damen und Herren,
@@ -173,14 +184,12 @@ Ich bitte Sie daher, Ihre Entscheidung zu überprüfen und mir den abgelehnten B
 Bitte bestätigen Sie den Eingang dieses Widerspruchs schriftlich.
 
 Mit freundlichen Grüßen,
-[Ihr vollständiger Name]
-[Ihre Adresse]
-[Telefon / E-Mail]`;
+${userName}`;
   return { betreff, body };
 }
 
 // ── Arzt-Korrektur letter generator ──────────────────────────────────────────
-function generateArztKorrekturLetterKasse(kasse: KasseBescheid) {
+function generateArztKorrekturLetterKasse(kasse: KasseBescheid, userName = "[Ihr vollständiger Name]") {
   const heute = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
   const korrekturPos = kasse.rechnungen.flatMap(g =>
     (g.positionen ?? [])
@@ -210,9 +219,7 @@ Ich bitte Sie daher, entweder:
 2. Mir eine schriftliche Begründung für den erhöhten Abrechnungsfaktor gemäß § 12 Abs. 3 GOÄ zuzusenden, die ich zur Erstattung bei meiner Versicherung einreichen kann.
 
 Mit freundlichen Grüßen,
-[Ihr vollständiger Name]
-[Ihre Adresse]
-[Telefon / E-Mail]`;
+${userName}`;
   return { betreff, body };
 }
 
@@ -282,6 +289,7 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
   const [showSchritte, setShowSchritte]     = useState(true);
   const [showWiderspruchPanel, setShowWiderspruchPanel] = useState(false);
   const [showArztPanel, setShowArztPanel]               = useState(false);
+  const userName = useUserFullName();
 
   const analyse = kasse.kasse_analyse as KasseAnalyseResult | null;
   const widerspruchStatus = kasse.widerspruch_status ?? null;
@@ -472,7 +480,7 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
                   onClick={() => { setShowWiderspruchPanel(v => !v); setShowArztPanel(false); }}
                   className="text-xs font-bold px-3.5 py-2 rounded-lg border-none cursor-pointer"
                   style={{ background: showWiderspruchPanel ? "#92400e" : "#b45309", color: "white" }}>
-                  {showWiderspruchPanel ? "▲ E-Mail schließen" : "⚖️ Widerspruch per E-Mail erstellen"}
+                  {showWiderspruchPanel ? "▲ E-Mail schließen" : "⚖️ Widerspruch erstellen"}
                 </button>
               )}
               {hasArztAction && (
@@ -490,7 +498,7 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
 
       {/* ── Email panels ── */}
       {showWiderspruchPanel && (() => {
-        const { betreff, body } = generateWiderspruchLetterKasse(kasse, analyse);
+        const { betreff, body } = generateWiderspruchLetterKasse(kasse, analyse, userName);
         return (
           <EmailPanel
             title="📧 Widerspruch per E-Mail"
@@ -501,7 +509,7 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
         );
       })()}
       {showArztPanel && (() => {
-        const { betreff, body } = generateArztKorrekturLetterKasse(kasse);
+        const { betreff, body } = generateArztKorrekturLetterKasse(kasse, userName);
         return (
           <EmailPanel
             title="🩺 Schreiben an Arztpraxis"

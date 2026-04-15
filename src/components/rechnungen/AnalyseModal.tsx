@@ -1,6 +1,17 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { KasseRechnungGruppe, KasseAnalyseResult } from '@/lib/goae-analyzer'
+import { getSupabaseClient } from '@/lib/supabase'
+
+function useUserFullName(): string {
+  const [name, setName] = useState('[Ihr vollständiger Name]')
+  useEffect(() => {
+    getSupabaseClient()
+      .from('profiles').select('full_name').single()
+      .then(({ data }) => { if (data?.full_name) setName(data.full_name) })
+  }, [])
+  return name
+}
 const navy = '#0f172a'
 const mint = '#10b981'
 const mintLight = '#d1fae5'
@@ -178,11 +189,12 @@ function confidenceLabel(c: number | null | undefined): string | null {
 // ── Widerspruch letter generator ─────────────────────────────────────────────
 const AXA_PLACEHOLDER_ADDRESS = `AXA Krankenversicherung AG\nKundenservice / Leistungsabteilung\n[⚠️ PLATZHALTER: Adresse aus Ihrem Versicherungsschein eintragen!]`
 function generateWiderspruchLetter({
-  bescheid, gruppe, analyse,
+  bescheid, gruppe, analyse, userName = '[Ihr vollständiger Name]',
 }: {
   bescheid: KassenbescheidSummary | null | undefined
   gruppe: KasseRechnungGruppe | null | undefined
   analyse: KasseAnalyseResult | null | undefined
+  userName?: string
 }): { betreff: string; body: string } {
   const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const bescheidDatum = bescheid?.bescheiddatum
@@ -201,7 +213,7 @@ function generateWiderspruchLetter({
   const body = `${AXA_PLACEHOLDER_ADDRESS}
 ${heute}
 Betreff: ${betreff}
-Versicherungsnehmer: [Ihr vollständiger Name]
+Versicherungsnehmer: ${userName}
 Versicherungsnummer: [Ihre Versicherungsnummer]
 Sehr geehrte Damen und Herren,
 hiermit lege ich fristgerecht Widerspruch gegen Ihren Leistungsbescheid vom ${bescheidDatum} (Referenz: ${ref}) ein.
@@ -213,23 +225,22 @@ ${begruendung}
 Ich bitte Sie daher, Ihre Entscheidung zu überprüfen und mir den abgelehnten Betrag von ${abgelehnt} € vollständig zu erstatten. Sollten Sie an Ihrer Entscheidung festhalten, behalte ich mir vor, die Ombudsstelle für private Kranken- und Pflegeversicherung (www.pkv-ombudsmann.de) einzuschalten.
 Bitte bestätigen Sie den Eingang dieses Widerspruchs schriftlich.
 Mit freundlichen Grüßen,
-[Ihr vollständiger Name]
-[Ihre Adresse]
-[Telefon / E-Mail]`
+${userName}`
   return { betreff, body }
 }
 function WiderspruchPanel({
-  bescheid, gruppe, analyse, kassenbescheidId,
+  bescheid, gruppe, analyse, kassenbescheidId, userName,
 }: {
   bescheid: KassenbescheidSummary | null | undefined
   gruppe: KasseRechnungGruppe | null | undefined
   analyse: KasseAnalyseResult | null | undefined
   kassenbescheidId?: string
+  userName?: string
 }) {
   const [copied, setCopied] = useState(false)
   const [markedSent, setMarkedSent] = useState(false)
   const [sending, setSending] = useState(false)
-  const { betreff, body } = generateWiderspruchLetter({ bescheid, gruppe, analyse })
+  const { betreff, body } = generateWiderspruchLetter({ bescheid, gruppe, analyse, userName })
   const [editableBetreff, setEditableBetreff] = useState(betreff)
   const [editableBody, setEditableBody] = useState(body)
   async function patchStatus(status: 'gesendet' | 'erstellt') {
@@ -336,11 +347,12 @@ function WiderspruchPanel({
 }
 // ── Arzt-Korrektur letter generator ──────────────────────────────────────────
 function generateArztKorrekturLetter({
-  arztName, korrekturPos, rechnungsdatum,
+  arztName, korrekturPos, rechnungsdatum, userName = '[Ihr vollständiger Name]',
 }: {
   arztName: string | null | undefined
   korrekturPos: KassePosition[]
   rechnungsdatum?: string | null
+  userName?: string
 }): { betreff: string; body: string } {
   const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const datum = rechnungsdatum
@@ -374,20 +386,19 @@ Ich bitte Sie daher, entweder:
 Für Rückfragen stehe ich Ihnen gerne zur Verfügung.
 
 Mit freundlichen Grüßen,
-[Ihr vollständiger Name]
-[Ihre Adresse]
-[Telefon / E-Mail]`
+${userName}`
   return { betreff, body }
 }
 
 function ArztKorrekturPanel({
-  arztName, korrekturPos, rechnungsdatum,
+  arztName, korrekturPos, rechnungsdatum, userName,
 }: {
   arztName: string | null | undefined
   korrekturPos: KassePosition[]
   rechnungsdatum?: string | null
+  userName?: string
 }) {
-  const { betreff, body } = generateArztKorrekturLetter({ arztName, korrekturPos, rechnungsdatum })
+  const { betreff, body } = generateArztKorrekturLetter({ arztName, korrekturPos, rechnungsdatum, userName })
   const [editBetreff, setEditBetreff] = useState(betreff)
   const [editBody, setEditBody]       = useState(body)
   const [copied, setCopied]           = useState(false)
@@ -462,6 +473,7 @@ function KassenbescheidSection({
   const [showArztPanel, setShowArztPanel]               = useState(false)
   const [showPositionen, setShowPositionen]             = useState(true)
   const [showSchritte, setShowSchritte]                 = useState(true)
+  const userName = useUserFullName()
 
   const erstattet  = gruppe?.betragErstattet ?? bescheid?.betragErstattet ?? 0
   const abgelehnt  = gruppe?.betragAbgelehnt ?? bescheid?.betragAbgelehnt ?? 0
@@ -579,7 +591,7 @@ function KassenbescheidSection({
       )}
 
       {/* ── Handlungsempfehlung ── */}
-      {widerspruch && (
+      {widerspruch && abgelehnt > 0 && (
         <div style={{ background: amberLight, border: `1px solid ${amber}`, borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13 }}>⚡ Handlungsempfehlung</div>
@@ -638,7 +650,7 @@ function KassenbescheidSection({
             {hasKasseAction && !widerspruchActive && (
               <button onClick={() => setShowWiderspruchPanel(v => !v)}
                 style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: showWiderspruchPanel ? '#92400e' : '#b45309', color: 'white', border: 'none', cursor: 'pointer' }}>
-                {showWiderspruchPanel ? '▲ E-Mail schließen' : '⚖️ Widerspruch per E-Mail erstellen'}
+                {showWiderspruchPanel ? '▲ Schließen' : '⚖️ Widerspruch erstellen'}
               </button>
             )}
             {hasArztAction && !widerspruchActive && (
@@ -658,13 +670,14 @@ function KassenbescheidSection({
       )}
 
       {showWiderspruchPanel && (
-        <WiderspruchPanel bescheid={bescheid} gruppe={gruppe} analyse={analyse} kassenbescheidId={bescheid?.id} />
+        <WiderspruchPanel bescheid={bescheid} gruppe={gruppe} analyse={analyse} kassenbescheidId={bescheid?.id} userName={userName} />
       )}
       {showArztPanel && (
         <ArztKorrekturPanel
           arztName={gruppe?.arztName}
           korrekturPos={abgelehntePos.filter(p => (p as {aktionstyp?: string}).aktionstyp === 'korrektur_arzt')}
           rechnungsdatum={bescheid?.bescheiddatum}
+          userName={userName}
         />
       )}
     </div>
