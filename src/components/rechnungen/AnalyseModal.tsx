@@ -647,6 +647,7 @@ function KassenbescheidSection({
                 {showArztPanel ? '▲ Schreiben schließen' : '🩺 Arzt um Korrektur bitten'}
               </button>
             )}
+          </div>
         </div>
       )}
 
