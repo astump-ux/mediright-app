@@ -284,11 +284,19 @@ function EmailPanel({ title, betreff: initBetreff, body: initBody, borderColor, 
   );
 }
 
+async function startWiderspruch(kasseId: string) {
+  try {
+    await fetch(`/api/kassenabrechnungen/${kasseId}/widerspruch-starten`, { method: 'PATCH' });
+  } catch { /* non-critical */ }
+}
+
 function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
   const [showPositionen, setShowPositionen] = useState(true);
   const [showSchritte, setShowSchritte]     = useState(true);
   const [showWiderspruchPanel, setShowWiderspruchPanel] = useState(false);
   const [showArztPanel, setShowArztPanel]               = useState(false);
+  // Tracks whether user has ever opened the Arzt panel this session
+  const [arztPanelEverOpened, setArztPanelEverOpened]   = useState(false);
   const userName = useUserFullName();
 
   const analyse = kasse.kasse_analyse as KasseAnalyseResult | null;
@@ -305,11 +313,13 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
     }
   }
 
-  const hasKasseAction = abgelehnte.some(a => {
+  const arztPositionen  = abgelehnte.filter(a => (a.pos as {aktionstyp?: string}).aktionstyp === "korrektur_arzt");
+  const kassePositionen = abgelehnte.filter(a => {
     const at = (a.pos as {aktionstyp?: string}).aktionstyp;
     return at === "widerspruch_kasse" || at == null;
   });
-  const hasArztAction  = abgelehnte.some(a => (a.pos as {aktionstyp?: string}).aktionstyp === "korrektur_arzt");
+  const hasKasseAction = kassePositionen.length > 0;
+  const hasArztAction  = arztPositionen.length > 0;
 
   const ablehnungsgruende = analyse?.ablehnungsgruende ?? [];
   const widerspruch       = analyse?.widerspruchEmpfohlen ?? false;
@@ -422,6 +432,8 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
       {widerspruch && !widerspruchActive && (
         <div className="border-t" style={{ borderColor: "#fecaca" }}>
           <div className="px-5 py-4" style={{ background: "#fffbeb" }}>
+
+            {/* ── Header with Erfolgschance ── */}
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <span>⚡</span>
@@ -448,7 +460,7 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
             )}
 
             {schritte && schritte.length > 0 && (
-              <div>
+              <div className="mb-4">
                 <div
                   className="flex items-center justify-between cursor-pointer select-none mb-2"
                   onClick={() => setShowSchritte(v => !v)}
@@ -473,52 +485,109 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
               </div>
             )}
 
-            {/* ── CTAs ── */}
-            <div className="flex flex-wrap gap-2 mt-4">
-              {hasKasseAction && (
-                <button
-                  onClick={() => { setShowWiderspruchPanel(v => !v); setShowArztPanel(false); }}
-                  className="text-xs font-bold px-3.5 py-2 rounded-lg border-none cursor-pointer"
-                  style={{ background: showWiderspruchPanel ? "#92400e" : "#b45309", color: "white" }}>
-                  {showWiderspruchPanel ? "▲ E-Mail schließen" : "⚖️ Widerspruch erstellen"}
-                </button>
-              )}
-              {hasArztAction && (
-                <button
-                  onClick={() => { setShowArztPanel(v => !v); setShowWiderspruchPanel(false); }}
-                  className="text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer"
-                  style={{ background: showArztPanel ? "#9a3412" : "white", color: showArztPanel ? "white" : "#92400e", border: "1px solid #f59e0b" }}>
-                  {showArztPanel ? "▲ Schreiben schließen" : "🩺 Arzt um Korrektur bitten"}
-                </button>
-              )}
-            </div>
+            {/* ── Schritt A: Klärung beim Arzt (wenn Arzt-Positionen vorhanden) ── */}
+            {hasArztAction && (
+              <div className="rounded-xl overflow-hidden mb-3" style={{ border: "1.5px solid #fb923c" }}>
+                <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#fff7ed" }}>
+                  <span className="text-sm font-bold" style={{ color: "#9a3412" }}>Schritt 1 · Klärung beim Arzt</span>
+                  <span className="text-xs" style={{ color: "#9a3412", opacity: 0.75 }}>— Korrektur oder Begründung anfordern</span>
+                </div>
+                <div className="px-4 py-3" style={{ background: "white" }}>
+                  <p className="text-xs mb-2" style={{ color: "#64748b" }}>Folgende Positionen erfordern eine Korrektur oder schriftliche Begründung durch den Arzt:</p>
+                  <div className="flex flex-col gap-1 mb-3">
+                    {arztPositionen.map(({ pos }, i) => (
+                      <div key={i} className="text-xs" style={{ color: "#0f172a" }}>
+                        <span className="font-mono font-semibold" style={{ color: "#9a3412" }}>GOÄ {pos.ziffer}</span>
+                        <span className="mx-1 text-slate-400">·</span>
+                        <span>{pos.bezeichnung}</span>
+                        {pos.ablehnungsgrund && <span className="ml-1 italic" style={{ color: "#ef4444" }}>— {pos.ablehnungsgrund}</span>}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const opening = !showArztPanel;
+                      setShowArztPanel(v => !v);
+                      if (opening) {
+                        setArztPanelEverOpened(true);
+                        startWiderspruch(kasse.id);
+                      }
+                    }}
+                    className="text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer"
+                    style={{ background: showArztPanel ? "#9a3412" : "white", color: showArztPanel ? "white" : "#9a3412", border: "1.5px solid #fb923c" }}>
+                    {showArztPanel ? "▲ Schreiben schließen" : "🩺 Arzt um Korrektur bitten"}
+                  </button>
+                  {showArztPanel && (() => {
+                    const { betreff, body } = generateArztKorrekturLetterKasse(kasse, userName);
+                    return (
+                      <EmailPanel
+                        title="🩺 Schreiben an Arztpraxis"
+                        betreff={betreff} body={body}
+                        borderColor="#fb923c" headerBg="#fff7ed" headerColor="#9a3412"
+                        warning="Bitte die Adresse der Praxis vor dem Versenden eintragen."
+                      />
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* ── Schritt B: Widerspruch bei AXA ── */}
+            {hasKasseAction && (
+              <div className="rounded-xl overflow-hidden" style={{ border: "1.5px solid #f59e0b" }}>
+                <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#fffbeb" }}>
+                  <span className="text-sm font-bold" style={{ color: "#92400e" }}>
+                    {hasArztAction ? "Schritt 2 · " : ""}Widerspruch bei AXA
+                  </span>
+                  <span className="text-xs" style={{ color: "#92400e", opacity: 0.75 }}>— Förmlicher Widerspruch einlegen</span>
+                </div>
+                <div className="px-4 py-3" style={{ background: "white" }}>
+                  <p className="text-xs mb-2" style={{ color: "#64748b" }}>Folgende Positionen sollten direkt bei AXA widersprochen werden:</p>
+                  <div className="flex flex-col gap-1 mb-3">
+                    {kassePositionen.map(({ pos }, i) => (
+                      <div key={i} className="text-xs" style={{ color: "#0f172a" }}>
+                        <span className="font-mono font-semibold" style={{ color: "#92400e" }}>GOÄ {pos.ziffer}</span>
+                        <span className="mx-1 text-slate-400">·</span>
+                        <span>{pos.bezeichnung}</span>
+                        {pos.ablehnungsgrund && <span className="ml-1 italic" style={{ color: "#ef4444" }}>— {pos.ablehnungsgrund}</span>}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Soft nudge if Arzt action is still pending */}
+                  {hasArztAction && !arztPanelEverOpened && (
+                    <div className="mb-3 rounded-lg px-3 py-2 text-xs flex gap-2 items-start" style={{ background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412" }}>
+                      <span className="flex-shrink-0">💡</span>
+                      <span>Empfehlung: Erst Arztkorrektur (Schritt 1) anfordern — eine korrigierte Rechnung stärkt den Widerspruch erheblich. Du kannst trotzdem jetzt einreichen.</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => {
+                      const opening = !showWiderspruchPanel;
+                      setShowWiderspruchPanel(v => !v);
+                      if (opening) startWiderspruch(kasse.id);
+                    }}
+                    className="text-xs font-bold px-3.5 py-2 rounded-lg border-none cursor-pointer"
+                    style={{ background: showWiderspruchPanel ? "#92400e" : "#b45309", color: "white" }}>
+                    {showWiderspruchPanel ? "▲ E-Mail schließen" : "⚖️ Widerspruch erstellen"}
+                  </button>
+                  {showWiderspruchPanel && (() => {
+                    const { betreff, body } = generateWiderspruchLetterKasse(kasse, analyse, userName);
+                    return (
+                      <EmailPanel
+                        title="📧 Widerspruch per E-Mail"
+                        betreff={betreff} body={body}
+                        borderColor="#f59e0b" headerBg="#fffbeb" headerColor="#92400e"
+                        warning="Empfängeradresse ist ein PLATZHALTER. Bitte die korrekte AXA-Adresse aus Ihrem Versicherungsschein eintragen, bevor Sie die E-Mail absenden."
+                      />
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}
-
-      {/* ── Email panels ── */}
-      {showWiderspruchPanel && (() => {
-        const { betreff, body } = generateWiderspruchLetterKasse(kasse, analyse, userName);
-        return (
-          <EmailPanel
-            title="📧 Widerspruch per E-Mail"
-            betreff={betreff} body={body}
-            borderColor="#f59e0b" headerBg="#fffbeb" headerColor="#92400e"
-            warning="Empfängeradresse ist ein PLATZHALTER. Bitte die korrekte AXA-Adresse aus Ihrem Versicherungsschein eintragen, bevor Sie die E-Mail absenden."
-          />
-        );
-      })()}
-      {showArztPanel && (() => {
-        const { betreff, body } = generateArztKorrekturLetterKasse(kasse, userName);
-        return (
-          <EmailPanel
-            title="🩺 Schreiben an Arztpraxis"
-            betreff={betreff} body={body}
-            borderColor="#fb923c" headerBg="#fff7ed" headerColor="#9a3412"
-            warning="Bitte die Adresse der Praxis vor dem Versenden eintragen."
-          />
-        );
-      })()}
     </div>
   );
 }

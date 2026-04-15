@@ -1,0 +1,129 @@
+/**
+ * buildFallContext – assembles a complete, structured Fallakte string for use in AI prompts.
+ *
+ * Fetches from DB:
+ *   - Kassenbescheid (bescheiddatum, betrag, kasse_analyse / Handlungsempfehlung)
+ *   - Linked Arztrechnungen (GOÄ-Analyse, Einsparpotenzial, Flags)
+ *   - Full Kommunikationsverlauf (outgoing + incoming, chronological)
+ *
+ * The returned string is injected as {{fallkontext}} into every downstream AI prompt.
+ */
+import { getSupabaseAdmin } from './supabase-admin'
+
+export async function buildFallContext(kassenabrechnungenId: string): Promise<string> {
+  const admin = getSupabaseAdmin()
+
+  // ── Fetch all data in parallel ──────────────────────────────────────────────
+  const [kasseRes, vorgaengeRes, kommRes] = await Promise.all([
+    admin
+      .from('kassenabrechnungen')
+      .select('bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, kasse_analyse')
+      .eq('id', kassenabrechnungenId)
+      .single(),
+    admin
+      .from('vorgaenge')
+      .select('arzt_name, rechnungsdatum, betrag_gesamt, goae_positionen, claude_analyse')
+      .eq('kassenabrechnung_id', kassenabrechnungenId),
+    admin
+      .from('widerspruch_kommunikationen')
+      .select('richtung, kommunikationspartner, typ, datum, betreff, inhalt, ki_analyse')
+      .eq('kassenabrechnungen_id', kassenabrechnungenId)
+      .order('datum', { ascending: true })
+      .order('created_at', { ascending: true }),
+  ])
+
+  const kasse      = kasseRes.data
+  const vorgaenge  = vorgaengeRes.data ?? []
+  const komms      = kommRes.data ?? []
+  const kasseAnalyse = kasse?.kasse_analyse as Record<string, unknown> | null
+
+  const lines: string[] = ['═══════════════════════════════════════════════════════', '  VOLLSTÄNDIGE FALLAKTE', '═══════════════════════════════════════════════════════', '']
+
+  // ── Section 1: Arztrechnung(en) ─────────────────────────────────────────────
+  if (vorgaenge.length > 0) {
+    for (const v of vorgaenge) {
+      const analyse = v.claude_analyse as Record<string, unknown> | null
+      lines.push('──────────────────────────────────────────────────────')
+      lines.push('ARZTRECHNUNG')
+      lines.push('──────────────────────────────────────────────────────')
+      lines.push(`Arzt:            ${v.arzt_name ?? 'Unbekannt'}`)
+      lines.push(`Rechnungsdatum:  ${v.rechnungsdatum ?? '–'}`)
+      lines.push(`Betrag gesamt:   ${v.betrag_gesamt?.toFixed(2) ?? '–'} €`)
+      if (analyse?.zusammenfassung) {
+        lines.push(`KI-Analyse:      ${analyse.zusammenfassung}`)
+      }
+      if (analyse?.einsparpotenzial) {
+        lines.push(`Einsparpotenzial: ${analyse.einsparpotenzial} €`)
+      }
+      const flags: string[] = []
+      if (analyse?.flagFaktorUeberSchwellenwert) flags.push('Faktor über Schwellenwert')
+      if (analyse?.flagFehlendeBegrundung)        flags.push('Fehlende §12-Begründung')
+      if (flags.length > 0) lines.push(`⚠ Flags:         ${flags.join(', ')}`)
+
+      // GOÄ-Positionen (top 10 max for brevity)
+      const positionen = (v.goae_positionen as Array<{ ziffer: string; bezeichnung?: string; betrag?: number; faktor?: number }> | null) ?? []
+      if (positionen.length > 0) {
+        lines.push('Abgerechnete Positionen:')
+        for (const p of positionen.slice(0, 10)) {
+          lines.push(`  GOÄ ${p.ziffer}  ${p.bezeichnung ?? ''}  ${p.betrag != null ? p.betrag.toFixed(2) + ' €' : ''}  ${p.faktor != null ? 'Faktor ' + p.faktor + '×' : ''}`.trimEnd())
+        }
+        if (positionen.length > 10) lines.push(`  … (${positionen.length - 10} weitere Positionen)`)
+      }
+      lines.push('')
+    }
+  }
+
+  // ── Section 2: Kassenbescheid ───────────────────────────────────────────────
+  lines.push('──────────────────────────────────────────────────────')
+  lines.push('AXA-KASSENBESCHEID')
+  lines.push('──────────────────────────────────────────────────────')
+  lines.push(`Bescheiddatum:   ${kasse?.bescheiddatum ?? '–'}`)
+  lines.push(`Referenznummer:  ${kasse?.referenznummer ?? '–'}`)
+  lines.push(`Eingereicht:     ${kasse?.betrag_eingereicht?.toFixed(2) ?? '–'} €`)
+  lines.push(`Erstattet:       ${kasse?.betrag_erstattet?.toFixed(2) ?? '–'} €`)
+  lines.push(`Abgelehnt:       ${kasse?.betrag_abgelehnt?.toFixed(2) ?? '–'} €`)
+
+  const ablehnungsgruende = (kasseAnalyse?.ablehnungsgruende as string[] | null) ?? []
+  if (ablehnungsgruende.length > 0) {
+    lines.push('Ablehnungsgründe der Kasse:')
+    for (const g of ablehnungsgruende) lines.push(`  - ${g}`)
+  }
+
+  if (kasseAnalyse?.widerspruchEmpfohlen != null) {
+    lines.push(`Widerspruch empfohlen: ${kasseAnalyse.widerspruchEmpfohlen ? 'JA' : 'NEIN'}`)
+  }
+  if (kasseAnalyse?.widerspruchErfolgswahrscheinlichkeit != null) {
+    lines.push(`KI-Erfolgschance:  ${kasseAnalyse.widerspruchErfolgswahrscheinlichkeit}%`)
+  }
+  if (kasseAnalyse?.widerspruchBegruendung) {
+    lines.push(`KI-Handlungsempfehlung: ${kasseAnalyse.widerspruchBegruendung}`)
+  }
+  if (kasseAnalyse?.naechsteSchritte) {
+    const schritte = kasseAnalyse.naechsteSchritte as string[]
+    lines.push('KI-Nächste Schritte:')
+    schritte.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`))
+  }
+  lines.push('')
+
+  // ── Section 3: Kommunikationsverlauf ────────────────────────────────────────
+  if (komms.length > 0) {
+    lines.push('──────────────────────────────────────────────────────')
+    lines.push(`KOMMUNIKATIONSVERLAUF (${komms.length} Einträge, chronologisch)`)
+    lines.push('──────────────────────────────────────────────────────')
+    for (const k of komms) {
+      const dir     = k.richtung === 'ausgehend' ? '→ GESENDET AN' : '← ERHALTEN VON'
+      const partner = k.kommunikationspartner === 'kasse' ? 'AXA' : 'Arzt/Praxis'
+      lines.push(`[${k.datum}] ${dir} ${partner} | Typ: ${k.typ}`)
+      if (k.betreff) lines.push(`Betreff: ${k.betreff}`)
+      lines.push(k.inhalt)
+      if (k.ki_analyse) lines.push(`→ KI-Analyse: ${k.ki_analyse}`)
+      lines.push('')
+    }
+  } else {
+    lines.push('Kommunikationsverlauf: Noch keine Kommunikation geführt.')
+    lines.push('')
+  }
+
+  lines.push('═══════════════════════════════════════════════════════')
+  return lines.join('\n')
+}

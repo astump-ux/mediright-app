@@ -462,6 +462,13 @@ function ArztKorrekturPanel({
   )
 }
 // ── Kassenbescheid section ────────────────────────────────────────────────────
+async function startWiderspruchCase(kassenbescheidId: string | undefined) {
+  if (!kassenbescheidId) return
+  try {
+    await fetch(`/api/kassenabrechnungen/${kassenbescheidId}/widerspruch-starten`, { method: 'PATCH' })
+  } catch { /* non-critical */ }
+}
+
 function KassenbescheidSection({
   gruppe, analyse, bescheid,
 }: {
@@ -473,6 +480,7 @@ function KassenbescheidSection({
   const [showArztPanel, setShowArztPanel]               = useState(false)
   const [showPositionen, setShowPositionen]             = useState(true)
   const [showSchritte, setShowSchritte]                 = useState(true)
+  const [arztPanelEverOpened, setArztPanelEverOpened]   = useState(false)
   const userName = useUserFullName()
 
   const erstattet  = gruppe?.betragErstattet ?? bescheid?.betragErstattet ?? 0
@@ -485,8 +493,13 @@ function KassenbescheidSection({
   const schritte        = analyse?.naechsteSchritte ?? null
   const widerspruch     = analyse?.widerspruchEmpfohlen ?? bescheid?.widerspruchEmpfohlen ?? false
   const begruendung     = analyse?.widerspruchBegruendung ?? null
-  const hasKasseAction  = abgelehntePos.some(p => (p as {aktionstyp?: string}).aktionstyp === 'widerspruch_kasse' || (p as {aktionstyp?: string}).aktionstyp == null)
-  const hasArztAction   = abgelehntePos.some(p => (p as {aktionstyp?: string}).aktionstyp === 'korrektur_arzt')
+  const arztPositionen  = abgelehntePos.filter(p => (p as {aktionstyp?: string}).aktionstyp === 'korrektur_arzt')
+  const kassePositionen = abgelehntePos.filter(p => {
+    const at = (p as {aktionstyp?: string}).aktionstyp
+    return at === 'widerspruch_kasse' || at == null
+  })
+  const hasKasseAction  = kassePositionen.length > 0
+  const hasArztAction   = arztPositionen.length > 0
 
   const erfolgColor = erfolg == null ? slate : erfolg >= 70 ? '#22c55e' : erfolg >= 40 ? amber : red
   const erfolgBg    = erfolg == null ? '#f1f5f9' : erfolg >= 70 ? mintLight : erfolg >= 40 ? amberLight : redLight
@@ -645,21 +658,92 @@ function KassenbescheidSection({
               ))}
             </div>
           )}
-          {/* CTAs */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {hasKasseAction && !widerspruchActive && (
-              <button onClick={() => setShowWiderspruchPanel(v => !v)}
-                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: showWiderspruchPanel ? '#92400e' : '#b45309', color: 'white', border: 'none', cursor: 'pointer' }}>
-                {showWiderspruchPanel ? '▲ Schließen' : '⚖️ Widerspruch erstellen'}
-              </button>
-            )}
-            {hasArztAction && !widerspruchActive && (
-              <button onClick={() => setShowArztPanel(v => !v)}
-                style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: showArztPanel ? '#9a3412' : 'white', color: showArztPanel ? 'white' : '#92400e', border: `1px solid ${amber}`, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                {showArztPanel ? '▲ Schreiben schließen' : '🩺 Arzt um Korrektur bitten'}
-              </button>
-            )}
-          </div>
+          {/* ── Schritt A: Klärung beim Arzt ── */}
+          {hasArztAction && !widerspruchActive && (
+            <div style={{ border: '1.5px solid #fb923c', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+              <div style={{ background: '#fff7ed', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#9a3412' }}>Schritt 1 · Klärung beim Arzt</span>
+                <span style={{ fontSize: 11, color: '#9a3412', opacity: 0.75 }}>— Korrektur oder Begründung anfordern</span>
+              </div>
+              <div style={{ padding: '10px 12px', background: 'white' }}>
+                <p style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>Folgende Positionen benötigen eine Korrektur oder §12-Begründung vom Arzt:</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 10 }}>
+                  {arztPositionen.map((pos, i) => (
+                    <div key={i} style={{ fontSize: 11, color: '#0f172a' }}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#9a3412' }}>GOÄ {pos.ziffer}</span>
+                      <span style={{ color: '#94a3b8', margin: '0 4px' }}>·</span>
+                      <span>{pos.bezeichnung}</span>
+                      {pos.ablehnungsgrund && <span style={{ fontStyle: 'italic', color: '#ef4444', marginLeft: 4 }}>— {pos.ablehnungsgrund}</span>}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => {
+                    const opening = !showArztPanel
+                    setShowArztPanel(v => !v)
+                    if (opening) {
+                      setArztPanelEverOpened(true)
+                      startWiderspruchCase(bescheid?.id)
+                    }
+                  }}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: showArztPanel ? '#9a3412' : 'white', color: showArztPanel ? 'white' : '#9a3412', border: '1.5px solid #fb923c', cursor: 'pointer' }}>
+                  {showArztPanel ? '▲ Schreiben schließen' : '🩺 Arzt um Korrektur bitten'}
+                </button>
+                {showArztPanel && (
+                  <ArztKorrekturPanel
+                    arztName={gruppe?.arztName}
+                    korrekturPos={arztPositionen}
+                    rechnungsdatum={bescheid?.bescheiddatum}
+                    userName={userName}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Schritt B: Widerspruch bei AXA ── */}
+          {hasKasseAction && !widerspruchActive && (
+            <div style={{ border: '1.5px solid #f59e0b', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ background: '#fffbeb', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>
+                  {hasArztAction ? 'Schritt 2 · ' : ''}Widerspruch bei AXA
+                </span>
+                <span style={{ fontSize: 11, color: '#92400e', opacity: 0.75 }}>— Förmlichen Widerspruch einlegen</span>
+              </div>
+              <div style={{ padding: '10px 12px', background: 'white' }}>
+                <p style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>Folgende Positionen sollten direkt bei AXA widersprochen werden:</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 10 }}>
+                  {kassePositionen.map((pos, i) => (
+                    <div key={i} style={{ fontSize: 11, color: '#0f172a' }}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#92400e' }}>GOÄ {pos.ziffer}</span>
+                      <span style={{ color: '#94a3b8', margin: '0 4px' }}>·</span>
+                      <span>{pos.bezeichnung}</span>
+                      {pos.ablehnungsgrund && <span style={{ fontStyle: 'italic', color: '#ef4444', marginLeft: 4 }}>— {pos.ablehnungsgrund}</span>}
+                    </div>
+                  ))}
+                </div>
+                {hasArztAction && !arztPanelEverOpened && (
+                  <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 10px', marginBottom: 10, fontSize: 11, color: '#9a3412', display: 'flex', gap: 6 }}>
+                    <span>💡</span>
+                    <span>Empfehlung: Erst Arztkorrektur (Schritt 1) anfordern — eine korrigierte Rechnung stärkt den Widerspruch. Du kannst trotzdem jetzt einreichen.</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    const opening = !showWiderspruchPanel
+                    setShowWiderspruchPanel(v => !v)
+                    if (opening) startWiderspruchCase(bescheid?.id)
+                  }}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 8, background: showWiderspruchPanel ? '#92400e' : '#b45309', color: 'white', border: 'none', cursor: 'pointer' }}>
+                  {showWiderspruchPanel ? '▲ Schließen' : '⚖️ Widerspruch erstellen'}
+                </button>
+                {showWiderspruchPanel && (
+                  <WiderspruchPanel bescheid={bescheid} gruppe={gruppe} analyse={analyse} kassenbescheidId={bescheid?.id} userName={userName} />
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
       )}
 
@@ -667,18 +751,6 @@ function KassenbescheidSection({
         <div style={{ background: mintLight, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#065f46' }}>
           ✓ Kasse hat alles erstattet — kein Handlungsbedarf.
         </div>
-      )}
-
-      {showWiderspruchPanel && (
-        <WiderspruchPanel bescheid={bescheid} gruppe={gruppe} analyse={analyse} kassenbescheidId={bescheid?.id} userName={userName} />
-      )}
-      {showArztPanel && (
-        <ArztKorrekturPanel
-          arztName={gruppe?.arztName}
-          korrekturPos={abgelehntePos.filter(p => (p as {aktionstyp?: string}).aktionstyp === 'korrektur_arzt')}
-          rechnungsdatum={bescheid?.bescheiddatum}
-          userName={userName}
-        />
       )}
     </div>
   )
