@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     .insert({
       user_id: user.id,
       pdf_storage_path: fileName,
-      status: 'wird_analysiert',
+      status: 'eingereicht',
     })
     .select('id')
     .single()
