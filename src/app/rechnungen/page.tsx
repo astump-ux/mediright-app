@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import RechnungenClient from '@/components/rechnungen/RechnungenClient'
+import UploadButton from '@/components/upload/UploadButton'
 import type { KasseRechnungGruppe, KasseAnalyseResult } from '@/lib/goae-analyzer'
 
 export const dynamic = 'force-dynamic'
@@ -109,18 +110,21 @@ export default async function RechnungenPage() {
             {vorgaenge.length} Vorgang{vorgaenge.length !== 1 ? '‍e' : ''} · PDF-Download & KI-Analyse verfügbar
           </p>
         </div>
-        <a
-          href="https://wa.me/14155238886"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            padding: '9px 18px', background: '#25D366', color: 'white',
-            borderRadius: 10, fontWeight: 600, fontSize: 13, textDecoration: 'none',
-          }}
-        >
-          💬 Neue Rechnung einreichen
-        </a>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <UploadButton type="arztrechnung" />
+          <a
+            href="https://wa.me/14155238886"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '9px 18px', background: '#25D366', color: 'white',
+              borderRadius: 10, fontWeight: 600, fontSize: 13, textDecoration: 'none',
+            }}
+          >
+            💬 Via WhatsApp
+          </a>
+        </div>
       </div>
 
       <RechnungenClient vorgaenge={vorgaenge} />

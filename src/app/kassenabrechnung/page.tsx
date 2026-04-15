@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import Header from '@/components/layout/Header'
 import KasseUebersicht from '@/components/kassenabrechnung/KasseUebersicht'
+import UploadButton from '@/components/upload/UploadButton'
 import type { KasseRechnungGruppe } from '@/lib/goae-analyzer'
 
 export const dynamic = 'force-dynamic'
@@ -128,6 +129,7 @@ export default async function KassenPage() {
               Erstattungsbescheide & zugeordnete Arztrechnungen
             </p>
           </div>
+          <UploadButton type="kassenbescheid" />
         </div>
         <KasseUebersicht kasseBescheide={kasseBescheide} unmatchedVorgaenge={unmatchedVorgaenge} />
       </main>
