@@ -22,16 +22,25 @@ export interface WiderspruchKommunikation {
   created_at: string
 }
 
+export interface WiderspruchVorgang {
+  id: string
+  arzt_name: string | null
+  rechnungsdatum: string | null
+  betrag_gesamt: number | null
+}
+
 export interface WiderspruchFall {
   id: string
   bescheiddatum: string | null
   referenznummer: string | null
+  betrag_eingereicht: number
+  betrag_erstattet: number
   betrag_abgelehnt: number
   widerspruch_status: string
   widerspruch_gesendet_am: string | null
   kasse_analyse: Record<string, unknown> | null
-  arztName: string | null
-  rechnungsdatum: string | null
+  pdf_storage_path: string | null
+  vorgaenge: WiderspruchVorgang[]
   kommunikationen: WiderspruchKommunikation[]
 }
 
@@ -47,14 +56,14 @@ export default async function WiderspruchPage() {
     )
   }
 
-  const { data: kassenabrechnungen, error: kasseErr } = await getSupabaseAdmin()
+  const { data: kassenabrechnungen } = await getSupabaseAdmin()
     .from('kassenabrechnungen')
-    .select('id, bescheiddatum, referenznummer, betrag_abgelehnt, widerspruch_status, widerspruch_gesendet_am, kasse_analyse')
+    .select('id, bescheiddatum, referenznummer, betrag_abgelehnt, betrag_eingereicht, betrag_erstattet, widerspruch_status, widerspruch_gesendet_am, kasse_analyse, pdf_storage_path')
     .eq('user_id', user.id)
     .in('widerspruch_status', ['erstellt', 'gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'])
     .order('created_at', { ascending: false })
 
- // Empty state (no active Widerspruchsverfahren)
+  // Empty state
   if (!kassenabrechnungen?.length) {
     return (
       <div style={{ padding: 24 }}>
@@ -74,11 +83,13 @@ export default async function WiderspruchPage() {
 
   const kasseIds = kassenabrechnungen.map(k => k.id)
 
+  // Fetch ALL linked vorgaenge (may be multiple per kassenbescheid)
   const { data: vorgaenge } = await getSupabaseAdmin()
     .from('vorgaenge')
-    .select('kassenabrechnung_id, arzt_name, rechnungsdatum, aerzte(name)')
+    .select('id, kassenabrechnung_id, arzt_name, rechnungsdatum, betrag_gesamt, aerzte(name)')
     .in('kassenabrechnung_id', kasseIds)
     .eq('user_id', user.id)
+    .order('rechnungsdatum', { ascending: true })
 
   const { data: kommunikationen } = await getSupabaseAdmin()
     .from('widerspruch_kommunikationen')
@@ -88,23 +99,36 @@ export default async function WiderspruchPage() {
     .order('datum', { ascending: true })
     .order('created_at', { ascending: true })
 
-  const faelle: WiderspruchFall[] = kassenabrechnungen.map(k => {
-    const linked = vorgaenge?.find(v => v.kassenabrechnung_id === k.id)
-    const arztRow = linked?.aerzte as unknown as { name: string }[] | { name: string } | null
+  // Group vorgaenge by kassenbescheid id
+  const vorgaengeByKasse: Record<string, WiderspruchVorgang[]> = {}
+  for (const v of vorgaenge ?? []) {
+    const kid = v.kassenabrechnung_id
+    if (!kid) continue
+    if (!vorgaengeByKasse[kid]) vorgaengeByKasse[kid] = []
+    const arztRow = v.aerzte as unknown as { name: string }[] | { name: string } | null
     const arzt = Array.isArray(arztRow) ? (arztRow[0] ?? null) : arztRow
-    return {
-      id: k.id,
-      bescheiddatum: k.bescheiddatum,
-      referenznummer: k.referenznummer,
-      betrag_abgelehnt: k.betrag_abgelehnt ?? 0,
-      widerspruch_status: k.widerspruch_status,
-      widerspruch_gesendet_am: k.widerspruch_gesendet_am,
-      kasse_analyse: k.kasse_analyse as Record<string, unknown> | null,
-      arztName: arzt?.name ?? linked?.arzt_name ?? null,
-      rechnungsdatum: linked?.rechnungsdatum ?? null,
-      kommunikationen: (kommunikationen ?? []).filter(km => km.kassenabrechnungen_id === k.id) as WiderspruchKommunikation[],
-    }
-  })
+    vorgaengeByKasse[kid].push({
+      id: v.id,
+      arzt_name: arzt?.name ?? v.arzt_name ?? null,
+      rechnungsdatum: v.rechnungsdatum ?? null,
+      betrag_gesamt: v.betrag_gesamt ?? null,
+    })
+  }
+
+  const faelle: WiderspruchFall[] = kassenabrechnungen.map(k => ({
+    id: k.id,
+    bescheiddatum: k.bescheiddatum ?? null,
+    referenznummer: k.referenznummer ?? null,
+    betrag_eingereicht: k.betrag_eingereicht ?? 0,
+    betrag_erstattet: k.betrag_erstattet ?? 0,
+    betrag_abgelehnt: k.betrag_abgelehnt ?? 0,
+    widerspruch_status: k.widerspruch_status,
+    widerspruch_gesendet_am: k.widerspruch_gesendet_am ?? null,
+    kasse_analyse: k.kasse_analyse as Record<string, unknown> | null,
+    pdf_storage_path: k.pdf_storage_path ?? null,
+    vorgaenge: vorgaengeByKasse[k.id] ?? [],
+    kommunikationen: (kommunikationen ?? []).filter(km => km.kassenabrechnungen_id === k.id) as WiderspruchKommunikation[],
+  }))
 
   return (
     <div>
