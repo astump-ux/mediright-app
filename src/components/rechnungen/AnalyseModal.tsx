@@ -283,27 +283,30 @@ function WiderspruchPanel({
       console.error('[widerspruch-status PATCH]', res.status, err)
     }
   }
+  async function markSent() {
+    if (markedSent) return
+    setMarkedSent(true)
+    await patchStatus('gesendet')
+  }
   async function handleCopy() {
     await navigator.clipboard.writeText(`Betreff: ${editableBetreff}\n\n${editableBody}`)
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
+    await markSent()
   }
   async function handleGmail() {
     window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editableBetreff)}&body=${encodeURIComponent(editableBody)}`, '_blank')
-    setMarkedSent(true)
-    await patchStatus('gesendet')
+    await markSent()
   }
   async function handleOutlook() {
     window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editableBetreff)}&body=${encodeURIComponent(editableBody)}`, '_blank')
-    setMarkedSent(true)
-    await patchStatus('gesendet')
+    await markSent()
   }
   async function handleMailto() {
     const a = document.createElement('a')
     a.href = `mailto:?subject=${encodeURIComponent(editableBetreff)}&body=${encodeURIComponent(editableBody)}`
     a.click()
-    setMarkedSent(true)
-    await patchStatus('gesendet')
+    await markSent()
   }
   async function handleUndoSent() {
     setSending(true)
@@ -350,21 +353,25 @@ function WiderspruchPanel({
             style={{ fontSize: 12, fontWeight: 500, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', cursor: 'pointer', background: 'white', color: '#64748b' }}>
             Anderes Programm
           </button>
-          <div style={{ flex: 1 }} />
-          {!markedSent ? (
-            <button onClick={async () => { setSending(true); try { await patchStatus('gesendet'); setMarkedSent(true) } finally { setSending(false) } }} disabled={sending}
-              style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 8, border: `1px solid ${amber}`, cursor: sending ? 'wait' : 'pointer', background: 'white', color: '#92400e' }}>
-              {sending ? '…' : '✓ Als gesendet markieren'}
-            </button>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46' }}>✓ Als gesendet markiert</span>
-              <button onClick={handleUndoSent} disabled={sending}
-                style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #e2e8f0', cursor: sending ? 'wait' : 'pointer', background: 'white', color: '#94a3b8' }}>
-                {sending ? '…' : 'Rückgängig'}
-              </button>
-            </div>
-          )}
+          <button
+            onClick={async () => {
+              setSending(true)
+              try {
+                if (markedSent) { await patchStatus('erstellt'); setMarkedSent(false) }
+                else { await patchStatus('gesendet'); setMarkedSent(true) }
+              } finally { setSending(false) }
+            }}
+            disabled={sending}
+            title={markedSent ? 'Als Entwurf markieren' : 'Als gesendet markieren'}
+            style={{
+              marginLeft: 'auto', fontSize: 12, fontWeight: 600, padding: '6px 14px',
+              borderRadius: 20, border: `1.5px solid ${markedSent ? '#86efac' : '#e2e8f0'}`,
+              cursor: sending ? 'wait' : 'pointer',
+              background: markedSent ? '#dcfce7' : '#f1f5f9',
+              color: markedSent ? '#15803d' : '#64748b',
+            }}>
+            {sending ? '…' : markedSent ? '✅ Gesendet' : '📋 Entwurf'}
+          </button>
         </div>
         <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>
           💡 Gmail &amp; Outlook öffnen im Browser, "Anderes Programm" öffnet deinen konfigurierten Mail-Client (Apple Mail, Thunderbird etc.).
@@ -456,22 +463,29 @@ function ArztKorrekturPanel({
   const [editBetreff, setEditBetreff] = useState(betreff)
   const [editBody, setEditBody]       = useState(body)
   const [copied, setCopied]           = useState(false)
+  const [arztSent, setArztSent]       = useState(false)
+
+  function markSent() { setArztSent(true) }
 
   async function handleCopy() {
     await navigator.clipboard.writeText(`Betreff: ${editBetreff}\n\n${editBody}`)
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
+    markSent()
   }
   function handleGmail() {
     window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')
+    markSent()
   }
   function handleOutlook() {
     window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')
+    markSent()
   }
   function handleMailto() {
     const a = document.createElement('a')
     a.href = `mailto:?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`
     a.click()
+    markSent()
   }
   return (
     <div style={{ marginTop: 16, border: `2px solid #fb923c`, borderRadius: 12, overflow: 'hidden' }}>
@@ -506,6 +520,19 @@ function ArztKorrekturPanel({
           <button onClick={handleMailto}
             style={{ fontSize: 12, fontWeight: 500, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', cursor: 'pointer', background: 'white', color: '#64748b' }}>
             Anderes Programm
+          </button>
+          {/* Sent status toggle pill */}
+          <button
+            onClick={() => setArztSent(v => !v)}
+            title={arztSent ? 'Als Entwurf markieren' : 'Als gesendet markieren'}
+            style={{
+              marginLeft: 'auto', fontSize: 12, fontWeight: 600, padding: '6px 14px',
+              borderRadius: 20, border: `1.5px solid ${arztSent ? '#86efac' : '#e2e8f0'}`,
+              cursor: 'pointer',
+              background: arztSent ? '#dcfce7' : '#f1f5f9',
+              color: arztSent ? '#15803d' : '#64748b',
+            }}>
+            {arztSent ? '✅ Gesendet' : '📋 Entwurf'}
           </button>
         </div>
         <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>

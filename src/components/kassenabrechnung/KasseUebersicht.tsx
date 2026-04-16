@@ -277,18 +277,28 @@ function generateArztKorrekturLetterKasse(kasse: KasseBescheid, analyse: KasseAn
 }
 
 // ── Email panel ───────────────────────────────────────────────────────────────
-function EmailPanel({ title, betreff: initBetreff, body: initBody, borderColor, headerBg, headerColor, warning }: {
+function EmailPanel({ title, betreff: initBetreff, body: initBody, borderColor, headerBg, headerColor, warning, onSend, sent, onToggleSent }: {
   title: string; betreff: string; body: string;
   borderColor: string; headerBg: string; headerColor: string; warning?: string;
+  onSend?: () => void;          // called whenever an action button is clicked
+  sent?: boolean;               // controlled sent state
+  onToggleSent?: () => void;    // manual toggle
 }) {
   const [editBetreff, setEditBetreff] = useState(initBetreff);
   const [editBody, setEditBody]       = useState(initBody);
   const [copied, setCopied]           = useState(false);
 
+  function handleAction(fn: () => void) {
+    fn();
+    onSend?.();
+  }
+
   async function handleCopy() {
     await navigator.clipboard.writeText(`Betreff: ${editBetreff}\n\n${editBody}`);
     setCopied(true); setTimeout(() => setCopied(false), 2500);
+    onSend?.();
   }
+
   return (
     <div className="mt-4 rounded-xl overflow-hidden" style={{ border: `2px solid ${borderColor}` }}>
       <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: headerBg }}>
@@ -318,18 +328,33 @@ function EmailPanel({ title, betreff: initBetreff, body: initBody, borderColor, 
             style={{ background: copied ? "#ecfdf5" : "#f1f5f9", color: copied ? "#065f46" : "#0f172a" }}>
             {copied ? "✓ Kopiert!" : "📋 Text kopieren"}
           </button>
-          <button onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, "_blank")}
+          <button onClick={() => handleAction(() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, "_blank"))}
             className="text-sm font-bold px-4 py-2 rounded-lg border-none cursor-pointer" style={{ background: "#eff6ff", color: "#1d4ed8" }}>
             In Gmail öffnen
           </button>
-          <button onClick={() => window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, "_blank")}
+          <button onClick={() => handleAction(() => window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, "_blank"))}
             className="text-sm font-bold px-4 py-2 rounded-lg border-none cursor-pointer" style={{ background: "#e8f4fd", color: "#0078d4" }}>
             In Outlook öffnen
           </button>
-          <button onClick={() => { const a = document.createElement("a"); a.href = `mailto:?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`; a.click(); }}
+          <button onClick={() => handleAction(() => { const a = document.createElement("a"); a.href = `mailto:?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`; a.click(); })}
             className="text-xs px-3 py-2 rounded-lg cursor-pointer" style={{ border: "1px solid #e2e8f0", background: "white", color: "#64748b" }}>
             Anderes Programm
           </button>
+
+          {/* Sent status indicator — manual toggle */}
+          {onToggleSent !== undefined && (
+            <button
+              onClick={onToggleSent}
+              title={sent ? "Als Entwurf markieren" : "Als gesendet markieren"}
+              className="ml-auto text-xs font-semibold px-3 py-1.5 rounded-full cursor-pointer transition-all"
+              style={{
+                background: sent ? "#dcfce7" : "#f1f5f9",
+                color:      sent ? "#15803d" : "#64748b",
+                border:     `1.5px solid ${sent ? "#86efac" : "#e2e8f0"}`,
+              }}>
+              {sent ? "✅ Gesendet" : "📋 Entwurf"}
+            </button>
+          )}
         </div>
         <p className="text-xs mt-2.5" style={{ color: "#94a3b8" }}>💡 Gmail &amp; Outlook öffnen im Browser, "Anderes Programm" öffnet deinen Mail-Client.</p>
       </div>
@@ -350,12 +375,41 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
   const [showArztPanel, setShowArztPanel]               = useState(false);
   // Tracks whether user has ever opened the Arzt panel this session
   const [arztPanelEverOpened, setArztPanelEverOpened]   = useState(false);
+  // Sent-status tracking
+  const [localStatus, setLocalStatus] = useState<string>(kasse.widerspruch_status ?? 'keiner');
+  const [arztSent, setArztSent]       = useState(false);
   const userName = useUserFullName();
 
   const analyse = kasse.kasse_analyse as KasseAnalyseResult | null;
-  const widerspruchStatus = kasse.widerspruch_status ?? null;
+  const widerspruchStatus = localStatus as string | null;
   const widerspruchActive = WIDERSPRUCH_ACTIVE.includes(widerspruchStatus ?? "");
   const statusCfg = widerspruchStatus ? WIDERSPRUCH_STATUS_CFG[widerspruchStatus] : null;
+
+  const widerspruchSent = ['gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'].includes(localStatus);
+
+  async function markGesendet() {
+    if (widerspruchSent) return; // already sent — don't downgrade
+    try {
+      await fetch(`/api/kassenabrechnungen/${kasse.id}/widerspruch-status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'gesendet' }),
+      });
+      setLocalStatus('gesendet');
+    } catch { /* non-critical */ }
+  }
+
+  async function toggleWiderspruchSent() {
+    const next = widerspruchSent ? 'erstellt' : 'gesendet';
+    try {
+      await fetch(`/api/kassenabrechnungen/${kasse.id}/widerspruch-status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      });
+      setLocalStatus(next);
+    } catch { /* non-critical */ }
+  }
 
   const abgelehnte: Array<{ arztName: string; pos: KassePosition }> = [];
   for (const gruppe of kasse.rechnungen) {
@@ -589,6 +643,9 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
                         betreff={betreff} body={body}
                         borderColor="#fb923c" headerBg="#fff7ed" headerColor="#9a3412"
                         warning="Bitte die Adresse der Praxis vor dem Versenden eintragen."
+                        onSend={() => setArztSent(true)}
+                        sent={arztSent}
+                        onToggleSent={() => setArztSent(v => !v)}
                       />
                     );
                   })()}
@@ -643,6 +700,9 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
                         betreff={betreff} body={body}
                         borderColor="#f59e0b" headerBg="#fffbeb" headerColor="#92400e"
                         warning="Empfängeradresse ist ein PLATZHALTER. Bitte die korrekte AXA-Adresse aus Ihrem Versicherungsschein eintragen, bevor Sie die E-Mail absenden."
+                        onSend={markGesendet}
+                        sent={widerspruchSent}
+                        onToggleSent={toggleWiderspruchSent}
                       />
                     );
                   })()}
