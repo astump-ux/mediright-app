@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { buildFallContext } from '@/lib/fall-context'
+import { logKiUsage } from '@/lib/ki-usage'
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -142,6 +143,7 @@ export async function POST(
     })
 
     const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+    logKiUsage({ callType: 'widerspruch_analyse', model: 'claude-sonnet-4-6', inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens, userId: user.id }).catch(() => {})
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('No JSON in response')
 

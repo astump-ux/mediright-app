@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getSupabaseAdmin } from './supabase-admin'
+import { logKiUsage } from './ki-usage'
 
 export interface GoaePosition {
   ziffer: string
@@ -146,6 +147,7 @@ export async function analyzeRechnungPdf(pdfBuffer: Buffer): Promise<AnalyseResu
   })
 
   const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
+  logKiUsage({ callType: 'goae_analyse', model, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }).catch(() => {})
   return extractJson<AnalyseResult>(rawText)
 }
 
@@ -473,6 +475,7 @@ export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseRe
   })
 
   const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
+  logKiUsage({ callType: 'kasse_analyse', model, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }).catch(() => {})
   const result = extractJson<KasseAnalyseResult>(rawText)
 
   // Ensure all fields exist with safe defaults (backward compat)

@@ -14,6 +14,173 @@ interface Setting {
   updated_at: string
 }
 
+// ── Token Usage Types ─────────────────────────────────────────────────────────
+interface UsageDayEntry { input: number; output: number; total: number; calls: number; costUsd: number }
+type UsagePeriod = 'tag' | 'woche' | 'monat'
+
+function aggregateByPeriod(byDay: Record<string, UsageDayEntry>, period: UsagePeriod, n: number) {
+  const today = new Date(); today.setHours(0,0,0,0)
+  const buckets: { label: string; data: UsageDayEntry }[] = []
+
+  if (period === 'tag') {
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(today); d.setDate(d.getDate() - i)
+      const key = d.toISOString().slice(0, 10)
+      const label = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+      buckets.push({ label, data: byDay[key] ?? { input: 0, output: 0, total: 0, calls: 0, costUsd: 0 } })
+    }
+  } else if (period === 'woche') {
+    for (let w = n - 1; w >= 0; w--) {
+      const weekStart = new Date(today); weekStart.setDate(weekStart.getDate() - w * 7 - today.getDay() + 1)
+      const agg: UsageDayEntry = { input: 0, output: 0, total: 0, calls: 0, costUsd: 0 }
+      for (let d = 0; d < 7; d++) {
+        const day = new Date(weekStart); day.setDate(weekStart.getDate() + d)
+        const key = day.toISOString().slice(0, 10)
+        const e = byDay[key]; if (!e) continue
+        agg.input += e.input; agg.output += e.output; agg.total += e.total; agg.calls += e.calls; agg.costUsd += e.costUsd
+      }
+      const label = `KW ${weekStart.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}`
+      buckets.push({ label, data: agg })
+    }
+  } else {
+    for (let m = n - 1; m >= 0; m--) {
+      const mo = new Date(today.getFullYear(), today.getMonth() - m, 1)
+      const agg: UsageDayEntry = { input: 0, output: 0, total: 0, calls: 0, costUsd: 0 }
+      const daysInMonth = new Date(mo.getFullYear(), mo.getMonth() + 1, 0).getDate()
+      for (let d = 1; d <= daysInMonth; d++) {
+        const key = `${mo.getFullYear()}-${String(mo.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+        const e = byDay[key]; if (!e) continue
+        agg.input += e.input; agg.output += e.output; agg.total += e.total; agg.calls += e.calls; agg.costUsd += e.costUsd
+      }
+      buckets.push({ label: mo.toLocaleDateString('de-DE', { month: 'short', year: '2-digit' }), data: agg })
+    }
+  }
+  return buckets
+}
+
+function fmtCost(usd: number) { return `$${usd.toFixed(4)}` }
+function fmtTokens(n: number) { return n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n) }
+
+function TokenUsageSection() {
+  const [byDay, setByDay] = useState<Record<string, UsageDayEntry>>({})
+  const [period, setPeriod] = useState<UsagePeriod>('tag')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/admin/ki-usage')
+      .then(r => r.json())
+      .then(d => { setByDay(d.byDay ?? {}); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  const periodConfig: { key: UsagePeriod; label: string; n: number }[] = [
+    { key: 'tag',   label: 'Täglich (30 Tage)', n: 30 },
+    { key: 'woche', label: 'Wöchentlich (12 Wo.)', n: 12 },
+    { key: 'monat', label: 'Monatlich (6 Mo.)', n: 6 },
+  ]
+  const { n } = periodConfig.find(p => p.key === period)!
+  const buckets = aggregateByPeriod(byDay, period, n)
+  const maxTotal = Math.max(...buckets.map(b => b.data.total), 1)
+  const grandTotal = buckets.reduce((a, b) => ({ ...a, total: a.total + b.data.total, calls: a.calls + b.data.calls, costUsd: a.costUsd + b.data.costUsd }), { total: 0, calls: 0, costUsd: 0 } as UsageDayEntry)
+
+  // All-time summary
+  const allTime = Object.values(byDay).reduce((a, b) => ({ ...a, total: a.total + b.total, calls: a.calls + b.calls, costUsd: a.costUsd + b.costUsd }), { total: 0, calls: 0, costUsd: 0 } as UsageDayEntry)
+  const today = new Date().toISOString().slice(0, 10)
+  const todayData = byDay[today] ?? { total: 0, calls: 0, costUsd: 0 }
+  // This month
+  const thisMonthPrefix = new Date().toISOString().slice(0, 7)
+  const thisMonth = Object.entries(byDay).filter(([k]) => k.startsWith(thisMonthPrefix)).reduce((a, [, b]) => ({ total: a.total + b.total, calls: a.calls + b.calls, costUsd: a.costUsd + b.costUsd }), { total: 0, calls: 0, costUsd: 0 })
+
+  return (
+    <div style={{ marginBottom: 40 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 10, borderBottom: '2px solid #e2e8f0' }}>
+        <span style={{ fontSize: 20 }}>📊</span>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: navy, margin: 0 }}>Token-Verbrauch & Kosten</h2>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+        {[
+          { label: 'Heute', tokens: todayData.total, calls: todayData.calls, cost: todayData.costUsd },
+          { label: 'Diesen Monat', tokens: thisMonth.total, calls: thisMonth.calls, cost: thisMonth.costUsd },
+          { label: 'Gesamt (90 Tage)', tokens: allTime.total, calls: allTime.calls, cost: allTime.costUsd },
+        ].map(card => (
+          <div key={card.label} style={{ background: 'white', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1.5px solid #e2e8f0' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>{card.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: navy, marginBottom: 2 }}>{fmtTokens(card.tokens)}</div>
+            <div style={{ fontSize: 12, color: slate }}>Tokens · {card.calls} Aufrufe</div>
+            <div style={{ marginTop: 6, fontSize: 13, fontWeight: 600, color: mint }}>{fmtCost(card.cost)}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Chart */}
+      <div style={{ background: 'white', borderRadius: 12, padding: '20px 20px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1.5px solid #e2e8f0' }}>
+        {/* Tab switcher */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 18 }}>
+          {periodConfig.map(p => (
+            <button key={p.key} onClick={() => setPeriod(p.key)}
+              style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20, border: 'none', cursor: 'pointer',
+                background: period === p.key ? navy : '#f1f5f9',
+                color: period === p.key ? 'white' : slate }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {loading ? (
+          <p style={{ color: slate, fontSize: 13 }}>Lädt…</p>
+        ) : (
+          <>
+            {/* Bar chart */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: period === 'tag' ? 3 : 6, height: 90, marginBottom: 6 }}>
+              {buckets.map((b, i) => {
+                const h = Math.round((b.data.total / maxTotal) * 82)
+                return (
+                  <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
+                    title={`${b.label}: ${fmtTokens(b.data.total)} Tokens · ${fmtCost(b.data.costUsd)}`}>
+                    <div style={{ width: '100%', height: h || 2, background: b.data.total > 0 ? mint : '#e2e8f0', borderRadius: '3px 3px 0 0', transition: 'height 0.3s' }} />
+                  </div>
+                )
+              })}
+            </div>
+            {/* X-axis labels — show only every Nth */}
+            <div style={{ display: 'flex', gap: period === 'tag' ? 3 : 6, marginBottom: 12 }}>
+              {buckets.map((b, i) => {
+                const showEvery = period === 'tag' ? 5 : 1
+                return (
+                  <div key={i} style={{ flex: 1, fontSize: 9, color: '#94a3b8', textAlign: 'center', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {i % showEvery === 0 ? b.label : ''}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Period summary */}
+            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12 }}>
+                <span style={{ color: slate }}>Tokens: </span>
+                <span style={{ fontWeight: 700, color: navy }}>{fmtTokens(grandTotal.total)}</span>
+              </div>
+              <div style={{ fontSize: 12 }}>
+                <span style={{ color: slate }}>KI-Aufrufe: </span>
+                <span style={{ fontWeight: 700, color: navy }}>{grandTotal.calls}</span>
+              </div>
+              <div style={{ fontSize: 12 }}>
+                <span style={{ color: slate }}>Kosten: </span>
+                <span style={{ fontWeight: 700, color: mint }}>{fmtCost(grandTotal.costUsd)}</span>
+              </div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginLeft: 'auto', alignSelf: 'center' }}>
+                Preise: claude-sonnet $3/$15 · haiku $0.80/$4 pro MTok (in/out)
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
   prompts:      { label: 'KI-Prompts',        icon: '🤖' },
   nachrichten:  { label: 'WhatsApp Texte',     icon: '💬' },
@@ -106,6 +273,9 @@ export default function AdminPage() {
             {error}
           </div>
         )}
+
+        {/* Token usage */}
+        <TokenUsageSection />
 
         {/* Settings by category */}
         {Object.entries(grouped).map(([category, items]) => {
