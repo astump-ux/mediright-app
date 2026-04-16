@@ -73,8 +73,8 @@ function modelProvider(m: string) { return m.startsWith('gemini-') ? 'google' : 
 function modelShortLabel(m: string) {
   if (m === 'claude-sonnet-4-6')         return 'Sonnet 4.6'
   if (m === 'claude-haiku-4-5-20251001') return 'Haiku 4.5'
-  if (m === 'gemini-2.5-flash')          return 'Gemini 2.5 Flash'
-  if (m === 'gemini-2.5-pro')            return 'Gemini 2.5 Pro'
+  if (m === 'gemini-3-flash-preview')    return 'Gemini 3 Flash'
+  if (m === 'gemini-3.1-pro-preview')   return 'Gemini 3.1 Pro'
   return m
 }
 

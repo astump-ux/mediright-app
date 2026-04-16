@@ -27,8 +27,8 @@ export function isGeminiModel(model: string): boolean {
 export const AI_MODELS: { value: string; label: string; provider: 'anthropic' | 'google' }[] = [
   { value: 'claude-sonnet-4-6',         label: 'Claude Sonnet 4.6 — empfohlen',       provider: 'anthropic' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 — schnell & günstig', provider: 'anthropic' },
-  { value: 'gemini-2.5-flash',          label: 'Gemini 2.5 Flash — Google, schnell',   provider: 'google'    },
-  { value: 'gemini-2.5-pro',            label: 'Gemini 2.5 Pro — Google, leistungsstark', provider: 'google' },
+  { value: 'gemini-3-flash-preview',     label: 'Gemini 3 Flash — Google, schnell',         provider: 'google' },
+  { value: 'gemini-3.1-pro-preview',    label: 'Gemini 3.1 Pro — Google, leistungsstark',  provider: 'google' },
 ]
 
 // ── PDF analysis ──────────────────────────────────────────────────────────────

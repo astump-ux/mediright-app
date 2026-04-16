@@ -14,8 +14,8 @@ export const PRICING: Record<string, { input: number; output: number; label: str
   'claude-opus-4-5':           { input: 15.00, output: 75.00, label: 'Claude Opus 4.5'    },
   'claude-opus-4-6':           { input: 15.00, output: 75.00, label: 'Claude Opus 4.6'    },
   // ── Google Gemini ──────────────────────────────────────────────────────────
-  'gemini-2.5-flash':          { input: 0.15,  output: 0.60,  label: 'Gemini 2.5 Flash'  },
-  'gemini-2.5-pro':            { input: 1.25,  output: 10.00, label: 'Gemini 2.5 Pro'    },
+  'gemini-3-flash-preview':    { input: 0.15,  output: 0.60,  label: 'Gemini 3 Flash'         },
+  'gemini-3.1-pro-preview':   { input: 1.25,  output: 10.00, label: 'Gemini 3.1 Pro'        },
   'gemini-2.0-flash':          { input: 0.10,  output: 0.40,  label: 'Gemini 2.0 Flash'  },
   'gemini-1.5-flash':          { input: 0.075, output: 0.30,  label: 'Gemini 1.5 Flash'  },
   'gemini-1.5-pro':            { input: 1.25,  output: 5.00,  label: 'Gemini 1.5 Pro'    },
