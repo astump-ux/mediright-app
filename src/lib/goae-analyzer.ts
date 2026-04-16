@@ -427,12 +427,29 @@ WICHTIG:
 - widerspruchWahrscheinlichkeit: 0–100 nur wenn aktionstyp="widerspruch_kasse", sonst null
 - confidence: 0–100 für JEDE Position (Sicherheit der KI-Einschätzung)`
 
+// This rule is always appended to whatever system prompt is active (DB override or default),
+// to guarantee widerspruchBegruendung is always written as a direct 1st-person argument.
+const WIDERSPRUCH_FORMAT_ENFORCEMENT = `
+
+⚡ ABSOLUTE PFLICHT – widerspruchBegruendung:
+Dieses Feld ist ein fertiger, direkter Briefabsatz an AXA — KEINE Erklärung für den Versicherten.
+Schreibe AUSSCHLIESSLICH in der Ich-Form als würde der Versicherte direkt an AXA schreiben:
+  RICHTIG: "Ich beantrage die vollständige Erstattung von X EUR. Die Ablehnung widerspricht § 192 VVG, da die Behandlung medizinisch notwendig war und ärztlich verordnet wurde."
+  FALSCH: "Ein Widerspruch ist aussichtsreich. Fordern Sie eine Begründung an. Legen Sie vor..."
+  FALSCH: "Die Ablehnung sollte angefochten werden. Der Arzt sollte eine Stellungnahme einreichen."
+Starte den Text IMMER mit "Ich beantrage" oder "Gegen Ihre Ablehnung" oder "Hiermit widerspreche ich".
+Verwende NIEMALS: "Fordern Sie", "legen Sie vor", "sollte", "empfehle", "aussichtsreich", "könnte".`
+
 export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseResult> {
-  const [systemPrompt, userPrompt, model] = await Promise.all([
+  const [baseSystemPrompt, userPrompt, model] = await Promise.all([
     getSetting('kasse_analyse_prompt', DEFAULT_KASSE_SYSTEM_PROMPT),
     getSetting('kasse_analyse_user_prompt', DEFAULT_KASSE_USER_PROMPT),
     getSetting('claude_model', 'claude-sonnet-4-5'),
   ])
+
+  // Always enforce 1st-person format for widerspruchBegruendung,
+  // even if an older DB-stored prompt overrides the default.
+  const systemPrompt = baseSystemPrompt + WIDERSPRUCH_FORMAT_ENFORCEMENT
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
   const base64Pdf = pdfBuffer.toString('base64')
