@@ -154,12 +154,23 @@ function generateWiderspruchLetterKasse(kasse: KasseBescheid, analyse: KasseAnal
   const ref = kasse.referenznummer ?? "[Ihre Referenznummer]";
   const abgelehnt = kasse.betrag_abgelehnt.toFixed(2);
   const begruendung = analyse?.widerspruchBegruendung ?? "Die Ablehnung ist aus meiner Sicht nicht gerechtfertigt.";
-  const allPos = kasse.rechnungen.flatMap(g => (g.positionen ?? []).filter(p => p.status === "abgelehnt" || p.status === "gekuerzt"));
-  const posListe = allPos.length > 0
-    ? allPos.map(p => `  - Ziffer ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht, ${(p.betragErstattet ?? 0).toFixed(2)} € erstattet`).join("\n")
+
+  // Only include widerspruch_kasse positions in the letter — korrektur_arzt positions
+  // are handled via the doctor and do NOT belong in a formal Widerspruch to AXA
+  const kassePos = kasse.rechnungen.flatMap(g =>
+    (g.positionen ?? []).filter(p =>
+      (p.status === "abgelehnt" || p.status === "gekuerzt") &&
+      (p as {aktionstyp?: string}).aktionstyp !== "korrektur_arzt"
+    )
+  );
+  const betragKasse = kassePos.reduce((s, p) => s + (p.betragEingereicht ?? 0) - (p.betragErstattet ?? 0), 0);
+  const abgelehntKasse = betragKasse > 0 ? betragKasse.toFixed(2) : abgelehnt;
+
+  const posListe = kassePos.length > 0
+    ? kassePos.map(p => `  - Ziffer ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht, ${(p.betragErstattet ?? 0).toFixed(2)} € erstattet\n    Ablehnungsgrund: ${p.ablehnungsgrund ?? "nicht angegeben"}`).join("\n")
     : "  [Bitte betroffene Positionen eintragen]";
 
-  // Check if the AI recommends getting an attest from the doctor first
+  // Check if the AI recommends getting an attest from the doctor simultaneously
   const arztSchritte = arztSchritteAus(analyse?.naechsteSchritte);
   const attestNoted  = arztSchritte.some(s => {
     const l = s.toLowerCase();
@@ -182,7 +193,7 @@ Sehr geehrte Damen und Herren,
 
 hiermit lege ich fristgerecht Widerspruch gegen Ihren Leistungsbescheid vom ${bescheidDatum} (Referenz: ${ref}) ein.
 
-Sie haben Leistungen in Höhe von ${abgelehnt} € nicht erstattet. Ich bin der Auffassung, dass diese Entscheidung nicht gerechtfertigt ist und bitte Sie um eine erneute Prüfung.
+Sie haben Leistungen in Höhe von ${abgelehntKasse} € nicht erstattet. Ich bin der Auffassung, dass diese Entscheidung nicht gerechtfertigt ist und bitte Sie um eine erneute Prüfung.
 
 Betroffene Positionen:
 ${posListe}
@@ -190,7 +201,7 @@ ${posListe}
 Begründung meines Widerspruchs:
 ${begruendung}
 ${attestHinweis}
-Ich bitte Sie daher, Ihre Entscheidung zu überprüfen und mir den abgelehnten Betrag von ${abgelehnt} € vollständig zu erstatten. Sollten Sie an Ihrer Entscheidung festhalten, behalte ich mir vor, die Ombudsstelle für private Kranken- und Pflegeversicherung (www.pkv-ombudsmann.de) einzuschalten.
+Ich bitte Sie daher, Ihre Entscheidung zu überprüfen und mir den abgelehnten Betrag von ${abgelehntKasse} € vollständig zu erstatten. Sollten Sie an Ihrer Entscheidung festhalten, behalte ich mir vor, die Ombudsstelle für private Kranken- und Pflegeversicherung (www.pkv-ombudsmann.de) einzuschalten.
 
 Bitte bestätigen Sie den Eingang dieses Widerspruchs schriftlich.
 
@@ -530,22 +541,33 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
               </div>
             )}
 
-            {/* ── Schritt A: Klärung beim Arzt (wenn Arzt-Positionen vorhanden) ── */}
-            {hasArztAction && (
+            {/* ── Schritt A: Klärung beim Arzt ── */}
+            {/* Show when: arzt positions exist OR kasse positions need attest per naechsteSchritte */}
+            {(() => {
+              const arztSchritte = arztSchritteAus(analyse?.naechsteSchritte);
+              const kassePosNeedAttest = arztSchritte.length > 0 && kassePositionen.length > 0;
+              if (!hasArztAction && !kassePosNeedAttest) return null;
+              return (
               <div className="rounded-xl overflow-hidden mb-3" style={{ border: "1.5px solid #fb923c" }}>
                 <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#fff7ed" }}>
                   <span className="text-sm font-bold" style={{ color: "#9a3412" }}>Schritt 1 · Klärung beim Arzt</span>
                   <span className="text-xs" style={{ color: "#9a3412", opacity: 0.75 }}>— Korrektur oder Begründung anfordern</span>
                 </div>
                 <div className="px-4 py-3" style={{ background: "white" }}>
-                  <p className="text-xs mb-2" style={{ color: "#64748b" }}>Folgende Positionen erfordern eine Korrektur oder schriftliche Begründung durch den Arzt:</p>
+                  <p className="text-xs mb-2" style={{ color: "#64748b" }}>Folgende Positionen erfordern Klärung mit dem Arzt — entweder eine Rechnungskorrektur oder ein ärztliches Attest:</p>
                   <div className="flex flex-col gap-1 mb-3">
                     {arztPositionen.map(({ pos }, i) => (
-                      <div key={i} className="text-xs" style={{ color: "#0f172a" }}>
-                        <span className="font-mono font-semibold" style={{ color: "#9a3412" }}>GOÄ {pos.ziffer}</span>
-                        <span className="mx-1 text-slate-400">·</span>
-                        <span>{pos.bezeichnung}</span>
-                        {pos.ablehnungsgrund && <span className="ml-1 italic" style={{ color: "#ef4444" }}>— {pos.ablehnungsgrund}</span>}
+                      <div key={`korr-${i}`} className="flex items-start gap-1.5 text-xs" style={{ color: "#0f172a" }}>
+                        <span className="flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded" style={{ background: "#fff7ed", color: "#9a3412", border: "1px solid #fed7aa" }}>Korrektur</span>
+                        <span><span className="font-mono font-semibold" style={{ color: "#9a3412" }}>GOÄ {pos.ziffer}</span> · {pos.bezeichnung}
+                        {pos.ablehnungsgrund && <span className="ml-1 italic" style={{ color: "#ef4444" }}>— {pos.ablehnungsgrund}</span>}</span>
+                      </div>
+                    ))}
+                    {kassePosNeedAttest && kassePositionen.map(({ pos }, i) => (
+                      <div key={`attest-${i}`} className="flex items-start gap-1.5 text-xs" style={{ color: "#0f172a" }}>
+                        <span className="flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded" style={{ background: "#fffbeb", color: "#92400e", border: "1px solid #fcd34d" }}>Attest nötig</span>
+                        <span><span className="font-mono font-semibold" style={{ color: "#92400e" }}>GOÄ {pos.ziffer}</span> · {pos.bezeichnung}
+                        {pos.ablehnungsgrund && <span className="ml-1 italic" style={{ color: "#ef4444" }}>— {pos.ablehnungsgrund}</span>}</span>
                       </div>
                     ))}
                   </div>
@@ -575,7 +597,8 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
                   })()}
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* ── Schritt B: Widerspruch bei AXA ── */}
             {hasKasseAction && (

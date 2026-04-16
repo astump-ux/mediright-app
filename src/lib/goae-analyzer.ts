@@ -300,6 +300,7 @@ WICHTIGE REGELN:
   "verbleibender Selbstbehalt", "noch verbleibend" — diese Beträge sind explizit
   auf dem Bescheid ausgewiesen und MÜSSEN extrahiert werden.
 - Nächste Schritte: Gib konkrete, handlungsorientierte Empfehlungen für den Versicherten.
+- widerspruchBegruendung: Schreibe dieses Feld AUSSCHLIESSLICH als fertiges, direkt verwendbares Argument in der Ich-Form, das der Versicherte wörtlich in einem Widerspruchsschreiben an AXA verwenden kann. KEIN analytischer Ton, KEINE Empfehlungen, KEINE "Fordern Sie..."-Formulierungen. Nur: "Ich beantrage die Erstattung von..., da... Gemäß § X... ist die Leistung erstattungsfähig, weil..." — überzeugend, klar, auf AXA-Akzeptanz optimiert. Wenn kein sinnvoller Widerspruch möglich: null.
 
 AKTIONSTYP PRO POSITION (für gekürzte oder abgelehnte Positionen):
 Jede Position mit status "gekuerzt" oder "abgelehnt" MUSS ein aktionstyp-Feld erhalten:
@@ -402,7 +403,7 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
   "selbstbehaltJahresgrenze": 500.00,
   "ablehnungsgruende": ["Liste aller Ablehnungsgründe als Strings"],
   "widerspruchEmpfohlen": false,
-  "widerspruchBegruendung": "Detaillierte juristische/medizinische Begründung warum Widerspruch Aussicht hat, oder null",
+  "widerspruchBegruendung": "Ich beantrage die vollständige Erstattung der Ernährungsberatung in Höhe von 40,22 EUR. Die Behandlung war medizinisch notwendig im Sinne von § 1 Abs. 2 MB/KK, da sie ärztlich verordnet und auf eine dokumentierte Diagnose zurückzuführen ist. Ernährungstherapie ist bei entsprechender Indikation (z.B. Diabetes mellitus, Adipositas, Fettstoffwechselstörung) eine anerkannte Heilbehandlung, deren Erstattungspflicht durch Ihre Allgemeinen Versicherungsbedingungen abgedeckt ist. Ihre Ablehnung mit dem pauschalen Hinweis auf fehlende medizinische Notwendigkeit ist nicht ausreichend begründet im Sinne des § 192 VVG.",
   "widerspruchErfolgswahrscheinlichkeit": 65,
   "naechsteSchritte": [
     "Innerhalb von 4 Wochen schriftlichen Widerspruch einlegen (Frist beachten!)",
