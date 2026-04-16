@@ -2,20 +2,34 @@ import { getSupabaseAdmin } from './supabase-admin'
 
 export type KiCallType = 'goae_analyse' | 'kasse_analyse' | 'widerspruch_analyse'
 
-// Pricing per million tokens (USD) — update if Anthropic changes pricing
-const PRICING: Record<string, { input: number; output: number }> = {
-  'claude-haiku-4-5-20251001': { input: 0.80,  output: 4.00  },
-  'claude-haiku-4-5':          { input: 0.80,  output: 4.00  },
-  'claude-sonnet-4-5':         { input: 3.00,  output: 15.00 },
-  'claude-sonnet-4-6':         { input: 3.00,  output: 15.00 },
-  'claude-opus-4-5':           { input: 15.00, output: 75.00 },
-  'claude-opus-4-6':           { input: 15.00, output: 75.00 },
+// Pricing per million tokens (USD)
+// Anthropic: https://www.anthropic.com/pricing
+// Google:    https://ai.google.dev/pricing
+export const PRICING: Record<string, { input: number; output: number; label: string }> = {
+  // ── Anthropic ──────────────────────────────────────────────────────────────
+  'claude-haiku-4-5-20251001': { input: 0.80,  output: 4.00,  label: 'Claude Haiku 4.5'   },
+  'claude-haiku-4-5':          { input: 0.80,  output: 4.00,  label: 'Claude Haiku 4.5'   },
+  'claude-sonnet-4-5':         { input: 3.00,  output: 15.00, label: 'Claude Sonnet 4.5'  },
+  'claude-sonnet-4-6':         { input: 3.00,  output: 15.00, label: 'Claude Sonnet 4.6'  },
+  'claude-opus-4-5':           { input: 15.00, output: 75.00, label: 'Claude Opus 4.5'    },
+  'claude-opus-4-6':           { input: 15.00, output: 75.00, label: 'Claude Opus 4.6'    },
+  // ── Google Gemini ──────────────────────────────────────────────────────────
+  'gemini-2.5-flash':          { input: 0.15,  output: 0.60,  label: 'Gemini 2.5 Flash'  },
+  'gemini-2.5-pro':            { input: 1.25,  output: 10.00, label: 'Gemini 2.5 Pro'    },
+  'gemini-2.0-flash':          { input: 0.10,  output: 0.40,  label: 'Gemini 2.0 Flash'  },
+  'gemini-1.5-flash':          { input: 0.075, output: 0.30,  label: 'Gemini 1.5 Flash'  },
+  'gemini-1.5-pro':            { input: 1.25,  output: 5.00,  label: 'Gemini 1.5 Pro'    },
 }
 
 /** Compute USD cost for a single call */
 export function calcCostUsd(model: string, inputTokens: number, outputTokens: number): number {
-  const p = PRICING[model] ?? { input: 3.00, output: 15.00 }
+  const p = PRICING[model] ?? { input: 3.00, output: 15.00, label: model }
   return (inputTokens * p.input + outputTokens * p.output) / 1_000_000
+}
+
+/** Human-readable label for a model ID */
+export function modelLabel(model: string): string {
+  return PRICING[model]?.label ?? model
 }
 
 /** Fire-and-forget: log a completed AI call to ki_usage_log */

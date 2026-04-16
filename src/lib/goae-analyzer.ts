@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getSupabaseAdmin } from './supabase-admin'
 import { logKiUsage } from './ki-usage'
+import { callAiWithPdf } from './ai-client'
 
 export interface GoaePosition {
   ziffer: string
@@ -118,37 +119,19 @@ function extractJson<T>(raw: string): T {
 }
 
 export async function analyzeRechnungPdf(pdfBuffer: Buffer): Promise<AnalyseResult> {
-  // Load prompts and config from DB (with hardcoded fallbacks)
   const [systemPrompt, userPrompt, model] = await Promise.all([
     getSetting('goae_system_prompt', DEFAULT_SYSTEM_PROMPT),
     getSetting('goae_user_prompt', DEFAULT_USER_PROMPT),
-    getSetting('claude_model', 'claude-sonnet-4-5'),
+    getSetting('goae_analyse_model', 'claude-sonnet-4-6'),
   ])
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
-  const base64Pdf = pdfBuffer.toString('base64')
-
-  const response = await client.messages.create({
-    model,
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
-          },
-          { type: 'text', text: userPrompt },
-        ],
-      },
-    ],
+  const { text, usage } = await callAiWithPdf({
+    model, systemPrompt, userPrompt,
+    pdfBase64: pdfBuffer.toString('base64'),
+    maxTokens: 4096,
   })
-
-  const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
-  logKiUsage({ callType: 'goae_analyse', model, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }).catch(() => {})
-  return extractJson<AnalyseResult>(rawText)
+  logKiUsage({ callType: 'goae_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }).catch(() => {})
+  return extractJson<AnalyseResult>(text)
 }
 
 // Fetch a WhatsApp message template from DB
@@ -448,37 +431,20 @@ export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseRe
   const [baseSystemPrompt, userPrompt, model] = await Promise.all([
     getSetting('kasse_analyse_prompt', DEFAULT_KASSE_SYSTEM_PROMPT),
     getSetting('kasse_analyse_user_prompt', DEFAULT_KASSE_USER_PROMPT),
-    getSetting('claude_model', 'claude-sonnet-4-5'),
+    getSetting('kasse_analyse_model', 'claude-sonnet-4-6'),
   ])
 
   // Always enforce 1st-person format for widerspruchBegruendung,
   // even if an older DB-stored prompt overrides the default.
   const systemPrompt = baseSystemPrompt + WIDERSPRUCH_FORMAT_ENFORCEMENT
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
-  const base64Pdf = pdfBuffer.toString('base64')
-
-  const response = await client.messages.create({
-    model,
-    max_tokens: 8192,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
-          },
-          { type: 'text', text: userPrompt },
-        ],
-      },
-    ],
+  const { text, usage } = await callAiWithPdf({
+    model, systemPrompt, userPrompt,
+    pdfBase64: pdfBuffer.toString('base64'),
+    maxTokens: 8192,
   })
-
-  const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
-  logKiUsage({ callType: 'kasse_analyse', model, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }).catch(() => {})
-  const result = extractJson<KasseAnalyseResult>(rawText)
+  logKiUsage({ callType: 'kasse_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }).catch(() => {})
+  const result = extractJson<KasseAnalyseResult>(text)
 
   // Ensure all fields exist with safe defaults (backward compat)
   if (result.selbstbehaltAbgezogen                 === undefined) result.selbstbehaltAbgezogen                 = null

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Header from '@/components/layout/Header'
 
+interface SelectOption { value: string; label: string }
 interface Setting {
   id: string
   key: string
@@ -10,12 +11,14 @@ interface Setting {
   label: string
   description: string | null
   category: string
-  input_type: 'textarea' | 'text' | 'number'
+  input_type: 'textarea' | 'text' | 'number' | 'select'
+  select_options: SelectOption[] | null
   updated_at: string
 }
 
 // ── Token Usage Types ─────────────────────────────────────────────────────────
-interface UsageDayEntry { input: number; output: number; total: number; calls: number; costUsd: number }
+interface UsageDayEntry   { input: number; output: number; total: number; calls: number; costUsd: number }
+interface UsageModelEntry extends UsageDayEntry { model: string }
 type UsagePeriod = 'tag' | 'woche' | 'monat'
 
 function aggregateByPeriod(byDay: Record<string, UsageDayEntry>, period: UsagePeriod, n: number) {
@@ -61,15 +64,30 @@ function aggregateByPeriod(byDay: Record<string, UsageDayEntry>, period: UsagePe
 function fmtCost(usd: number) { return `$${usd.toFixed(4)}` }
 function fmtTokens(n: number) { return n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n) }
 
+// Provider badge colours
+const PROVIDER_STYLE: Record<string, { bg: string; color: string }> = {
+  anthropic: { bg: '#f1f5f9', color: '#0f172a' },
+  google:    { bg: '#e8f5e9', color: '#1b5e20' },
+}
+function modelProvider(m: string) { return m.startsWith('gemini-') ? 'google' : 'anthropic' }
+function modelShortLabel(m: string) {
+  if (m === 'claude-sonnet-4-6')         return 'Sonnet 4.6'
+  if (m === 'claude-haiku-4-5-20251001') return 'Haiku 4.5'
+  if (m === 'gemini-2.5-flash')          return 'Gemini 2.5 Flash'
+  if (m === 'gemini-2.5-pro')            return 'Gemini 2.5 Pro'
+  return m
+}
+
 function TokenUsageSection() {
-  const [byDay, setByDay] = useState<Record<string, UsageDayEntry>>({})
-  const [period, setPeriod] = useState<UsagePeriod>('tag')
+  const [byDay,   setByDay]   = useState<Record<string, UsageDayEntry>>({})
+  const [byModel, setByModel] = useState<Record<string, UsageModelEntry>>({})
+  const [period, setPeriod]   = useState<UsagePeriod>('tag')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetch('/api/admin/ki-usage')
       .then(r => r.json())
-      .then(d => { setByDay(d.byDay ?? {}); setLoading(false) })
+      .then(d => { setByDay(d.byDay ?? {}); setByModel(d.byModel ?? {}); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
 
@@ -157,7 +175,7 @@ function TokenUsageSection() {
             </div>
 
             {/* Period summary */}
-            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
               <div style={{ fontSize: 12 }}>
                 <span style={{ color: slate }}>Tokens: </span>
                 <span style={{ fontWeight: 700, color: navy }}>{fmtTokens(grandTotal.total)}</span>
@@ -170,10 +188,36 @@ function TokenUsageSection() {
                 <span style={{ color: slate }}>Kosten: </span>
                 <span style={{ fontWeight: 700, color: mint }}>{fmtCost(grandTotal.costUsd)}</span>
               </div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginLeft: 'auto', alignSelf: 'center' }}>
-                Preise: claude-sonnet $3/$15 · haiku $0.80/$4 pro MTok (in/out)
-              </div>
             </div>
+
+            {/* Model breakdown table */}
+            {Object.keys(byModel).length > 0 && (
+              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Aufschlüsselung nach Modell (90 Tage)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {Object.values(byModel).sort((a, b) => b.costUsd - a.costUsd).map(m => {
+                    const prov = modelProvider(m.model)
+                    const style = PROVIDER_STYLE[prov]
+                    return (
+                      <div key={m.model} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                        <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: style.bg, color: style.color, border: '1px solid #e2e8f0' }}>
+                          {prov === 'google' ? 'Google' : 'Anthropic'}
+                        </span>
+                        <span style={{ flex: 1, fontWeight: 600, color: navy }}>{modelShortLabel(m.model)}</span>
+                        <span style={{ color: slate }}>{fmtTokens(m.total)} Tok</span>
+                        <span style={{ color: slate }}>·</span>
+                        <span style={{ color: slate }}>{m.calls} Aufrufe</span>
+                        <span style={{ color: slate }}>·</span>
+                        <span style={{ fontWeight: 700, color: mint }}>{fmtCost(m.costUsd)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 8 }}>
+                  Sonnet $3/$15 · Haiku $0.80/$4 · Gemini 2.5 Flash $0.15/$0.60 · Gemini 2.5 Pro $1.25/$10 pro MTok (in/out)
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -311,7 +355,22 @@ export default function AdminPage() {
                     </div>
 
                     {/* Input */}
-                    {setting.input_type === 'textarea' ? (
+                    {setting.input_type === 'select' ? (
+                      <select
+                        value={edits[setting.key] ?? ''}
+                        onChange={e => setEdits(p => ({ ...p, [setting.key]: e.target.value }))}
+                        style={{
+                          width: '100%', boxSizing: 'border-box',
+                          padding: '10px 12px', border: '1.5px solid #e2e8f0',
+                          borderRadius: 8, fontSize: 14, color: navy,
+                          background: '#f8fafc', outline: 'none', cursor: 'pointer',
+                        }}
+                      >
+                        {(setting.select_options ?? []).map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    ) : setting.input_type === 'textarea' ? (
                       <textarea
                         value={edits[setting.key] ?? ''}
                         onChange={e => setEdits(p => ({ ...p, [setting.key]: e.target.value }))}

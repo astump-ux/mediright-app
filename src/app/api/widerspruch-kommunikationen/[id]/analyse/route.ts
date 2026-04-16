@@ -2,10 +2,8 @@ import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { buildFallContext } from '@/lib/fall-context'
 import { logKiUsage } from '@/lib/ki-usage'
+import { callAiText } from '@/lib/ai-client'
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
-
-const anthropic = new Anthropic()
 
 // ── Fallback prompts ──────────────────────────────────────────────────────────
 // Use {{fallkontext}} for the complete structured Fallakte.
@@ -112,18 +110,18 @@ export async function POST(
     return `[${t.datum}] ${dir} ${partner} (${t.typ}):\nBetreff: ${t.betreff ?? '–'}\n${t.inhalt}`
   }).join('\n\n---\n\n')
 
-  // ── Load prompt from DB (or fall back to hardcoded) ──────────────────────
+  // ── Load prompt + model from DB ───────────────────────────────────────────
   const isArzt    = komm.kommunikationspartner === 'arzt'
   const promptKey = isArzt ? 'ki_widerspruch_arzt_prompt' : 'ki_widerspruch_kasse_prompt'
   const fallback  = isArzt ? FALLBACK_ARZT_PROMPT : FALLBACK_KASSE_PROMPT
 
-  const { data: settingRow } = await admin
-    .from('app_settings')
-    .select('value')
-    .eq('key', promptKey)
-    .single()
+  const [settingRow, modelRow] = await Promise.all([
+    admin.from('app_settings').select('value').eq('key', promptKey).single(),
+    admin.from('app_settings').select('value').eq('key', 'widerspruch_analyse_model').single(),
+  ])
 
-  const promptTemplate = (settingRow?.value && settingRow.value.trim()) ? settingRow.value : fallback
+  const model = modelRow.data?.value || 'claude-sonnet-4-6'
+  const promptTemplate = (settingRow.data?.value && settingRow.data.value.trim()) ? settingRow.data.value : fallback
 
   const prompt = fillPlaceholders(promptTemplate, {
     fallkontext,
@@ -136,14 +134,8 @@ export async function POST(
   })
 
   try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt }],
-    })
-
-    const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-    logKiUsage({ callType: 'widerspruch_analyse', model: 'claude-sonnet-4-6', inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens, userId: user.id }).catch(() => {})
+    const { text: raw, usage } = await callAiText({ model, prompt, maxTokens: 2048 })
+    logKiUsage({ callType: 'widerspruch_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, userId: user.id }).catch(() => {})
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('No JSON in response')
 
