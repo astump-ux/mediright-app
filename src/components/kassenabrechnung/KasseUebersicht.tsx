@@ -376,7 +376,7 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
 
   const ablehnungsgruende = analyse?.ablehnungsgruende ?? [];
   const widerspruch       = analyse?.widerspruchEmpfohlen ?? false;
-  const begruendung       = analyse?.widerspruchBegruendung ?? null;
+  const begruendung       = analyse?.widerspruchErklaerung ?? null;
   const erfolg            = analyse?.widerspruchErfolgswahrscheinlichkeit ?? null;
   const schritte          = analyse?.naechsteSchritte ?? null;
 

@@ -157,6 +157,7 @@ interface KasseAnalyse {
   positionen?: KassePosition[]
   ablehnungsgruende?: string[]
   widerspruchEmpfohlen?: boolean
+  widerspruchErklaerung?: string | null
   widerspruchBegruendung?: string
   widerspruchErfolgswahrscheinlichkeit?: number | null
   naechsteSchritte?: string[] | null
@@ -545,7 +546,7 @@ function KassenbescheidSection({
   const erfolg          = analyse?.widerspruchErfolgswahrscheinlichkeit ?? null
   const schritte        = analyse?.naechsteSchritte ?? null
   const widerspruch     = analyse?.widerspruchEmpfohlen ?? bescheid?.widerspruchEmpfohlen ?? false
-  const begruendung     = analyse?.widerspruchBegruendung ?? null
+  const begruendung     = analyse?.widerspruchErklaerung ?? null
   const arztPositionen  = abgelehntePos.filter(p => (p as {aktionstyp?: string}).aktionstyp === 'korrektur_arzt')
   const kassePositionen = abgelehntePos.filter(p => {
     const at = (p as {aktionstyp?: string}).aktionstyp

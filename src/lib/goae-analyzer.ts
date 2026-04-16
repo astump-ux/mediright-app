@@ -276,6 +276,9 @@ export interface KasseAnalyseResult {
   positionen: KassePosition[]
   ablehnungsgruende: string[]
   widerspruchEmpfohlen: boolean
+  /** 2–3 sentence plain-language explanation FOR THE USER: what was rejected and why appealing makes sense */
+  widerspruchErklaerung: string | null
+  /** Ready-to-use 1st-person letter paragraph TO AXA — used verbatim in the Widerspruch letter */
   widerspruchBegruendung: string | null
   /** Estimated success probability for appeal 0–100, null if no appeal recommended */
   widerspruchErfolgswahrscheinlichkeit: number | null
@@ -291,6 +294,15 @@ WICHTIGE REGELN:
 - Gruppiere Positionen nach Arzt/Leistungserbringer und Rechnung
 - Prüfe ob alle eingereichten Positionen erstattet wurden
 - Identifiziere Kürzungen und ihre Begründungen im Detail
+
+⚡ PFLICHT — POSITIONEN AUS ANMERKUNGEN:
+AXA-Bescheide enthalten auf der Rückseite "Anmerkungen" (Anmerkung 1, Anmerkung 2, etc.).
+Jede einzelne Anmerkung mit einem eigenen Ablehnungsbetrag MUSS als SEPARATE Position in
+rechnungen[].positionen erscheinen. NIEMALS mehrere Anmerkungen zu einer Position zusammenfassen.
+Beispiel: Hat ein Arzt 2 Anmerkungen (GOÄ 31 abgelehnt + Ernährungsberatung abgelehnt),
+dann MÜSSEN 2 separate Positionen im Array stehen — eine pro Anmerkung.
+Für voll erstattete Rechnungen ohne Anmerkungen: eine Position mit status "erstattet".
+
 - Bewerte ob ein Widerspruch sinnvoll ist und schätze die Erfolgswahrscheinlichkeit realistisch ein:
   * 70–90 %: Formale Fehler der Kasse (falsche GOÄ-Anwendung, fehlende Begründung der Ablehnung)
   * 50–70 %: Streitige Leistungspositionen (z.B. IGeL-Abgrenzung, medizinische Notwendigkeit)
@@ -302,7 +314,16 @@ WICHTIGE REGELN:
   "verbleibender Selbstbehalt", "noch verbleibend" — diese Beträge sind explizit
   auf dem Bescheid ausgewiesen und MÜSSEN extrahiert werden.
 - Nächste Schritte: Gib konkrete, handlungsorientierte Empfehlungen für den Versicherten.
-- widerspruchBegruendung: Schreibe dieses Feld AUSSCHLIESSLICH als fertiges, direkt verwendbares Argument in der Ich-Form, das der Versicherte wörtlich in einem Widerspruchsschreiben an AXA verwenden kann. KEIN analytischer Ton, KEINE Empfehlungen, KEINE "Fordern Sie..."-Formulierungen. Nur: "Ich beantrage die Erstattung von..., da... Gemäß § X... ist die Leistung erstattungsfähig, weil..." — überzeugend, klar, auf AXA-Akzeptanz optimiert. Wenn kein sinnvoller Widerspruch möglich: null.
+
+ZWEI VERSCHIEDENE TEXTFELDER — nicht verwechseln:
+- widerspruchErklaerung: 2–3 Sätze in LAIENSPRACHE für den Versicherten — erklärt WAS abgelehnt wurde
+  und WARUM ein Widerspruch Sinn macht. Kein Juristenjargon. Kein "Ich beantrage...".
+  Beispiel: "AXA hat die Ernährungsberatung (40,22 €) abgelehnt, weil sie keine medizinische
+  Notwendigkeit erkennt. Das ist anfechtbar: Wenn eine ärztliche Diagnose vorliegt, gilt
+  Ernährungstherapie als Heilbehandlung. Ein Widerspruch hat gute Chancen."
+- widerspruchBegruendung: Fertiger Briefabsatz in ICH-FORM direkt an AXA — wird wörtlich ins
+  Widerspruchsschreiben eingefügt. Beginnt mit "Ich beantrage..." oder "Hiermit widerspreche ich...".
+  KEIN analytischer Ton, KEINE "Fordern Sie..."-Formulierungen. Wenn kein Widerspruch sinnvoll: null.
 
 AKTIONSTYP PRO POSITION (für gekürzte oder abgelehnte Positionen):
 Jede Position mit status "gekuerzt" oder "abgelehnt" MUSS ein aktionstyp-Feld erhalten:
@@ -356,56 +377,37 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
       "betragAbgelehnt": 5.00,
       "positionen": [
         {
-          "ziffer": "1",
-          "bezeichnung": "Beratung",
-          "betragEingereicht": 10.72,
+          "ziffer": "31 analog",
+          "bezeichnung": "Homöopathische Folgeanamnese (analog berechnet)",
+          "betragEingereicht": 44.01,
           "betragErstattet": 10.72,
-          "status": "erstattet",
-          "ablehnungsgrund": null,
-          "aktionstyp": null
-        },
-        {
-          "ziffer": "A3695a",
-          "bezeichnung": "Analogziffer Labor",
-          "betragEingereicht": 35.00,
-          "betragErstattet": 0.00,
-          "status": "abgelehnt",
-          "ablehnungsgrund": "Analogziffer nicht anerkannt",
-          "aktionstyp": "widerspruch_kasse",
-          "widerspruchWahrscheinlichkeit": 65,
-          "confidence": 72
-        },
-        {
-          "ziffer": "3",
-          "bezeichnung": "Eingehende Untersuchung",
-          "betragEingereicht": 18.65,
-          "betragErstattet": 9.33,
           "status": "gekuerzt",
-          "ablehnungsgrund": "Faktor 3,5× ohne §12-Begründung",
+          "ablehnungsgrund": "Analogziffer GOÄ 31 nicht anerkannt — nur für homöopathische Folgeanamnese zulässig. AXA erstattete stattdessen GOÄ 1 (Beratung) zum Höchstsatz.",
           "aktionstyp": "korrektur_arzt",
           "widerspruchWahrscheinlichkeit": null,
           "confidence": 88
+        },
+        {
+          "ziffer": "diverse",
+          "bezeichnung": "Ernährungsberatung",
+          "betragEingereicht": 40.22,
+          "betragErstattet": 0.00,
+          "status": "abgelehnt",
+          "ablehnungsgrund": "Keine medizinische Notwendigkeit erkennbar bzw. keine medizinisch notwendige Heilbehandlung",
+          "aktionstyp": "widerspruch_kasse",
+          "widerspruchWahrscheinlichkeit": 65,
+          "confidence": 72
         }
       ]
     }
   ],
-  "positionen": [
-    {
-      "ziffer": "1",
-      "bezeichnung": "Beratung (Dr. Müller)",
-      "betragEingereicht": 10.72,
-      "betragErstattet": 10.72,
-      "status": "erstattet",
-      "ablehnungsgrund": null,
-      "aktionstyp": null
-    }
-  ],
-  "selbstbehaltAbgezogen": 150.00,
+  "selbstbehaltAbgezogen": 31.89,
   "selbstbehaltVerbleibend": 50.00,
   "selbstbehaltJahresgrenze": 500.00,
   "ablehnungsgruende": ["Liste aller Ablehnungsgründe als Strings"],
-  "widerspruchEmpfohlen": false,
-  "widerspruchBegruendung": "Ich beantrage die vollständige Erstattung der Ernährungsberatung in Höhe von 40,22 EUR. Die Behandlung war medizinisch notwendig im Sinne von § 1 Abs. 2 MB/KK, da sie ärztlich verordnet und auf eine dokumentierte Diagnose zurückzuführen ist. Ernährungstherapie ist bei entsprechender Indikation (z.B. Diabetes mellitus, Adipositas, Fettstoffwechselstörung) eine anerkannte Heilbehandlung, deren Erstattungspflicht durch Ihre Allgemeinen Versicherungsbedingungen abgedeckt ist. Ihre Ablehnung mit dem pauschalen Hinweis auf fehlende medizinische Notwendigkeit ist nicht ausreichend begründet im Sinne des § 192 VVG.",
+  "widerspruchEmpfohlen": true,
+  "widerspruchErklaerung": "AXA hat die Ernährungsberatung (40,22 €) abgelehnt, weil sie keine medizinische Notwendigkeit erkennt. Das ist anfechtbar: Liegt eine ärztliche Diagnose vor (z.B. Diabetes, Adipositas), gilt Ernährungstherapie als Heilbehandlung und ist erstattungsfähig. Ein Widerspruch hat gute Erfolgsaussichten.",
+  "widerspruchBegruendung": "Ich beantrage die vollständige Erstattung der Ernährungsberatung in Höhe von 40,22 EUR. Die Behandlung war medizinisch notwendig gemäß § 1 Abs. 2 MB/KK, da sie ärztlich verordnet und auf eine dokumentierte Diagnose zurückzuführen ist. Ernährungstherapie ist bei entsprechender Indikation eine anerkannte Heilbehandlung. Ihre pauschale Ablehnung wegen fehlender medizinischer Notwendigkeit ist nicht ausreichend begründet im Sinne des § 192 VVG. Ich fordere Sie daher auf, die Erstattung zu gewähren.",
   "widerspruchErfolgswahrscheinlichkeit": 65,
   "naechsteSchritte": [
     "Innerhalb von 4 Wochen schriftlichen Widerspruch einlegen (Frist beachten!)",
@@ -479,11 +481,12 @@ export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseRe
   const result = extractJson<KasseAnalyseResult>(rawText)
 
   // Ensure all fields exist with safe defaults (backward compat)
-  if (result.selbstbehaltAbgezogen             === undefined) result.selbstbehaltAbgezogen             = null
-  if (result.selbstbehaltVerbleibend           === undefined) result.selbstbehaltVerbleibend           = null
-  if (result.selbstbehaltJahresgrenze          === undefined) result.selbstbehaltJahresgrenze          = null
-  if (result.widerspruchErfolgswahrscheinlichkeit === undefined) result.widerspruchErfolgswahrscheinlichkeit = null
-  if (result.naechsteSchritte                  === undefined) result.naechsteSchritte                  = null
+  if (result.selbstbehaltAbgezogen                 === undefined) result.selbstbehaltAbgezogen                 = null
+  if (result.selbstbehaltVerbleibend               === undefined) result.selbstbehaltVerbleibend               = null
+  if (result.selbstbehaltJahresgrenze              === undefined) result.selbstbehaltJahresgrenze              = null
+  if (result.widerspruchErfolgswahrscheinlichkeit  === undefined) result.widerspruchErfolgswahrscheinlichkeit  = null
+  if (result.naechsteSchritte                      === undefined) result.naechsteSchritte                      = null
+  if (result.widerspruchErklaerung                 === undefined) result.widerspruchErklaerung                 = null
 
   // Ensure rechnungen array exists (backward compat if Claude omits it)
   if (!result.rechnungen) result.rechnungen = []
