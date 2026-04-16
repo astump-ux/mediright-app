@@ -435,9 +435,6 @@ function generateArztKorrekturLetter({
       `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} €\n    Ablehnungsgrund: ${p.ablehnungsgrund ?? 'Medizinische Notwendigkeit nicht belegt'}`
     ).join('\n')
     body += `\n\nDas Attest / die Stellungnahme sollte beinhalten:\n  - Diagnose (möglichst mit ICD-10-Code)\n  - Medizinische Begründung und Behandlungsziel\n  - Indikation für die konkrete Behandlung\n\n`
-    body += `Konkrete Empfehlung laut meiner Versicherungsanalyse:\n`
-    body += arztSchritte.map(s => `  → ${s}`).join('\n')
-    body += '\n\n'
   }
 
   body += `Für Ihre Unterstützung bedanke ich mich herzlich.\n\nMit freundlichen Grüßen,\n${userName}`

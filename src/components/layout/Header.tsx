@@ -6,8 +6,8 @@ const navItems = [
   { href: "/dashboard",         label: "Dashboard" },
   { href: "/rechnungen",        label: "Rechnungen" },
   { href: "/kassenabrechnung",  label: "Kassenabrechnungen" },
-  { href: "/aerzte",            label: "Ärzte" },
   { href: "/widersprueche",     label: "Widersprüche" },
+  { href: "/aerzte",            label: "Ärzte" },
   { href: "/admin",             label: "⚙️ Admin" },
   { href: "/settings",          label: "👤 Einstellungen" },
 ];
