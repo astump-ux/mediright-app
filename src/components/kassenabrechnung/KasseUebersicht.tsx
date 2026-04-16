@@ -158,6 +158,17 @@ function generateWiderspruchLetterKasse(kasse: KasseBescheid, analyse: KasseAnal
   const posListe = allPos.length > 0
     ? allPos.map(p => `  - Ziffer ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht, ${(p.betragErstattet ?? 0).toFixed(2)} € erstattet`).join("\n")
     : "  [Bitte betroffene Positionen eintragen]";
+
+  // Check if the AI recommends getting an attest from the doctor first
+  const arztSchritte = arztSchritteAus(analyse?.naechsteSchritte);
+  const attestNoted  = arztSchritte.some(s => {
+    const l = s.toLowerCase();
+    return l.includes("attest") || l.includes("anfordern") || l.includes("belegen") || l.includes("stellungnahme");
+  });
+  const attestHinweis = attestNoted
+    ? `\nHinweis: Ich habe gleichzeitig beim behandelnden Arzt die erforderliche ärztliche Bestätigung über die medizinische Notwendigkeit der Behandlung angefordert und werde Ihnen diese zeitnah nachreichen. Der Widerspruch erfolgt bereits jetzt fristwahrend.\n`
+    : "";
+
   const betreff = `Widerspruch gegen Leistungsbescheid vom ${bescheidDatum} – Referenz ${ref}`;
   const body = `AXA Krankenversicherung AG\nKundenservice / Leistungsabteilung\n[⚠️ PLATZHALTER: Adresse aus Ihrem Versicherungsschein eintragen!]
 
@@ -178,7 +189,7 @@ ${posListe}
 
 Begründung meines Widerspruchs:
 ${begruendung}
-
+${attestHinweis}
 Ich bitte Sie daher, Ihre Entscheidung zu überprüfen und mir den abgelehnten Betrag von ${abgelehnt} € vollständig zu erstatten. Sollten Sie an Ihrer Entscheidung festhalten, behalte ich mir vor, die Ombudsstelle für private Kranken- und Pflegeversicherung (www.pkv-ombudsmann.de) einzuschalten.
 
 Bitte bestätigen Sie den Eingang dieses Widerspruchs schriftlich.
@@ -188,38 +199,72 @@ ${userName}`;
   return { betreff, body };
 }
 
+// ── Helper: extract doctor-directed steps from KI naechsteSchritte ───────────
+function arztSchritteAus(naechsteSchritte: string[] | null | undefined): string[] {
+  if (!naechsteSchritte) return [];
+  return naechsteSchritte.filter(s => {
+    const l = s.toLowerCase();
+    return l.includes("arzt") || l.includes("praxis") || l.includes("attest") ||
+           l.includes("anfordern") || l.includes("stellungnahme") || l.includes("kontaktieren") ||
+           l.includes("korrektur") || l.includes("begründung") || l.includes("belegen");
+  });
+}
+
 // ── Arzt-Korrektur letter generator ──────────────────────────────────────────
-function generateArztKorrekturLetterKasse(kasse: KasseBescheid, userName = "[Ihr vollständiger Name]") {
+// Bundles all doctor-related actions from the full Handlungsempfehlung into one letter:
+//   Section 1 – Invoice correction (korrektur_arzt positions)
+//   Section 2 – Attest / documentation request (other rejected positions where AI steps indicate doctor action)
+function generateArztKorrekturLetterKasse(kasse: KasseBescheid, analyse: KasseAnalyseResult | null, userName = "[Ihr vollständiger Name]") {
   const heute = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
-  const korrekturPos = kasse.rechnungen.flatMap(g =>
+
+  const alleAbgelehnte = kasse.rechnungen.flatMap(g =>
     (g.positionen ?? [])
-      .filter(p => (p as {aktionstyp?: string}).aktionstyp === "korrektur_arzt")
+      .filter(p => p.status === "abgelehnt" || p.status === "gekuerzt")
       .map(p => ({ arztName: g.arztName, pos: p }))
   );
-  const arztName = korrekturPos[0]?.arztName ?? kasse.vorgaenge[0]?.arzt_name ?? "[Arztpraxis]";
-  const posListe = korrekturPos.length > 0
-    ? korrekturPos.map(({ pos: p }) => `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht`).join("\n")
-    : "  [Bitte betroffene Positionen eintragen]";
-  const betreff = `Bitte um Rechnungskorrektur – Ihre Abrechnung`;
-  const body = `${arztName}\n[Adresse der Praxis – bitte eintragen]
+  const korrekturPos = alleAbgelehnte.filter(a => (a.pos as {aktionstyp?: string}).aktionstyp === "korrektur_arzt");
+  const attestPos    = alleAbgelehnte.filter(a => (a.pos as {aktionstyp?: string}).aktionstyp !== "korrektur_arzt");
 
-${heute}
+  // Only include attest section if KI steps actually direct an action to the doctor
+  const arztSchritte = arztSchritteAus(analyse?.naechsteSchritte);
+  const hasKorrektur = korrekturPos.length > 0;
+  const hasAttest    = attestPos.length > 0 && arztSchritte.length > 0;
 
-Betreff: ${betreff}
+  const arztName = korrekturPos[0]?.arztName ?? attestPos[0]?.arztName ?? kasse.vorgaenge[0]?.arzt_name ?? "[Arztpraxis]";
 
-Sehr geehrte Damen und Herren,
+  const betreff = hasKorrektur && hasAttest
+    ? `Klärungsbedarf zu Ihrer Abrechnung – Rechnungskorrektur und ärztliche Bestätigung erbeten`
+    : hasKorrektur
+    ? `Bitte um Rechnungskorrektur – Ihre Abrechnung`
+    : `Bitte um ärztliche Bestätigung zur Notwendigkeit der Behandlung`;
 
-ich wende mich bezüglich Ihrer Abrechnung an Sie. Meine private Krankenversicherung (AXA) hat folgende Positionen nicht erstattet und hat darauf hingewiesen, dass eine Korrektur der Rechnung oder eine ergänzende Begründung erforderlich ist:
+  let body = `${arztName}\n[Adresse der Praxis – bitte eintragen]\n\n${heute}\n\nBetreff: ${betreff}\n\nSehr geehrte Damen und Herren,\n\nnach Prüfung meiner Abrechnung durch meine private Krankenversicherung (AXA) wende ich mich mit folgendem Klärungsbedarf an Sie:\n\n`;
 
-Betroffene Positionen:
-${posListe}
+  let sec = 1;
 
-Ich bitte Sie daher, entweder:
-1. Eine korrigierte Rechnung auszustellen, oder
-2. Mir eine schriftliche Begründung für den erhöhten Abrechnungsfaktor gemäß § 12 Abs. 3 GOÄ zuzusenden, die ich zur Erstattung bei meiner Versicherung einreichen kann.
+  if (hasKorrektur) {
+    body += `${hasAttest ? sec + ". " : ""}BITTE UM RECHNUNGSKORREKTUR\n\n`;
+    body += `Folgende Position(en) wurden von AXA abgelehnt, da die abgerechnete GOÄ-Ziffer nicht anerkannt wird:\n\n`;
+    body += korrekturPos.map(({ pos: p }) =>
+      `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht\n    Ablehnungsgrund der Kasse: ${p.ablehnungsgrund ?? "Ziffer nicht anerkannt"}`
+    ).join("\n");
+    body += `\n\nIch bitte Sie, die korrekte GOÄ-Ziffer für die tatsächlich erbrachte Leistung zu verwenden und mir eine entsprechend korrigierte Rechnung zuzusenden.\n\n`;
+    sec++;
+  }
 
-Mit freundlichen Grüßen,
-${userName}`;
+  if (hasAttest) {
+    body += `${hasKorrektur ? sec + ". " : ""}BITTE UM ÄRZTLICHE BESTÄTIGUNG\n\n`;
+    body += `Für folgende Leistungen hat AXA die medizinische Notwendigkeit bestritten. Um fristgerecht Widerspruch einlegen zu können, benötige ich ein ärztliches Attest oder eine kurze Stellungnahme:\n\n`;
+    body += attestPos.map(({ pos: p }) =>
+      `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} €\n    Ablehnungsgrund: ${p.ablehnungsgrund ?? "Medizinische Notwendigkeit nicht belegt"}`
+    ).join("\n");
+    body += `\n\nDas Attest / die Stellungnahme sollte beinhalten:\n  - Diagnose (möglichst mit ICD-10-Code)\n  - Medizinische Begründung und Behandlungsziel\n  - Indikation für die konkrete Behandlung\n\n`;
+    body += `Konkrete Empfehlung laut meiner Versicherungsanalyse:\n`;
+    body += arztSchritte.map(s => `  → ${s}`).join("\n");
+    body += "\n\n";
+  }
+
+  body += `Für Ihre Unterstützung bedanke ich mich herzlich.\n\nMit freundlichen Grüßen,\n${userName}`;
   return { betreff, body };
 }
 
@@ -518,7 +563,7 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
                     {showArztPanel ? "▲ Schreiben schließen" : "🩺 Arzt um Korrektur bitten"}
                   </button>
                   {showArztPanel && (() => {
-                    const { betreff, body } = generateArztKorrekturLetterKasse(kasse, userName);
+                    const { betreff, body } = generateArztKorrekturLetterKasse(kasse, analyse, userName);
                     return (
                       <EmailPanel
                         title="🩺 Schreiben an Arztpraxis"

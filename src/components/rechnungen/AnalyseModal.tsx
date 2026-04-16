@@ -209,21 +209,40 @@ function generateWiderspruchLetter({
         `  - Ziffer ${p.ziffer} "${p.bezeichnung}": ${p.betragEingereicht?.toFixed(2) ?? '?'} € eingereicht, ${p.betragErstattet?.toFixed(2) ?? '0.00'} € erstattet`
       ).join('\n')
     : '  [Bitte betroffene Positionen eintragen]'
+
+  // Note if the AI recommends requesting an attest from the doctor simultaneously
+  const arztSchritte = arztSchritteAus(analyse?.naechsteSchritte)
+  const attestNoted  = arztSchritte.some(s => {
+    const l = s.toLowerCase()
+    return l.includes('attest') || l.includes('anfordern') || l.includes('belegen') || l.includes('stellungnahme')
+  })
+  const attestHinweis = attestNoted
+    ? `\nHinweis: Ich habe gleichzeitig beim behandelnden Arzt die erforderliche ärztliche Bestätigung über die medizinische Notwendigkeit der Behandlung angefordert und werde Ihnen diese zeitnah nachreichen. Der Widerspruch erfolgt bereits jetzt fristwahrend.\n`
+    : ''
+
   const betreff = `Widerspruch gegen Leistungsbescheid vom ${bescheidDatum} – Referenz ${ref}`
   const body = `${AXA_PLACEHOLDER_ADDRESS}
 ${heute}
 Betreff: ${betreff}
 Versicherungsnehmer: ${userName}
 Versicherungsnummer: [Ihre Versicherungsnummer]
+
 Sehr geehrte Damen und Herren,
+
 hiermit lege ich fristgerecht Widerspruch gegen Ihren Leistungsbescheid vom ${bescheidDatum} (Referenz: ${ref}) ein.
+
 Sie haben Leistungen in Höhe von ${abgelehnt} € nicht erstattet. Ich bin der Auffassung, dass diese Entscheidung nicht gerechtfertigt ist und bitte Sie um eine erneute Prüfung.
+
 Betroffene Positionen:
 ${posListe}
+
 Begründung meines Widerspruchs:
 ${begruendung}
+${attestHinweis}
 Ich bitte Sie daher, Ihre Entscheidung zu überprüfen und mir den abgelehnten Betrag von ${abgelehnt} € vollständig zu erstatten. Sollten Sie an Ihrer Entscheidung festhalten, behalte ich mir vor, die Ombudsstelle für private Kranken- und Pflegeversicherung (www.pkv-ombudsmann.de) einzuschalten.
+
 Bitte bestätigen Sie den Eingang dieses Widerspruchs schriftlich.
+
 Mit freundlichen Grüßen,
 ${userName}`
   return { betreff, body }
@@ -345,13 +364,29 @@ function WiderspruchPanel({
     </div>
   )
 }
+// ── Helper: extract doctor-directed steps from KI naechsteSchritte ───────────
+function arztSchritteAus(naechsteSchritte: string[] | null | undefined): string[] {
+  if (!naechsteSchritte) return []
+  return naechsteSchritte.filter(s => {
+    const l = s.toLowerCase()
+    return l.includes('arzt') || l.includes('praxis') || l.includes('attest') ||
+           l.includes('anfordern') || l.includes('stellungnahme') || l.includes('kontaktieren') ||
+           l.includes('korrektur') || l.includes('begründung') || l.includes('belegen')
+  })
+}
+
 // ── Arzt-Korrektur letter generator ──────────────────────────────────────────
+// Bundles all doctor-related actions from the full Handlungsempfehlung into one letter:
+//   Section 1 – Invoice correction (korrekturPos)
+//   Section 2 – Attest / documentation request (attestPos, only when KI steps indicate doctor action)
 function generateArztKorrekturLetter({
-  arztName, korrekturPos, rechnungsdatum, userName = '[Ihr vollständiger Name]',
+  arztName, korrekturPos, attestPos = [], rechnungsdatum, analyse, userName = '[Ihr vollständiger Name]',
 }: {
   arztName: string | null | undefined
   korrekturPos: KassePosition[]
+  attestPos?: KassePosition[]
   rechnungsdatum?: string | null
+  analyse?: KasseAnalyseResult | null
   userName?: string
 }): { betreff: string; body: string } {
   const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -359,46 +394,59 @@ function generateArztKorrekturLetter({
     ? new Date(rechnungsdatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : '[Rechnungsdatum]'
   const arzt = arztName ?? '[Arztpraxis]'
-  const posListe = korrekturPos.length > 0
-    ? korrekturPos.map(p =>
-        `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht`
-      ).join('\n')
-    : '  [Bitte betroffene Positionen eintragen]'
-  const betreff = `Bitte um Rechnungskorrektur – Rechnung vom ${datum}`
-  const body = `${arzt}
-[Adresse der Praxis – bitte eintragen]
 
-${heute}
+  // Only show attest section if KI steps actually direct an action to the doctor
+  const arztSchritte = arztSchritteAus(analyse?.naechsteSchritte)
+  const hasKorrektur = korrekturPos.length > 0
+  const hasAttest    = attestPos.length > 0 && arztSchritte.length > 0
 
-Betreff: ${betreff}
+  const betreff = hasKorrektur && hasAttest
+    ? `Klärungsbedarf zu Ihrer Abrechnung – Korrektur und ärztliche Bestätigung erbeten`
+    : hasKorrektur
+    ? `Bitte um Rechnungskorrektur – Rechnung vom ${datum}`
+    : `Bitte um ärztliche Bestätigung zur Notwendigkeit der Behandlung`
 
-Sehr geehrte Damen und Herren,
+  let body = `${arzt}\n[Adresse der Praxis – bitte eintragen]\n\n${heute}\n\nBetreff: ${betreff}\n\nSehr geehrte Damen und Herren,\n\nnach Prüfung meiner Rechnung vom ${datum} durch meine private Krankenversicherung (AXA) wende ich mich mit folgendem Klärungsbedarf an Sie:\n\n`
 
-ich wende mich bezüglich Ihrer Rechnung vom ${datum} an Sie. Meine private Krankenversicherung (AXA) hat folgende Positionen nicht erstattet und hat darauf hingewiesen, dass eine Korrektur der Rechnung oder eine ergänzende Begründung erforderlich ist:
+  let sec = 1
 
-Betroffene Positionen:
-${posListe}
+  if (hasKorrektur) {
+    body += `${hasAttest ? sec + '. ' : ''}BITTE UM RECHNUNGSKORREKTUR\n\n`
+    body += `Folgende Position(en) wurden von AXA abgelehnt, da die abgerechnete GOÄ-Ziffer nicht anerkannt wird:\n\n`
+    body += korrekturPos.map(p =>
+      `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht\n    Ablehnungsgrund der Kasse: ${p.ablehnungsgrund ?? 'Ziffer nicht anerkannt'}`
+    ).join('\n')
+    body += `\n\nIch bitte Sie, die korrekte GOÄ-Ziffer für die tatsächlich erbrachte Leistung zu verwenden und mir eine entsprechend korrigierte Rechnung zuzusenden.\n\n`
+    sec++
+  }
 
-Ich bitte Sie daher, entweder:
-1. Eine korrigierte Rechnung auszustellen, oder
-2. Mir eine schriftliche Begründung für den erhöhten Abrechnungsfaktor gemäß § 12 Abs. 3 GOÄ zuzusenden, die ich zur Erstattung bei meiner Versicherung einreichen kann.
+  if (hasAttest) {
+    body += `${hasKorrektur ? sec + '. ' : ''}BITTE UM ÄRZTLICHE BESTÄTIGUNG\n\n`
+    body += `Für folgende Leistungen hat AXA die medizinische Notwendigkeit bestritten. Um fristgerecht Widerspruch einlegen zu können, benötige ich ein ärztliches Attest oder eine kurze Stellungnahme:\n\n`
+    body += attestPos.map(p =>
+      `  - GOÄ Ziff. ${p.ziffer} "${p.bezeichnung}": ${(p.betragEingereicht ?? 0).toFixed(2)} €\n    Ablehnungsgrund: ${p.ablehnungsgrund ?? 'Medizinische Notwendigkeit nicht belegt'}`
+    ).join('\n')
+    body += `\n\nDas Attest / die Stellungnahme sollte beinhalten:\n  - Diagnose (möglichst mit ICD-10-Code)\n  - Medizinische Begründung und Behandlungsziel\n  - Indikation für die konkrete Behandlung\n\n`
+    body += `Konkrete Empfehlung laut meiner Versicherungsanalyse:\n`
+    body += arztSchritte.map(s => `  → ${s}`).join('\n')
+    body += '\n\n'
+  }
 
-Für Rückfragen stehe ich Ihnen gerne zur Verfügung.
-
-Mit freundlichen Grüßen,
-${userName}`
+  body += `Für Ihre Unterstützung bedanke ich mich herzlich.\n\nMit freundlichen Grüßen,\n${userName}`
   return { betreff, body }
 }
 
 function ArztKorrekturPanel({
-  arztName, korrekturPos, rechnungsdatum, userName,
+  arztName, korrekturPos, attestPos = [], rechnungsdatum, analyse, userName,
 }: {
   arztName: string | null | undefined
   korrekturPos: KassePosition[]
+  attestPos?: KassePosition[]
   rechnungsdatum?: string | null
+  analyse?: KasseAnalyseResult | null
   userName?: string
 }) {
-  const { betreff, body } = generateArztKorrekturLetter({ arztName, korrekturPos, rechnungsdatum, userName })
+  const { betreff, body } = generateArztKorrekturLetter({ arztName, korrekturPos, attestPos, rechnungsdatum, analyse, userName })
   const [editBetreff, setEditBetreff] = useState(betreff)
   const [editBody, setEditBody]       = useState(body)
   const [copied, setCopied]           = useState(false)
@@ -693,7 +741,9 @@ function KassenbescheidSection({
                   <ArztKorrekturPanel
                     arztName={gruppe?.arztName}
                     korrekturPos={arztPositionen}
+                    attestPos={kassePositionen}
                     rechnungsdatum={bescheid?.bescheiddatum}
+                    analyse={analyse}
                     userName={userName}
                   />
                 )}
