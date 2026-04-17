@@ -20,7 +20,8 @@ async function getUser() {
   return user
 }
 
-const ALLOWED_FIELDS = [
+// Fields available after migration 021 (geschlecht)
+const ALLOWED_FIELDS_BASE = [
   'full_name',
   'phone_whatsapp',
   'pkv_name',
@@ -28,18 +29,28 @@ const ALLOWED_FIELDS = [
   'pkv_tarif',
   'pkv_seit',
   'benachrichtigung_whatsapp',
-  'geschlecht',
 ]
+const ALLOWED_FIELDS_021 = [...ALLOWED_FIELDS_BASE, 'geschlecht']
 
 export async function GET() {
   const user = await getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data, error } = await getSupabaseAdmin()
+  // Try with geschlecht (requires migration 021); fall back gracefully if column doesn't exist
+  let { data, error } = await getSupabaseAdmin()
     .from('profiles')
     .select('full_name, phone_whatsapp, pkv_name, pkv_nummer, pkv_tarif, pkv_seit, benachrichtigung_whatsapp, geschlecht')
     .eq('id', user.id)
     .single()
+
+  if (error?.message?.includes('geschlecht')) {
+    // Migration 021 not yet run — retry without geschlecht column
+    ;({ data, error } = await getSupabaseAdmin()
+      .from('profiles')
+      .select('full_name, phone_whatsapp, pkv_name, pkv_nummer, pkv_tarif, pkv_seit, benachrichtigung_whatsapp')
+      .eq('id', user.id)
+      .single())
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ profile: data, email: user.email })
@@ -51,17 +62,30 @@ export async function PATCH(request: NextRequest) {
 
   const body = await request.json()
 
-  // Only allow whitelisted fields
+  // Build updates from whitelisted fields (include geschlecht if present)
   const updates: Record<string, unknown> = {}
-  for (const key of ALLOWED_FIELDS) {
+  for (const key of ALLOWED_FIELDS_021) {
     if (key in body) updates[key] = body[key]
   }
-  // Note: updated_at is NOT added here — profiles table may not have this column
 
   const { error } = await getSupabaseAdmin()
     .from('profiles')
     .update(updates)
     .eq('id', user.id)
+
+  if (error?.message?.includes('geschlecht')) {
+    // Migration 021 not yet run — retry without geschlecht
+    const safeUpdates: Record<string, unknown> = {}
+    for (const key of ALLOWED_FIELDS_BASE) {
+      if (key in updates) safeUpdates[key] = updates[key]
+    }
+    const { error: error2 } = await getSupabaseAdmin()
+      .from('profiles')
+      .update(safeUpdates)
+      .eq('id', user.id)
+    if (error2) return NextResponse.json({ error: error2.message }, { status: 500 })
+    return NextResponse.json({ success: true, note: 'geschlecht skipped — migration 021 pending' })
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
