@@ -36,12 +36,12 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const [profileRes, vorgaengeRes, kasseRes, exclusionsRes] = await Promise.all([
     admin.from('profiles').select('full_name, pkv_name, pkv_tarif').eq('id', userId).single(),
     admin.from('vorgaenge')
-      .select('id, arzt_name, fachrichtung, rechnungsdatum, betrag_gesamt, einsparpotenzial, status, kasse_match_status, kassenabrechnung_id')
+      .select('id, arzt_name, rechnungsdatum, betrag_gesamt, einsparpotenzial, status, kasse_match_status, kassenabrechnung_id')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(30),
     admin.from('kassenabrechnungen')
-      .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, erstattungsquote, widerspruch_status, arzt_reklamation_status, betrag_widerspruch_kasse, betrag_korrektur_arzt, kasse_analyse')
+      .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_status, arzt_reklamation_status, betrag_widerspruch_kasse, betrag_korrektur_arzt, kasse_analyse')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(10),
@@ -76,10 +76,13 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const formatKasse = (k: Record<string, unknown>) => {
     const datum   = k.bescheiddatum as string | null ?? '?'
     const ref     = k.referenznummer as string | null ? ` (${k.referenznummer})` : ''
-    const eingereicht = typeof k.betrag_eingereicht === 'number' ? `${(k.betrag_eingereicht as number).toFixed(2)} €` : '?'
-    const erstattet   = typeof k.betrag_erstattet   === 'number' ? `${(k.betrag_erstattet as number).toFixed(2)} €`   : '?'
-    const abgelehnt   = typeof k.betrag_abgelehnt   === 'number' ? `${(k.betrag_abgelehnt as number).toFixed(2)} €`   : '?'
-    const quote       = typeof k.erstattungsquote   === 'number' ? `${(k.erstattungsquote as number).toFixed(0)}%`     : '?'
+    const eingereichtNum = typeof k.betrag_eingereicht === 'number' ? k.betrag_eingereicht as number : 0
+    const erstattetNum   = typeof k.betrag_erstattet  === 'number' ? k.betrag_erstattet  as number : 0
+    const abgelehntNum   = typeof k.betrag_abgelehnt  === 'number' ? k.betrag_abgelehnt  as number : 0
+    const eingereicht = `${eingereichtNum.toFixed(2)} €`
+    const erstattet   = `${erstattetNum.toFixed(2)} €`
+    const abgelehnt   = `${abgelehntNum.toFixed(2)} €`
+    const quote = eingereichtNum > 0 ? `${((erstattetNum / eingereichtNum) * 100).toFixed(0)}%` : '?'
     const wStatus = k.widerspruch_status as string ?? 'keiner'
     const aStatus = k.arzt_reklamation_status as string ?? 'keiner'
     const wBetrag = typeof k.betrag_widerspruch_kasse === 'number' && (k.betrag_widerspruch_kasse as number) > 0
