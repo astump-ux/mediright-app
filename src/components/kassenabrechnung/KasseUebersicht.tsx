@@ -375,9 +375,9 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
   const [showArztPanel, setShowArztPanel]               = useState(false);
   // Tracks whether user has ever opened the Arzt panel this session
   const [arztPanelEverOpened, setArztPanelEverOpened]   = useState(false);
-  // Sent-status tracking
-  const [localStatus, setLocalStatus] = useState<string>(kasse.widerspruch_status ?? 'keiner');
-  const [arztSent, setArztSent]       = useState(false);
+  // ── Persistent status tracking (both tracks) ──────────────────────────────
+  const [localStatus, setLocalStatus]         = useState<string>(kasse.widerspruch_status ?? 'keiner');
+  const [localArztStatus, setLocalArztStatus] = useState<string>(kasse.arzt_reklamation_status ?? 'keiner');
   const userName = useUserFullName();
 
   const analyse = kasse.kasse_analyse as KasseAnalyseResult | null;
@@ -386,28 +386,49 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
   const statusCfg = widerspruchStatus ? WIDERSPRUCH_STATUS_CFG[widerspruchStatus] : null;
 
   const widerspruchSent = ['gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'].includes(localStatus);
+  const arztSent        = localArztStatus === 'gesendet';
 
+  // Kassenwiderspruch send helpers
   async function markGesendet() {
-    if (widerspruchSent) return; // already sent — don't downgrade
+    if (widerspruchSent) return;
     try {
       await fetch(`/api/kassenabrechnungen/${kasse.id}/widerspruch-status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'gesendet' }),
       });
       setLocalStatus('gesendet');
     } catch { /* non-critical */ }
   }
-
   async function toggleWiderspruchSent() {
     const next = widerspruchSent ? 'erstellt' : 'gesendet';
     try {
       await fetch(`/api/kassenabrechnungen/${kasse.id}/widerspruch-status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: next }),
       });
       setLocalStatus(next);
+    } catch { /* non-critical */ }
+  }
+
+  // Arztreklamation send helpers
+  async function markArztGesendet() {
+    if (arztSent) return;
+    try {
+      await fetch(`/api/kassenabrechnungen/${kasse.id}/widerspruch-status`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ arzt_status: 'gesendet' }),
+      });
+      setLocalArztStatus('gesendet');
+    } catch { /* non-critical */ }
+  }
+  async function toggleArztSent() {
+    const next = arztSent ? 'erstellt' : 'gesendet';
+    try {
+      await fetch(`/api/kassenabrechnungen/${kasse.id}/widerspruch-status`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ arzt_status: next }),
+      });
+      setLocalArztStatus(next);
     } catch { /* non-critical */ }
   }
 
@@ -450,20 +471,36 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
   return (
     <div className="mt-4 rounded-xl overflow-hidden" style={{ border: "1.5px solid #fecaca" }}>
 
-      {/* ── Widerspruch status banner ── */}
-      {widerspruchActive && statusCfg && (
-        <div className="px-5 py-3 flex items-center justify-between gap-3"
-          style={{ background: statusCfg.bg, borderBottom: `1.5px solid ${statusCfg.border}` }}>
-          <div className="flex items-center gap-3">
-            <span style={{ fontSize: 20 }}>{statusCfg.icon}</span>
-            <div>
-              <p className="text-sm font-bold" style={{ color: statusCfg.color }}>{statusCfg.label}</p>
-              <p className="text-xs" style={{ color: statusCfg.color, opacity: 0.75 }}>Alle Details im Widerspruchs-Tab</p>
-            </div>
+      {/* ── Status banner: one or two track chips ── */}
+      {(widerspruchActive || arztSent) && (
+        <div className="px-5 py-3 flex items-center justify-between gap-3 flex-wrap"
+          style={{ background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0" }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Kassenwiderspruch chip */}
+            {widerspruchActive && statusCfg && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full"
+                style={{ background: statusCfg.bg, border: `1.5px solid ${statusCfg.border}` }}>
+                <span>{statusCfg.icon}</span>
+                <span className="text-xs font-bold" style={{ color: statusCfg.color }}>
+                  🔵 Kassenwiderspruch: {statusCfg.label}
+                </span>
+              </div>
+            )}
+            {/* Arztreklamation chip */}
+            {arztSent && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full"
+                style={{ background: "#fff7ed", border: "1.5px solid #fb923c" }}>
+                <span>✅</span>
+                <span className="text-xs font-bold" style={{ color: "#9a3412" }}>
+                  🟠 Arztreklamation: Gesendet
+                </span>
+              </div>
+            )}
+            <p className="text-xs" style={{ color: "#64748b" }}>Alle Details im Widerspruchs-Tab</p>
           </div>
           <a href="/widersprueche"
             className="text-xs font-bold px-4 py-2 rounded-lg no-underline flex-shrink-0"
-            style={{ background: statusCfg.color, color: "white" }}>
+            style={{ background: "#0f172a", color: "white" }}>
             → Zum Verfahren
           </a>
         </div>
@@ -535,8 +572,11 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
         </table>
       )}
 
-      {/* ── Handlungsempfehlung (nur wenn Widerspruch empfohlen UND noch nicht aktiv) ── */}
-      {widerspruch && !widerspruchActive && (
+      {/* ── Handlungsempfehlung ──
+            Show when: Widerspruch empfohlen AND at least one track still has pending actions.
+            Kassenwiderspruch section: only when kasse not yet sent.
+            Arztreklamation section: independent — shown as long as arzt not yet sent.      ── */}
+      {widerspruch && (!widerspruchActive || !arztSent) && (
         <div className="border-t" style={{ borderColor: "#fecaca" }}>
           <div className="px-5 py-4" style={{ background: "#fffbeb" }}>
 
@@ -592,16 +632,18 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
               </div>
             )}
 
-            {/* ── Schritt A: Klärung beim Arzt ── */}
-            {/* Show when: arzt positions exist OR kasse positions need attest per naechsteSchritte */}
-            {(() => {
+            {/* ── Schritt A: Klärung beim Arzt ──
+                  Independent of Kassenwiderspruch status — stays visible until arzt is sent. ── */}
+            {!arztSent && (() => {
               const arztSchritte = arztSchritteAus(analyse?.naechsteSchritte);
               const kassePosNeedAttest = arztSchritte.length > 0 && kassePositionen.length > 0;
               if (!hasArztAction && !kassePosNeedAttest) return null;
               return (
               <div className="rounded-xl overflow-hidden mb-3" style={{ border: "1.5px solid #fb923c" }}>
                 <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#fff7ed" }}>
-                  <span className="text-sm font-bold" style={{ color: "#9a3412" }}>Schritt 1 · Klärung beim Arzt</span>
+                  <span className="text-sm font-bold" style={{ color: "#9a3412" }}>
+                    {hasKasseAction ? "Schritt 1 · " : ""}Klärung beim Arzt
+                  </span>
                   <span className="text-xs" style={{ color: "#9a3412", opacity: 0.75 }}>— Korrektur oder Begründung anfordern</span>
                 </div>
                 <div className="px-4 py-3" style={{ background: "white" }}>
@@ -643,9 +685,9 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
                         betreff={betreff} body={body}
                         borderColor="#fb923c" headerBg="#fff7ed" headerColor="#9a3412"
                         warning="Bitte die Adresse der Praxis vor dem Versenden eintragen."
-                        onSend={() => setArztSent(true)}
+                        onSend={markArztGesendet}
                         sent={arztSent}
-                        onToggleSent={() => setArztSent(v => !v)}
+                        onToggleSent={toggleArztSent}
                       />
                     );
                   })()}
@@ -654,12 +696,12 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
               );
             })()}
 
-            {/* ── Schritt B: Widerspruch bei AXA ── */}
-            {hasKasseAction && (
+            {/* ── Schritt B: Widerspruch bei AXA — only when kasse not yet sent ── */}
+            {hasKasseAction && !widerspruchActive && (
               <div className="rounded-xl overflow-hidden" style={{ border: "1.5px solid #f59e0b" }}>
                 <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#fffbeb" }}>
                   <span className="text-sm font-bold" style={{ color: "#92400e" }}>
-                    {hasArztAction ? "Schritt 2 · " : ""}Widerspruch bei AXA
+                    {hasArztAction && !arztSent ? "Schritt 2 · " : ""}Widerspruch bei AXA
                   </span>
                   <span className="text-xs" style={{ color: "#92400e", opacity: 0.75 }}>— Förmlicher Widerspruch einlegen</span>
                 </div>

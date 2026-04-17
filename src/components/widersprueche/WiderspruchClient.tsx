@@ -577,14 +577,28 @@ function WiderspruchBriefNode({ fall, userName }: { fall: WiderspruchFall; userN
 
 // ── Timeline: Arztreklamation-Brief node ─────────────────────────────────────
 function ArztReklamationsBriefNode({ fall, userName }: { fall: WiderspruchFall; userName: string }) {
-  const [showBrief, setShowBrief] = useState(false)
-  const [copied, setCopied]       = useState(false)
-  const { betreff, body }         = generateArztBrief(fall, userName)
-  const [editBetreff, setEditBetreff] = useState(betreff)
-  const [editBody, setEditBody]       = useState(body)
+  const [showBrief, setShowBrief]         = useState(false)
+  const [copied, setCopied]               = useState(false)
+  const { betreff, body }                 = generateArztBrief(fall, userName)
+  const [editBetreff, setEditBetreff]     = useState(betreff)
+  const [editBody, setEditBody]           = useState(body)
+  const [localStatus, setLocalStatus]     = useState(fall.arzt_reklamation_status ?? 'erstellt')
 
-  const orangeL      = '#fff7ed'
-  const orangeAccent = '#9a3412'
+  const isSent    = localStatus === 'gesendet'
+  const orangeL   = '#fff7ed'
+  const orangeAcc = '#9a3412'
+
+  async function markArztGesendet() {
+    if (isSent) return
+    try {
+      await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ arzt_status: 'gesendet' }),
+      })
+      setLocalStatus('gesendet')
+    } catch { /* non-critical */ }
+  }
 
   return (
     <div style={{ display: 'flex', gap: 14 }}>
@@ -598,9 +612,27 @@ function ArztReklamationsBriefNode({ fall, userName }: { fall: WiderspruchFall; 
       <div style={{ flex: 1, paddingBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: orange }}>📤 Du → Arzt</span>
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: orangeL, color: orangeAccent, border: `1px solid #fed7aa` }}>
-            📋 Entwurf
-          </span>
+          {/* Persistent status badge — toggleable */}
+          <button
+            onClick={async () => {
+              const next = isSent ? 'erstellt' : 'gesendet'
+              try {
+                await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ arzt_status: next }),
+                })
+                setLocalStatus(next)
+              } catch { /* non-critical */ }
+            }}
+            style={{
+              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, cursor: 'pointer',
+              border: 'none',
+              background: isSent ? mintL   : orangeL,
+              color:      isSent ? '#065f46' : orangeAcc,
+            }}>
+            {isSent ? '✅ Gesendet' : '📋 Entwurf'} ✎
+          </button>
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 6 }}>Reklamationsschreiben an Arztpraxis</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -615,8 +647,8 @@ function ArztReklamationsBriefNode({ fall, userName }: { fall: WiderspruchFall; 
         {showBrief && (
           <div style={{ border: `2px solid ${orange}`, borderRadius: 10, overflow: 'hidden' }}>
             <div style={{ background: orangeL, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px solid #fed7aa` }}>
-              <span style={{ fontWeight: 700, color: orangeAccent, fontSize: 13 }}>📧 Reklamationsbrief an Arztpraxis</span>
-              <span style={{ fontSize: 11, color: orangeAccent }}>— Text kann angepasst werden</span>
+              <span style={{ fontWeight: 700, color: orangeAcc, fontSize: 13 }}>📧 Reklamationsbrief an Arztpraxis</span>
+              <span style={{ fontSize: 11, color: orangeAcc }}>— Text kann angepasst werden</span>
             </div>
             <div style={{ padding: 14, background: 'white' }}>
               <div style={{ marginBottom: 8 }}>
@@ -629,22 +661,26 @@ function ArztReklamationsBriefNode({ fall, userName }: { fall: WiderspruchFall; 
                 <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={14}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 11, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
               </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <button onClick={async () => {
                   await navigator.clipboard.writeText(`Betreff: ${editBetreff}\n\n${editBody}`)
                   setCopied(true); setTimeout(() => setCopied(false), 2000)
+                  markArztGesendet()
                 }}
                   style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: copied ? mintL : grey, color: copied ? '#065f46' : navy }}>
                   {copied ? '✓ Kopiert' : '📋 Text kopieren'}
                 </button>
-                <button onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')}
+                <button onClick={() => { markArztGesendet(); window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank') }}
                   style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: blueL, color: '#1d4ed8' }}>
                   In Gmail öffnen
                 </button>
-                <button onClick={() => window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')}
+                <button onClick={() => { markArztGesendet(); window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank') }}
                   style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: '#e8f4fd', color: '#0078d4' }}>
                   In Outlook öffnen
                 </button>
+                {isSent && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#065f46', background: mintL, padding: '4px 10px', borderRadius: 20 }}>✅ Als gesendet markiert</span>
+                )}
               </div>
             </div>
           </div>

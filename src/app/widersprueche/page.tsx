@@ -39,6 +39,7 @@ export interface WiderspruchFall {
   betrag_widerspruch_kasse: number | null   // appeal amount (kasse-track)
   betrag_korrektur_arzt: number | null      // invoice correction amount (arzt-track)
   widerspruch_status: string
+  arzt_reklamation_status: string           // independent status for Arztreklamation track
   widerspruch_gesendet_am: string | null
   kasse_analyse: Record<string, unknown> | null
   pdf_storage_path: string | null
@@ -60,7 +61,7 @@ export default async function WiderspruchPage() {
 
   const { data: kassenabrechnungen } = await getSupabaseAdmin()
     .from('kassenabrechnungen')
-    .select('id, bescheiddatum, referenznummer, betrag_abgelehnt, betrag_eingereicht, betrag_erstattet, betrag_widerspruch_kasse, betrag_korrektur_arzt, widerspruch_status, widerspruch_gesendet_am, kasse_analyse, pdf_storage_path')
+    .select('id, bescheiddatum, referenznummer, betrag_abgelehnt, betrag_eingereicht, betrag_erstattet, betrag_widerspruch_kasse, betrag_korrektur_arzt, widerspruch_status, arzt_reklamation_status, widerspruch_gesendet_am, kasse_analyse, pdf_storage_path')
     .eq('user_id', user.id)
     .in('widerspruch_status', ['erstellt', 'gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'])
     .order('created_at', { ascending: false })
@@ -127,6 +128,7 @@ export default async function WiderspruchPage() {
     betrag_widerspruch_kasse: k.betrag_widerspruch_kasse ?? null,
     betrag_korrektur_arzt: k.betrag_korrektur_arzt ?? null,
     widerspruch_status: k.widerspruch_status,
+    arzt_reklamation_status: (k.arzt_reklamation_status as string | null) ?? 'keiner',
     widerspruch_gesendet_am: k.widerspruch_gesendet_am ?? null,
     kasse_analyse: k.kasse_analyse as Record<string, unknown> | null,
     pdf_storage_path: k.pdf_storage_path ?? null,
