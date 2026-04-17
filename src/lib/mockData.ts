@@ -18,7 +18,8 @@ export const mockDashboard: DashboardData = {
   erstattungsquote: 93,
   einsparpotenzial: 63,              // GOÄ §12 Ärzte (rein GOÄ-basiert)
   widerspruchPotenzialKasse: 74,     // Positionen aktionstyp=widerspruch_kasse (Labor-Ablehnung)
-  korrekturArztPotenzial: 63,        // Positionen aktionstyp=korrektur_arzt (Faktor-Kürzung Arzt)
+  korrekturArztPotenzial: 63,
+  widerspruchVerfahren: [],
   // Prognose: data through month 4 (April) → × 12/4
   prognose: Math.round(1847 / 4 * 12),
   vorgaenge: [

@@ -73,6 +73,20 @@ export interface EigenanteilBreakdown {
   offeneRechnungen: number;
 }
 
+/** One Kassenbescheid that has an active or recently completed savings procedure */
+export interface WiderspruchVerfahren {
+  kasseId: string
+  bescheiddatum: string | null
+  referenznummer: string | null
+  arztNames: string[]           // from kasse_analyse.rechnungen[].arztName
+  // Kassenwiderspruch track (blue)
+  betragKasse: number           // betrag_widerspruch_kasse
+  kasseStatus: string           // 'keiner'|'erstellt'|'gesendet'|'beantwortet'|'erfolgreich'|'abgelehnt'
+  // Arztreklamation track (orange)
+  betragArzt: number            // betrag_korrektur_arzt
+  arztStatus: string            // 'keiner'|'erstellt'|'gesendet'
+}
+
 export interface DashboardData {
   user: { name: string; tarif: string; kasse: string };
   currentYear: number;
@@ -85,6 +99,7 @@ export interface DashboardData {
   einsparpotenzial: number;          // GOÄ / Arzt-side (§12 GOÄ violations, wrong codes)
   widerspruchPotenzialKasse: number; // Kasse-side: formal appeal to insurance
   korrekturArztPotenzial?: number;   // Arzt-side from kasse analysis (aktionstyp='korrektur_arzt')
+  widerspruchVerfahren: WiderspruchVerfahren[]  // per-case status for SavingsProgress
   prognose: number;
   monthsWithData: number;
   vorgaenge: Vorgang[];

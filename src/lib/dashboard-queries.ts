@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from './supabase-server'
-import type { DashboardData, Vorgang, Arzt, KasseStats, FachgruppeStats, VorsorgeItem, EigenanteilBreakdown } from '@/types'
+import type { DashboardData, Vorgang, Arzt, KasseStats, FachgruppeStats, VorsorgeItem, EigenanteilBreakdown, WiderspruchVerfahren } from '@/types'
 
 // Icons/colors for Fachgebiete
 const FACH_META: Record<string, { icon: string; farbe: string }> = {
@@ -110,7 +110,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   // (added in migration 009; defaults to 0 if not yet populated)
   const { data: rawKasse } = await supabase
     .from('kassenabrechnungen')
-    .select('id, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, selbstbehalt_abgezogen, bescheiddatum, widerspruch_empfohlen, kasse_analyse, betrag_widerspruch_kasse, betrag_korrektur_arzt')
+    .select('id, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, selbstbehalt_abgezogen, bescheiddatum, widerspruch_empfohlen, widerspruch_status, arzt_reklamation_status, kasse_analyse, betrag_widerspruch_kasse, betrag_korrektur_arzt')
     .eq('user_id', user.id)
     .gte('bescheiddatum', yearStart)
     .lte('bescheiddatum', yearEnd)
@@ -479,6 +479,46 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     return order[a.status] - order[b.status]
   })
 
+  // ── Per-case Widerspruch progress for SavingsProgress block ─────────
+  // Include cases that have any actionable amount or an active procedure status.
+  type KasseExtended = {
+    id: string
+    referenznummer: string | null
+    bescheiddatum: string | null
+    widerspruch_status: string | null
+    arzt_reklamation_status: string | null
+    betrag_widerspruch_kasse: number | null
+    betrag_korrektur_arzt: number | null
+    kasse_analyse: { rechnungen?: Array<{ arztName?: string }> } | null
+  }
+
+  const ACTIVE_KASSE_STATI = ['erstellt', 'gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt']
+
+  const widerspruchVerfahren: WiderspruchVerfahren[] = (kasseList as unknown as KasseExtended[])
+    .filter(k => {
+      const kStatus = k.widerspruch_status ?? 'keiner'
+      const aStatus = k.arzt_reklamation_status ?? 'keiner'
+      const hasPotential = (k.betrag_widerspruch_kasse ?? 0) > 0 || (k.betrag_korrektur_arzt ?? 0) > 0
+      return (ACTIVE_KASSE_STATI.includes(kStatus) || aStatus === 'gesendet') && hasPotential
+    })
+    .map(k => {
+      const rechnungen = k.kasse_analyse?.rechnungen ?? []
+      const arztNames = Array.from(
+        new Set(rechnungen.map((r: { arztName?: string }) => r.arztName).filter((n): n is string => !!n))
+      )
+      return {
+        kasseId:      k.id,
+        bescheiddatum: k.bescheiddatum ?? null,
+        referenznummer: k.referenznummer ?? null,
+        arztNames,
+        betragKasse:  Math.round((k.betrag_widerspruch_kasse ?? 0) * 100) / 100,
+        kasseStatus:  k.widerspruch_status ?? 'keiner',
+        betragArzt:   Math.round((k.betrag_korrektur_arzt ?? 0) * 100) / 100,
+        arztStatus:   k.arzt_reklamation_status ?? 'keiner',
+      }
+    })
+    .sort((a, b) => (b.bescheiddatum ?? '').localeCompare(a.bescheiddatum ?? ''))
+
   return {
     user: {
       name: profile?.full_name ?? user.email?.split('@')[0] ?? 'Nutzer',
@@ -495,6 +535,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     einsparpotenzial: einsparpotenzialArzt,
     widerspruchPotenzialKasse: widerspruchPotenzial,
     korrekturArztPotenzial,
+    widerspruchVerfahren,
     prognose,
     monthsWithData,
     vorgaenge,
