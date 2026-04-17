@@ -12,7 +12,7 @@ export default function GesundheitsSection({ data }: { data: DashboardData }) {
   // Build breakdown rows from real data
   const breakdownRows = bd ? [
     bd.abgelehnt > 0   ? { label: "Abgelehnte Positionen",  betrag: bd.abgelehnt,        dot: "#ef4444", red: true  } : null,
-    bd.stilleKuerzungen > 0 ? { label: "Stille Kürzungen",  betrag: bd.stilleKuerzungen, dot: "#f59e0b", red: true  } : null,
+    bd.stilleKuerzungen > 0 ? { label: "Weitere Ablehnungen", betrag: bd.stilleKuerzungen, dot: "#f59e0b", red: true } : null,
     bd.selbstbehalt > 0 ? { label: "Selbstbehalt (Tarif)",  betrag: bd.selbstbehalt,     dot: "#94a3b8", red: false } : null,
     bd.offeneRechnungen > 0 ? { label: "Offene Rechnungen", betrag: bd.offeneRechnungen, dot: "#e2e8f0", red: false } : null,
   ].filter(Boolean) as { label: string; betrag: number; dot: string; red: boolean }[]

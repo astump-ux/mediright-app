@@ -1,6 +1,6 @@
 "use client"
 import { useState } from "react";
-import type { DashboardData, Vorgang, VorsorgeItem, Arzt } from "@/types";
+import type { DashboardData, Vorgang, VorsorgeItem } from "@/types";
 import Card from "@/components/ui/Card";
 import { SectionBadge } from "@/components/ui/Badge";
 
@@ -9,6 +9,13 @@ const statusDot: Record<string, string> = {
   abgelehnt: "#ef4444",
   pruefen: "#f59e0b",
   offen: "#94a3b8",
+};
+
+const statusLabel: Record<string, string> = {
+  erstattet: "Erstattet",
+  abgelehnt: "Abgelehnt",
+  pruefen: "In Prüfung",
+  offen: "Offen",
 };
 
 function VorsorgeCard({ item }: { item: VorsorgeItem }) {
@@ -48,43 +55,22 @@ function VorsorgeCard({ item }: { item: VorsorgeItem }) {
   );
 }
 
-function ArztStatRow({ arzt }: { arzt: Arzt }) {
-  const hasKasse = (arzt.eingereichtBeiKasse ?? 0) > 0
-  const ablehnungsRate = hasKasse && (arzt.eingereichtBeiKasse ?? 0) > 0
-    ? Math.round(((arzt.abgelehntVonKasse ?? 0) / (arzt.eingereichtBeiKasse ?? 1)) * 100)
-    : null
-  const warn = arzt.flagged || (ablehnungsRate !== null && ablehnungsRate > 20)
-  const shortName = arzt.name.replace(/Dr\. med\. /, "Dr. ").replace(/GmbH/, "").trim()
-
-  const statLabel = arzt.avgFaktor > 0
-    ? `Ø ${arzt.avgFaktor}×`
-    : ablehnungsRate !== null
-    ? `${ablehnungsRate}% Ablehnung`
-    : `${arzt.besuche} Besuch${arzt.besuche !== 1 ? "e" : ""}`
-
-  return (
-    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
-      <div>
-        <div className="font-bold text-sm" style={{ color: "var(--navy)" }}>{shortName}</div>
-        <div className="text-xs text-slate-400">
-          {arzt.besuche} Besuch{arzt.besuche !== 1 ? "e" : ""} · {arzt.fachrichtung}
-        </div>
-      </div>
-      <div className="font-bold text-sm" style={{ color: warn ? "#b91c1c" : "var(--mint-dark)" }}>{statLabel}</div>
-    </div>
-  )
-}
-
 function VorgangRow({ v }: { v: Vorgang }) {
   return (
-    <div className="grid grid-cols-[56px_1fr_auto] gap-x-3 items-start py-3 border-b border-slate-100 last:border-0">
+    <a
+      href={`/rechnungen#vorgang-${v.id}`}
+      className="grid grid-cols-[56px_1fr_auto] gap-x-3 items-start py-3 border-b border-slate-100 last:border-0 no-underline group"
+      style={{ color: "inherit" }}
+    >
       <div className="text-[11px] font-bold text-slate-400 text-center leading-tight">
         {v.datum.split(".").slice(0, 2).join(".")}
         <br />
         {v.datum.split(".")[2]}
       </div>
       <div>
-        <div className="font-bold text-sm" style={{ color: "var(--navy)" }}>{v.arzt}</div>
+        <div className="font-bold text-sm group-hover:underline" style={{ color: "var(--navy)" }}>
+          {v.arzt}
+        </div>
         <div className="text-xs text-slate-500 mb-2">{v.fachrichtung}</div>
         <div className="flex flex-wrap gap-1">
           {v.goaZiffern?.map((z) => (
@@ -101,19 +87,21 @@ function VorgangRow({ v }: { v: Vorgang }) {
       </div>
       <div className="text-right">
         <div className="font-bold text-sm" style={{ color: "var(--navy)" }}>€ {v.betrag.toFixed(2).replace(".", ",")}</div>
-        <div className="mt-1">
+        <div className="mt-1 flex items-center justify-end gap-1">
           <span className="w-2 h-2 rounded-full inline-block" style={{ background: statusDot[v.status] }} />
+          <span className="text-[10px] text-slate-400">{statusLabel[v.status] ?? v.status}</span>
         </div>
       </div>
-    </div>
+    </a>
   );
 }
 
 export default function ChronikSection({ data }: { data: DashboardData }) {
-  const { vorgaenge, vorsorgeLeistungen, aerzte, currentYear } = data;
+  const { vorgaenge, vorsorgeLeistungen, currentYear } = data;
   const year = currentYear ?? new Date().getFullYear();
 
-  const [sectionOpen, setSectionOpen] = useState(false);
+  // Default open — users should see their history immediately
+  const [sectionOpen, setSectionOpen] = useState(true);
   const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
 
   const byYear = vorgaenge.reduce<Record<string, Vorgang[]>>((acc, v) => {
@@ -167,11 +155,11 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
 
       {sectionOpen && (
         <div className="grid grid-cols-2 gap-4 items-start">
-          {/* Timeline */}
+          {/* Timeline — each row links to /rechnungen#vorgang-{id} */}
           <Card>
             <p className="text-xs text-slate-500 flex items-center gap-2 mb-4">
               <span className="text-blue-500">ℹ️</span>
-              Neutrale Übersicht auf Basis Ihrer Rechnungen — ohne medizinische Bewertung.
+              Klick auf einen Eintrag öffnet die jeweilige Rechnung. Neutrale Übersicht ohne medizinische Bewertung.
             </p>
 
             {/* Most recent year — always shown when section open */}
@@ -191,7 +179,7 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
                 {olderYears.map((y) => (
                   <div key={y}>
                     <button
-                      onClick={() => toggleYear(y)}
+                      onClick={(e) => { e.preventDefault(); toggleYear(y); }}
                       className="w-full flex items-center gap-3 my-3"
                       style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
                     >
@@ -208,60 +196,46 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
             )}
           </Card>
 
-          {/* Vorsorge + Arztstatistik */}
-          <div className="flex flex-col gap-4">
-            {/* Vorsorge */}
-            <Card>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                📅 Vorsorge-Erinnerungen
-              </p>
-              <p className="text-[10px] text-slate-400 mb-4">Basierend auf Ihren Leistungsziffern — keine medizinische Bewertung</p>
-              {vorsorgeSorted.length > 0 ? (
-                <div className="grid grid-cols-3 gap-2">
-                  {vorsorgeSorted.map((item) => (
-                    <VorsorgeCard key={item.id} item={item} />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm text-slate-400 text-center py-4">
-                  Noch keine Vorsorgeleistungen erfasst
-                </div>
-              )}
-            </Card>
-
-            {/* Arzt-Statistik */}
-            <Card>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">
-                🏆 Ihre Arzt-Statistik
-              </p>
-              <div className="flex flex-col gap-2">
-                {aerzte.length > 0
-                  ? aerzte.map((a) => <ArztStatRow key={a.id} arzt={a} />)
-                  : <div className="text-sm text-slate-400 text-center py-2">Keine Ärzte erfasst</div>
-                }
+          {/* Vorsorge-Erinnerungen */}
+          <Card>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+              📅 Vorsorge-Erinnerungen
+            </p>
+            <p className="text-[10px] text-slate-400 mb-4">
+              Basierend auf Ihren Leistungsziffern — keine medizinische Bewertung
+            </p>
+            {vorsorgeSorted.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {vorsorgeSorted.map((item) => (
+                  <VorsorgeCard key={item.id} item={item} />
+                ))}
               </div>
-
-              {/* Share card teaser */}
-              <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 flex-wrap gap-2">
-                <div>
-                  <div className="text-sm font-bold" style={{ color: "var(--navy)" }}>
-                    🔗 Mein Gesundheitsjahr {year}
-                  </div>
-                  <div className="text-xs text-slate-500">Jahresübersicht als PDF oder Share-Card</div>
-                </div>
-                <button
-                  className="text-xs font-bold px-3 py-1.5 rounded-full"
-                  style={{ background: "var(--purple-light)", color: "var(--purple)" }}
-                >
-                  📤 Export
-                </button>
+            ) : (
+              <div className="text-sm text-slate-400 text-center py-4">
+                Noch keine Vorsorgeleistungen erfasst
               </div>
-            </Card>
-          </div>
+            )}
+
+            {/* Share card teaser */}
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 flex-wrap gap-2">
+              <div>
+                <div className="text-sm font-bold" style={{ color: "var(--navy)" }}>
+                  🔗 Mein Gesundheitsjahr {year}
+                </div>
+                <div className="text-xs text-slate-500">Jahresübersicht als PDF oder Share-Card</div>
+              </div>
+              <button
+                className="text-xs font-bold px-3 py-1.5 rounded-full"
+                style={{ background: "var(--purple-light)", color: "var(--purple)" }}
+              >
+                📤 Export
+              </button>
+            </div>
+          </Card>
         </div>
       )}
 
-      {/* Collapsed preview — show urgent vorsorge items even when closed */}
+      {/* Collapsed preview — show urgent vorsorge even when closed */}
       {!sectionOpen && urgentVorsorge.length > 0 && (
         <div
           className="rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer"

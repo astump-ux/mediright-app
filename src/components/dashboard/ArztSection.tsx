@@ -2,29 +2,24 @@ import type { Arzt } from "@/types";
 import Card from "@/components/ui/Card";
 import { SectionBadge } from "@/components/ui/Badge";
 
-// ── GOÄ Ampel helpers ─────────────────────────────────────────────────────────
+// ── GOÄ Faktor Ampel ──────────────────────────────────────────────────────────
 function faktorAmpel(faktor: number): {
-  color: string; bg: string; border: string; label: string; erklärung: string
+  color: string; bg: string; border: string; label: string; hinweis: string
 } {
-  if (faktor <= 1.8) return {
-    color: "#059669", bg: "#d1fae5", border: "#6ee7b7",
-    label: "✓ Standard",
-    erklärung: "Unterdurchschnittlicher Abrechnungssatz — keine Auffälligkeit.",
-  }
   if (faktor <= 2.3) return {
-    color: "#0284c7", bg: "#e0f2fe", border: "#7dd3fc",
+    color: "#059669", bg: "#d1fae5", border: "#6ee7b7",
     label: "✓ Regelfall",
-    erklärung: "Normaler Abrechnungssatz. Die PKV erstattet in der Regel problemlos.",
+    hinweis: "",
   }
   if (faktor <= 3.5) return {
     color: "#d97706", bg: "#fef3c7", border: "#fde68a",
     label: "⚠ Begründungspflichtig",
-    erklärung: `Faktor über dem Schwellenwert (2,3×). Der Arzt MUSS laut §12 GOÄ\neine schriftliche Begründung geben. Ohne diese kann Ihre Kasse kürzen.`,
+    hinweis: "Faktor über 2,3× — laut §12 GOÄ muss der Arzt schriftlich begründen. Fehlt die Begründung, kann Ihre Kasse ablehnen.",
   }
   return {
     color: "#b91c1c", bg: "#fee2e2", border: "#fca5a5",
     label: "🔴 Höchstsatz",
-    erklärung: `Faktor über 3,5× — nur in Ausnahmefällen zulässig. Sehr hohe\nWahrscheinlichkeit einer Kürzung oder Ablehnung durch Ihre Kasse.`,
+    hinweis: "Faktor über 3,5× — nur in Ausnahmefällen zulässig. Sehr hohe Wahrscheinlichkeit einer Ablehnung durch Ihre Kasse.",
   }
 }
 
@@ -34,66 +29,11 @@ function FaktorBadge({ faktor }: { faktor: number }) {
     <span
       className="text-[11px] font-bold px-2.5 py-0.5 rounded-full"
       style={{ background: amp.bg, border: `1px solid ${amp.border}`, color: amp.color }}
-      title={amp.erklärung}
+      title={amp.hinweis || "Abrechnungssatz im Regelbereich"}
     >
       {faktor}× — {amp.label}
     </span>
   )
-}
-
-function FaktorChart({ verlauf }: { verlauf: { datum: string; faktor: number }[] }) {
-  const max = 4.0;
-  const threshold = 2.3;
-  const thresholdPct = (threshold / max) * 100;
-
-  return (
-    <div className="mb-4">
-      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">
-        Faktor-Entwicklung über Ihre Besuche
-      </p>
-      <div className="flex items-end gap-3 h-16">
-        {verlauf.map((v, i) => {
-          const pct = (v.faktor / max) * 100;
-          const amp = faktorAmpel(v.faktor)
-          return (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1">
-              <span className="text-[11px] font-bold" style={{ color: amp.color }}>
-                {v.faktor}×
-              </span>
-              <div className="w-full relative" style={{ height: 48 }}>
-                {/* threshold line */}
-                <div
-                  className="absolute left-0 right-0 border-t border-dashed border-slate-400"
-                  style={{ bottom: `${thresholdPct}%` }}
-                />
-                {/* bar */}
-                <div
-                  className="absolute bottom-0 left-0 right-0 rounded-t"
-                  style={{ height: `${pct}%`, background: amp.bg, border: `1px solid ${amp.border}`, borderBottom: "none" }}
-                />
-              </div>
-              <span className="text-[10px] text-slate-400">{v.datum}</span>
-            </div>
-          );
-        })}
-      </div>
-      {/* Legend with plain language */}
-      <div className="mt-3 rounded-lg p-3 text-[11px]" style={{ background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-        <div className="flex items-start gap-2 mb-1.5">
-          <span className="inline-block w-4 h-3 rounded-sm mt-0.5 flex-shrink-0" style={{ background: "#d1fae5", border: "1px solid #6ee7b7" }} />
-          <span style={{ color: "#374151" }}><strong style={{ color: "#059669" }}>bis 2,3×</strong> — Von Ihrer Kasse problemlos erstattbar (Regelfall §12 GOÄ)</span>
-        </div>
-        <div className="flex items-start gap-2 mb-1.5">
-          <span className="inline-block w-4 h-3 rounded-sm mt-0.5 flex-shrink-0" style={{ background: "#fef3c7", border: "1px solid #fde68a" }} />
-          <span style={{ color: "#374151" }}><strong style={{ color: "#d97706" }}>2,3× – 3,5×</strong> — Erhöhter Satz, erfordert schriftliche Begründung. Ohne diese kann Ihre Kasse kürzen.</span>
-        </div>
-        <div className="flex items-start gap-2">
-          <span className="inline-block w-4 h-3 rounded-sm mt-0.5 flex-shrink-0" style={{ background: "#fee2e2", border: "1px solid #fca5a5" }} />
-          <span style={{ color: "#374151" }}><strong style={{ color: "#b91c1c" }}>über 3,5×</strong> — Ausnahmefall. Sehr wahrscheinlich kürzt Ihre Kasse diesen Betrag.</span>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function KasseBescheidMini({ arzt }: { arzt: Arzt }) {
@@ -148,6 +88,8 @@ function KasseBescheidMini({ arzt }: { arzt: Arzt }) {
 
 function ArztCard({ arzt }: { arzt: Arzt }) {
   const variant = arzt.flagged ? "flagged" : "ok";
+  const amp = arzt.avgFaktor > 0 ? faktorAmpel(arzt.avgFaktor) : null
+  const hasKasseBescheid = (arzt.eingereichtBeiKasse ?? 0) > 0
   return (
     <Card variant={variant} className="mb-4">
       {/* Header */}
@@ -157,7 +99,7 @@ function ArztCard({ arzt }: { arzt: Arzt }) {
             {arzt.name}
           </div>
           <div className="text-sm text-slate-500">
-            {arzt.fachrichtung}{arzt.ort ? ` · ${arzt.ort}` : ""} · {arzt.besuche} Besuche
+            {arzt.fachrichtung}{arzt.ort ? ` · ${arzt.ort}` : ""} · {arzt.besuche} Besuch{arzt.besuche !== 1 ? "e" : ""}
           </div>
           <div className="flex gap-2 flex-wrap mt-2">
             {arzt.flagged ? (
@@ -183,11 +125,15 @@ function ArztCard({ arzt }: { arzt: Arzt }) {
         </div>
       </div>
 
-      {/* Kassenbescheid mini-panel */}
+      {/* Kassenbescheid summary */}
       <KasseBescheidMini arzt={arzt} />
 
-      {/* Faktor chart */}
-      {arzt.faktorVerlauf.length > 0 && <FaktorChart verlauf={arzt.faktorVerlauf} />}
+      {/* Factor hint — only shown when no Kassenbescheid yet and factor is elevated */}
+      {amp && amp.hinweis && !hasKasseBescheid && (
+        <div className="rounded-lg px-3 py-2.5 mb-3 text-xs" style={{ background: amp.bg, border: `1px solid ${amp.border}`, color: amp.color }}>
+          {amp.hinweis}
+        </div>
+      )}
 
       {/* Alerts with action */}
       {arzt.alerts.map((alert, i) => (
@@ -220,7 +166,7 @@ export default function ArztSection({ aerzte }: { aerzte: Arzt[] }) {
           className="text-xl flex items-center gap-2.5"
           style={{ fontFamily: "'DM Serif Display', Georgia, serif", color: "var(--navy)" }}
         >
-          🩺 Meine Ärzte — Abrechnungsverhalten
+          🩺 Meine Ärzte — Abrechnungsübersicht
         </h2>
         {flagCount > 0 && <SectionBadge label={`${flagCount} Auffälligkeit${flagCount > 1 ? "en" : ""}`} variant="amber" />}
       </div>

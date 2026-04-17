@@ -218,7 +218,7 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
           const s = STATUS_STYLES[effectiveStatus] ?? STATUS_STYLES.offen
 
           return (
-            <div key={v.id} style={{
+            <div key={v.id} id={`vorgang-${v.id}`} style={{
               background: 'white', borderRadius: 14, padding: '16px 20px',
               boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
               borderLeft: v.flagged ? `4px solid ${red}` : hasKassenbescheid ? `4px solid ${mint}` : `4px solid transparent`,

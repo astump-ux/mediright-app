@@ -7,7 +7,6 @@ import ArztSection from "@/components/dashboard/ArztSection";
 import KasseSection from "@/components/dashboard/KasseSection";
 import GesundheitsSection from "@/components/dashboard/GesundheitsSection";
 import ChronikSection from "@/components/dashboard/ChronikSection";
-import VorgaengeTable from "@/components/dashboard/VorgaengeTable";
 import UpsellBand from "@/components/dashboard/UpsellBand";
 import EmptyState from "@/components/dashboard/EmptyState";
 import FloatingCTA from "@/components/dashboard/FloatingCTA";
@@ -68,7 +67,6 @@ export default async function DashboardPage() {
           <KasseSection stats={data.kasse} />
           <GesundheitsSection data={data} />
           <ChronikSection data={data} />
-          <VorgaengeTable vorgaenge={data.vorgaenge} limit={4} />
           <UpsellBand data={data} />
         </>
       )}
