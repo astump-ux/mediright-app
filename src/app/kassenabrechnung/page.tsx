@@ -59,7 +59,7 @@ export default async function KassenPage() {
 
   const { data: kassenRaw } = await admin
     .from('kassenabrechnungen')
-    .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, widerspruch_status, arzt_reklamation_status, selbstbehalt_abgezogen, selbstbehalt_verbleibend, selbstbehalt_jahresgrenze, pdf_storage_path, kasse_analyse')
+    .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, widerspruch_status, selbstbehalt_abgezogen, selbstbehalt_verbleibend, selbstbehalt_jahresgrenze, pdf_storage_path, kasse_analyse')
     .eq('user_id', user.id)
     .order('bescheiddatum', { ascending: false })
 
@@ -100,7 +100,7 @@ export default async function KassenPage() {
     betrag_abgelehnt: k.betrag_abgelehnt,
     widerspruch_empfohlen:      k.widerspruch_empfohlen,
     widerspruch_status:         k.widerspruch_status ?? null,
-    arzt_reklamation_status:    (k.arzt_reklamation_status as string | null) ?? 'keiner',
+    arzt_reklamation_status:    'keiner', // populated after DB migration 017 is applied
     selbstbehalt_abgezogen:    k.selbstbehalt_abgezogen    ?? null,
     selbstbehalt_verbleibend:  k.selbstbehalt_verbleibend  ?? null,
     selbstbehalt_jahresgrenze: k.selbstbehalt_jahresgrenze ?? null,
