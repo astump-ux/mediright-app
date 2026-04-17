@@ -27,24 +27,23 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
 async function buildSystemPrompt(userId: string): Promise<string> {
   const admin = getSupabaseAdmin()
-  const now   = new Date()
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1).toISOString().split('T')[0]
-  const currentYear  = now.getFullYear()
+  const now         = new Date()
+  const currentYear = now.getFullYear()
 
-  // Parallel fetch everything
+  // Parallel fetch everything — no date filter on rechnungsdatum/bescheiddatum
+  // because NULL values would be silently excluded by Postgres gte() comparisons.
+  // Instead rely on created_at ordering + LIMIT to get recent data.
   const [profileRes, vorgaengeRes, kasseRes, exclusionsRes] = await Promise.all([
     admin.from('profiles').select('full_name, pkv_name, pkv_tarif').eq('id', userId).single(),
     admin.from('vorgaenge')
       .select('id, arzt_name, fachrichtung, rechnungsdatum, betrag_gesamt, einsparpotenzial, status, kasse_match_status, kassenabrechnung_id')
       .eq('user_id', userId)
-      .gte('rechnungsdatum', sixMonthsAgo)
-      .order('rechnungsdatum', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(30),
     admin.from('kassenabrechnungen')
       .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, erstattungsquote, widerspruch_status, arzt_reklamation_status, betrag_widerspruch_kasse, betrag_korrektur_arzt, kasse_analyse')
       .eq('user_id', userId)
-      .gte('bescheiddatum', `${currentYear}-01-01`)
-      .order('bescheiddatum', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(10),
     admin.from('tariff_exclusions')
       .select('goae_ziffer, leistung, rejection_type, rejection_reason, confidence')
@@ -117,13 +116,13 @@ VERSICHERUNGSKONTEXT:
 - Krankenversicherung: ${pkvName}
 - Heute: ${now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
 
-AKTUELLE SITUATION (letzte 6 Monate):
+AKTUELLE SITUATION (alle Vorgänge, neueste zuerst):
 - ${vorgaengeGesamt} Vorgänge insgesamt, davon ${vorgaengeOffen.length} noch nicht vollständig erstattet
 - Gesamtes identifiziertes Einsparpotenzial: ${espGesamt.toFixed(2)} €
 - ${kasseOffen.length} offene / aktive Kassenbescheide
 
 VORGÄNGE (neueste zuerst):
-${vorgaenge.length > 0 ? vorgaenge.map(v => formatVorgang(v as Record<string, unknown>)).join('\n') : '  Keine Vorgänge im Zeitraum.'}
+${vorgaenge.length > 0 ? vorgaenge.map(v => formatVorgang(v as Record<string, unknown>)).join('\n') : '  Keine Vorgänge vorhanden.'}
 
 KASSENBESCHEIDE ${currentYear}:
 ${kasseListe.length > 0 ? kasseListe.map(k => formatKasse(k as Record<string, unknown>)).join('\n') : '  Keine Kassenbescheide in diesem Jahr.'}
