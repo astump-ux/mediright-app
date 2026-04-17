@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { logKiUsage } from '@/lib/ki-usage'
 
 export const maxDuration = 60
 
@@ -215,6 +216,15 @@ export async function POST(request: NextRequest) {
     const assistantText = response.content[0].type === 'text'
       ? response.content[0].text
       : ''
+
+    // Track token usage (fire-and-forget)
+    void logKiUsage({
+      callType:     'chat',
+      model:        'claude-sonnet-4-6',
+      inputTokens:  response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      userId:       user.id,
+    })
 
     // Store both messages for future Option 3B history (fire-and-forget)
     void admin.from('chat_messages').insert([
