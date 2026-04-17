@@ -14,12 +14,21 @@ export async function GET() {
   return NextResponse.json(data)
 }
 
-// PATCH — update a single setting by key
+// PATCH — update a single setting by key (admin only)
 export async function PATCH(request: NextRequest) {
-  // Auth check
+  // Auth + admin role check
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await getSupabaseAdmin()
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+  if ((profile as { role?: string } | null)?.role !== 'admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const { key, value } = await request.json()
   if (!key || value === undefined) {

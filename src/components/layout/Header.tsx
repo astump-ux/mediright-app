@@ -11,15 +11,19 @@ const navItems = [
   { href: "/aerzte",           label: "Ärzte" },
 ];
 
-const userMenuItems = [
-  { href: "/settings", label: "Einstellungen", icon: "⚙️" },
-  { href: "/admin",    label: "Admin",          icon: "🛠" },
-];
-
 export default function Header() {
   const pathname  = usePathname();
   const [open, setOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const menuRef   = useRef<HTMLDivElement>(null);
+
+  // Fetch user role once on mount
+  useEffect(() => {
+    fetch('/api/user/role')
+      .then(r => r.json())
+      .then(d => setIsAdmin(d.role === 'admin'))
+      .catch(() => {})
+  }, [])
 
   // Close on outside click
   useEffect(() => {
@@ -35,8 +39,16 @@ export default function Header() {
   // Close on navigation
   useEffect(() => { setOpen(false); }, [pathname]);
 
+  const userMenuItems = [
+    { href: "/settings", label: "Einstellungen", icon: "⚙️" },
+    { href: "/admin",    label: "Admin",          icon: "🛠" },
+    ...(isAdmin ? [{ href: "/system", label: "System", icon: "🔧" }] : []),
+  ];
+
   const isUserPageActive =
-    pathname.startsWith("/settings") || pathname.startsWith("/admin");
+    pathname.startsWith("/settings") ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/system");
 
   return (
     <header className="sticky top-0 z-50" style={{ background: "var(--navy)" }}>
@@ -135,6 +147,23 @@ export default function Header() {
                   </Link>
                 );
               })}
+
+              {/* Admin badge */}
+              {isAdmin && (
+                <div style={{
+                  borderTop: "1px solid #f1f5f9",
+                  padding: "6px 16px 8px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+                    background: "#fef3c7", color: "#92400e",
+                    padding: "2px 8px", borderRadius: 20, textTransform: "uppercase",
+                  }}>Admin</span>
+                </div>
+              )}
             </div>
           )}
         </div>

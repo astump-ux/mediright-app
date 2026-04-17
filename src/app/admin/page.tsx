@@ -225,11 +225,13 @@ function TokenUsageSection() {
   )
 }
 
+// Admin page shows only model selectors and operational config.
+// KI-Prompts and WhatsApp texts are managed under /system (admin-only).
+// Deprecated and hidden categories are excluded.
+const ADMIN_CATEGORIES = ['konfiguration']
+
 const CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
-  prompts:      { label: 'KI-Prompts',        icon: '🤖' },
-  nachrichten:  { label: 'WhatsApp Texte',     icon: '💬' },
-  konfiguration:{ label: 'Konfiguration',      icon: '⚙️' },
-  general:      { label: 'Allgemein',          icon: '📋' },
+  konfiguration: { label: 'Konfiguration', icon: '⚙️' },
 }
 
 const navy = '#0f172a'
@@ -308,7 +310,8 @@ export default function AdminPage() {
             Admin — Einstellungen
           </h1>
           <p style={{ color: slate, fontSize: 14 }}>
-            Prompts, WhatsApp-Texte und Konfigurationswerte verwalten. Änderungen sind sofort aktiv.
+            KI-Modelle und Betriebsparameter verwalten. KI-Prompts und WhatsApp-Texte sind unter{' '}
+            <a href="/system" style={{ color: '#1d4ed8', fontWeight: 600, textDecoration: 'none' }}>System</a> editierbar.
           </p>
         </div>
 
@@ -321,8 +324,10 @@ export default function AdminPage() {
         {/* Token usage */}
         <TokenUsageSection />
 
-        {/* Settings by category */}
-        {Object.entries(grouped).map(([category, items]) => {
+        {/* Settings by category — only whitelisted admin categories */}
+        {Object.entries(grouped)
+          .filter(([category]) => ADMIN_CATEGORIES.includes(category))
+          .map(([category, items]) => {
           const meta = CATEGORY_LABELS[category] ?? { label: category, icon: '📋' }
           return (
             <div key={category} style={{ marginBottom: 40 }}>

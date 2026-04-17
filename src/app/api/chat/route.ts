@@ -200,12 +200,16 @@ export async function POST(request: NextRequest) {
   const admin = getSupabaseAdmin()
 
   try {
-    // Build fresh context for every message (Option 3A: no history)
-    const systemPrompt = await buildSystemPrompt(user.id)
+    // Build fresh context + read configured model in parallel
+    const [systemPrompt, modelRow] = await Promise.all([
+      buildSystemPrompt(user.id),
+      admin.from('app_settings').select('value').eq('key', 'chat_model').single(),
+    ])
+    const chatModel = (modelRow.data as { value?: string } | null)?.value ?? 'claude-sonnet-4-6'
 
     // Call Claude
     const response = await client.messages.create({
-      model:      'claude-sonnet-4-6',
+      model:      chatModel,
       max_tokens: 1024,
       system:     systemPrompt,
       messages: [
@@ -220,7 +224,7 @@ export async function POST(request: NextRequest) {
     // Track token usage (fire-and-forget)
     void logKiUsage({
       callType:     'chat',
-      model:        'claude-sonnet-4-6',
+      model:        chatModel,
       inputTokens:  response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
       userId:       user.id,
