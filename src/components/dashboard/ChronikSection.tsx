@@ -18,38 +18,138 @@ const statusLabel: Record<string, string> = {
   offen: "Offen",
 };
 
+// Known insurance Vorsorge info pages
+const PKV_VORSORGE_LINKS: Record<string, { url: string; label: string }> = {
+  'AXA':              { url: 'https://www.axa.de/privatkunden/gesundheit/private-krankenversicherung', label: 'AXA PKV Leistungsübersicht' },
+  'Allianz':          { url: 'https://www.allianz.de/gesundheit/private-krankenversicherung/', label: 'Allianz PKV Leistungen' },
+  'Barmenia':         { url: 'https://www.barmenia.de/privatkunden/kranken/', label: 'Barmenia PKV Leistungen' },
+  'DKV':              { url: 'https://www.dkv.com/gesundheit/private-krankenversicherung/', label: 'DKV PKV Leistungen' },
+  'Debeka':           { url: 'https://www.debeka.de/kranken/', label: 'Debeka PKV Leistungen' },
+  'Continentale':     { url: 'https://www.continentale.de/krankenversicherung', label: 'Continentale PKV Leistungen' },
+  'Hallesche':        { url: 'https://www.hallesche.de/krankenversicherung/', label: 'Hallesche PKV Leistungen' },
+  'Signal Iduna':     { url: 'https://www.signal-iduna.de/kranken/', label: 'Signal Iduna PKV Leistungen' },
+  'HUK-Coburg':       { url: 'https://www.huk.de/kranken/', label: 'HUK-Coburg PKV Leistungen' },
+  'Gothaer':          { url: 'https://www.gothaer.de/krankenversicherung/', label: 'Gothaer PKV Leistungen' },
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "–"
+  const d = new Date(iso)
+  const monate = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"]
+  return `${monate[d.getMonth()]} ${d.getFullYear()}`
+}
+
+function addMonthsClient(dateStr: string, months: number): string {
+  const d = new Date(dateStr)
+  d.setMonth(d.getMonth() + months)
+  return d.toISOString().split('T')[0]
+}
+
+function vorsorgeStatusClient(naechstesDatum: string | null): VorsorgeItem['status'] {
+  if (!naechstesDatum) return 'unbekannt'
+  const now = new Date()
+  const next = new Date(naechstesDatum)
+  const diffDays = Math.floor((next.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  if (diffDays < 0) return 'faellig'
+  if (diffDays <= 90) return 'bald'
+  return 'ok'
+}
+
 function VorsorgeCard({ item }: { item: VorsorgeItem }) {
+  const [letzteDatum, setLetzteDatum] = useState<string | null>(item.letzteDatum)
+  const [naechstesDatum, setNaechstesDatum] = useState<string | null>(item.naechstesDatum)
+  const [status, setStatus] = useState<VorsorgeItem['status']>(item.status)
+  const [editing, setEditing] = useState(false)
+  const [dateInput, setDateInput] = useState(item.letzteDatum ?? "")
+  const [saving, setSaving] = useState(false)
+
   const styles = {
     faellig:   { bg: "#fff8f8", border: "#fca5a5", badgeBg: "#fee2e2", badgeColor: "#b91c1c" },
     bald:      { bg: "#fffbeb", border: "#fde68a", badgeBg: "#fef3c7", badgeColor: "#92400e" },
     ok:        { bg: "#f0fdf4", border: "#6ee7b7", badgeBg: "#d1fae5", badgeColor: "#059669" },
     unbekannt: { bg: "#f8fafc", border: "#e2e8f0", badgeBg: "#f1f5f9", badgeColor: "#64748b" },
-  }[item.status] ?? { bg: "#f8fafc", border: "#e2e8f0", badgeBg: "#f1f5f9", badgeColor: "#64748b" };
+  }[status] ?? { bg: "#f8fafc", border: "#e2e8f0", badgeBg: "#f1f5f9", badgeColor: "#64748b" };
 
-  function badgeLabel() {
-    if (item.status === "faellig") return "Jetzt fällig";
-    if (!item.naechstesDatum) return "Unbekannt";
-    const d = new Date(item.naechstesDatum);
-    const monate = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
-    const label = `${monate[d.getMonth()]} ${d.getFullYear()}`;
-    return item.status === "ok" ? `${label} ✓` : label;
-  }
-
-  function infoLine() {
-    if (!item.letzteDatum) return "Noch kein Besuch erfasst";
-    const d = new Date(item.letzteDatum);
-    const monate = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
-    const letzter = `${monate[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`;
-    return `Letzter: ${letzter} · Empf.: ${item.empfIntervallMonate} Monate`;
+  async function saveDate() {
+    if (!dateInput) return
+    setSaving(true)
+    try {
+      await fetch(`/api/vorsorge/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ letzte_untersuchung_datum: dateInput }),
+      })
+      const newNaechstes = addMonthsClient(dateInput, item.empfIntervallMonate)
+      setLetzteDatum(dateInput)
+      setNaechstesDatum(newNaechstes)
+      setStatus(vorsorgeStatusClient(newNaechstes))
+    } finally {
+      setSaving(false)
+      setEditing(false)
+    }
   }
 
   return (
     <div className="rounded-xl p-3" style={{ background: styles.bg, border: `1px solid ${styles.border}` }}>
-      <div className="text-lg mb-1">{item.icon}</div>
-      <div className="text-xs font-bold mb-1" style={{ color: "var(--navy)" }}>{item.name}</div>
-      <div className="text-[10px] text-slate-500 mb-2">{infoLine()}</div>
+      {/* Icon + name */}
+      <div className="flex items-start justify-between gap-1 mb-2">
+        <div>
+          <div className="text-lg leading-none mb-1">{item.icon}</div>
+          <div className="text-xs font-bold leading-tight" style={{ color: "var(--navy)" }}>{item.name}</div>
+        </div>
+        {/* Inline-Edit trigger */}
+        <button
+          onClick={() => { setEditing(e => !e); setDateInput(letzteDatum ?? ""); }}
+          title="Letzten Termin manuell eintragen"
+          className="text-[11px] rounded-lg px-1.5 py-0.5 flex-shrink-0"
+          style={{ background: "rgba(0,0,0,0.04)", color: "#94a3b8", border: "none", cursor: "pointer" }}
+        >
+          ✏️
+        </button>
+      </div>
+
+      {/* Detail rows */}
+      <div className="flex flex-col gap-0.5 mb-2">
+        <div className="text-[10px]" style={{ color: "#64748b" }}>
+          <span className="font-semibold">Intervall:</span> alle {item.empfIntervallMonate} Monate
+        </div>
+        <div className="text-[10px]" style={{ color: "#64748b" }}>
+          <span className="font-semibold">Letzter:</span>{" "}
+          {letzteDatum ? formatDate(letzteDatum) : <span className="italic">nicht erfasst</span>}
+        </div>
+        <div className="text-[10px]" style={{ color: "#64748b" }}>
+          <span className="font-semibold">Nächster:</span>{" "}
+          {naechstesDatum ? formatDate(naechstesDatum) : "–"}
+        </div>
+      </div>
+
+      {/* Inline date edit */}
+      {editing && (
+        <div className="mb-2 flex gap-1 items-center">
+          <input
+            type="date"
+            value={dateInput}
+            onChange={e => setDateInput(e.target.value)}
+            className="text-[10px] rounded-lg px-2 py-1 flex-1"
+            style={{ border: "1.5px solid var(--border)", fontFamily: "inherit", background: "white" }}
+          />
+          <button
+            onClick={saveDate}
+            disabled={saving || !dateInput}
+            className="text-[10px] font-bold rounded-lg px-2 py-1"
+            style={{ background: "var(--navy)", color: "white", border: "none", cursor: saving ? "wait" : "pointer" }}
+          >
+            {saving ? "…" : "✓"}
+          </button>
+        </div>
+      )}
+
+      {/* Status badge */}
       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: styles.badgeBg, color: styles.badgeColor }}>
-        {badgeLabel()}
+        {status === "faellig" ? "Jetzt fällig"
+         : status === "ok" ? `${formatDate(naechstesDatum)} ✓`
+         : status === "bald" ? `${formatDate(naechstesDatum)}`
+         : "Datum unbekannt"}
       </span>
     </div>
   );
@@ -99,6 +199,8 @@ function VorgangRow({ v }: { v: Vorgang }) {
 export default function ChronikSection({ data }: { data: DashboardData }) {
   const { vorgaenge, vorsorgeLeistungen, currentYear } = data;
   const year = currentYear ?? new Date().getFullYear();
+  const pkvName = data.user.pkvName ?? data.user.kasse ?? ""
+  const vorsorgeLink = PKV_VORSORGE_LINKS[pkvName] ?? null
 
   // Default open — users should see their history immediately
   const [sectionOpen, setSectionOpen] = useState(true);
@@ -198,11 +300,31 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
 
           {/* Vorsorge-Erinnerungen */}
           <Card>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-              📅 Vorsorge-Erinnerungen
-            </p>
+            {/* Header + source link */}
+            <div className="flex items-start justify-between gap-2 mb-1">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                📅 Vorsorge-Erinnerungen
+              </p>
+              {vorsorgeLink ? (
+                <a
+                  href={vorsorgeLink.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] font-semibold flex-shrink-0"
+                  style={{ color: "var(--mint-dark)", textDecoration: "none" }}
+                  title={vorsorgeLink.label}
+                >
+                  {pkvName} Leistungen →
+                </a>
+              ) : pkvName ? (
+                <span className="text-[10px] text-slate-400 flex-shrink-0">{pkvName} Tarif</span>
+              ) : null}
+            </div>
             <p className="text-[10px] text-slate-400 mb-4">
-              Basierend auf Ihren Leistungsziffern — keine medizinische Bewertung
+              {pkvName
+                ? `Basierend auf Ihrem ${pkvName}-Tarif — ✏️ = letzten Termin manuell eintragen`
+                : <>Versicherung in <a href="/settings" style={{ color: "var(--mint-dark)" }}>Einstellungen</a> angeben → tarif­spezifische Vorsorgeinfos</>
+              }
             </p>
             {vorsorgeSorted.length > 0 ? (
               <div className="grid grid-cols-3 gap-2">

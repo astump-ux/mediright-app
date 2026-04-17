@@ -77,10 +77,10 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   const yearStart = `${currentYear}-01-01`
   const yearEnd   = `${currentYear}-12-31`
 
-  // Fetch profile
+  // Fetch profile (includes geschlecht for gender-based vorsorge filtering)
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, versicherung, tarif, pkv_name, pkv_tarif')
+    .select('full_name, versicherung, tarif, pkv_name, pkv_tarif, geschlecht')
     .eq('id', user.id)
     .single()
 
@@ -338,9 +338,9 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     : 0
   const eigenanteilBreakdown: EigenanteilBreakdown = {
     abgelehnt:        Math.round(totalAbgelehntKasse),
-    // Use only real kasse_analyse-sourced Kürzungen, not the einsparpotenzial fallback.
-    // The fallback amount is already included in totalAbgelehntKasse → would double-count.
-    stilleKuerzungen: Math.round(realSilentKuerzungTotal),
+    // Always 0: "stille Kürzungen" concept removed from UI.
+    // Any amount here would double-count with totalAbgelehntKasse.
+    stilleKuerzungen: 0,
     selbstbehalt:     Math.round(totalSelbstbehalt),
     offeneRechnungen,
   }
@@ -448,11 +448,12 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   //
   // If user_vorsorge_config has no entries yet, trigger async seeding so
   // the next dashboard load will have proper data.
-  let vorsorgeTemplates = AXA_VORSORGE_TEMPLATES
+  const userGeschlecht = (profile as { geschlecht?: string | null })?.geschlecht ?? null
+  let vorsorgeTemplates: typeof AXA_VORSORGE_TEMPLATES & { manualLastDate?: string | null }[] = AXA_VORSORGE_TEMPLATES
   try {
     const { data: userConfig, count } = await supabase
       .from('user_vorsorge_config')
-      .select('id, name, icon, fachgebiet, empf_intervall_monate, axa_leistung', { count: 'exact' })
+      .select('id, name, icon, fachgebiet, empf_intervall_monate, axa_leistung, letzte_untersuchung_datum', { count: 'exact' })
       .eq('user_id', user.id)
     if (userConfig && userConfig.length > 0) {
       vorsorgeTemplates = userConfig.map(t => ({
@@ -462,6 +463,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         fachgebiet: t.fachgebiet,
         empfIntervallMonate: t.empf_intervall_monate,
         axaLeistung: t.axa_leistung ?? true,
+        manualLastDate: (t as { letzte_untersuchung_datum?: string | null }).letzte_untersuchung_datum ?? null,
       }))
     } else if (count === 0) {
       // No config yet — trigger background seeding (fire-and-forget, no await)
@@ -484,8 +486,19 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     }
   }
 
-  const vorsorgeLeistungen: VorsorgeItem[] = vorsorgeTemplates.map(t => {
-    const letzteDatum = lastDateByFach.get(t.fachgebiet) ?? null
+  // Gender-specific exclusions:
+  // 'Gynäkologie' only relevant for female users; hide for male if gender is set.
+  const FEMALE_ONLY_FACH = ['Gynäkologie']
+  const filteredTemplates = vorsorgeTemplates.filter(t => {
+    if (userGeschlecht === 'male' && FEMALE_ONLY_FACH.includes(t.fachgebiet)) return false
+    return true
+  })
+
+  const vorsorgeLeistungen: VorsorgeItem[] = filteredTemplates.map(t => {
+    // Manual override takes priority over computed date from vorgaenge
+    const manualDate = (t as { manualLastDate?: string | null }).manualLastDate ?? null
+    const computedDate = lastDateByFach.get(t.fachgebiet) ?? null
+    const letzteDatum = manualDate ?? computedDate
     const naechstesDatum = letzteDatum ? addMonths(letzteDatum, t.empfIntervallMonate) : null
     return {
       id: t.id,
@@ -548,6 +561,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       name: profile?.full_name ?? user.email?.split('@')[0] ?? 'Nutzer',
       tarif: (profile as { pkv_tarif?: string })?.pkv_tarif ?? profile?.tarif ?? '–',
       kasse: kasseName,
+      pkvName: kasseName,
     },
     currentYear,
     vorgangCount: vorgaenge.length,

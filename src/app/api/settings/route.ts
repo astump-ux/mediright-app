@@ -28,6 +28,7 @@ const ALLOWED_FIELDS = [
   'pkv_tarif',
   'pkv_seit',
   'benachrichtigung_whatsapp',
+  'geschlecht',
 ]
 
 export async function GET() {
@@ -36,7 +37,7 @@ export async function GET() {
 
   const { data, error } = await getSupabaseAdmin()
     .from('profiles')
-    .select('full_name, phone_whatsapp, pkv_name, pkv_nummer, pkv_tarif, pkv_seit, benachrichtigung_whatsapp')
+    .select('full_name, phone_whatsapp, pkv_name, pkv_nummer, pkv_tarif, pkv_seit, benachrichtigung_whatsapp, geschlecht')
     .eq('id', user.id)
     .single()
 

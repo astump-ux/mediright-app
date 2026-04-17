@@ -9,6 +9,7 @@ interface Profile {
   pkv_tarif: string;
   pkv_seit: string;
   benachrichtigung_whatsapp: boolean;
+  geschlecht: string;
   email?: string;
 }
 
@@ -20,6 +21,7 @@ const EMPTY: Profile = {
   pkv_tarif: "",
   pkv_seit: "",
   benachrichtigung_whatsapp: true,
+  geschlecht: "",
   email: "",
 };
 
@@ -190,23 +192,68 @@ export default function SettingsClient() {
             type="tel"
           />
         </Field>
+        <Field
+          label="Geschlecht"
+          hint="Wird für geschlechtsspezifische Vorsorge-Erinnerungen verwendet (z.B. gynäkologische Vorsorge)"
+        >
+          <div className="flex gap-2">
+            {([["male","Mann"],["female","Frau"],["diverse","Divers"]] as const).map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => set("geschlecht", val)}
+                className="flex-1 rounded-xl py-2.5 text-sm font-medium transition-all"
+                style={{
+                  background: profile.geschlecht === val ? "var(--navy)" : "white",
+                  color: profile.geschlecht === val ? "white" : "var(--text-primary)",
+                  border: `1.5px solid ${profile.geschlecht === val ? "var(--navy)" : "var(--border)"}`,
+                  fontFamily: "inherit",
+                  cursor: "pointer",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </Field>
       </Section>
 
       {/* ── PKV-Versicherung ──────────────────────────────────────────── */}
       <Section title="Private Krankenversicherung">
         <div
-          className="rounded-xl px-4 py-3 text-sm flex gap-2"
+          className="rounded-xl px-4 py-4 text-sm flex flex-col gap-3"
           style={{
             background: "rgba(92,198,183,0.08)",
             border: "1.5px solid rgba(92,198,183,0.25)",
             color: "var(--text-primary)",
           }}
         >
-          <span>🤖</span>
-          <span>
-            Durch Angabe Ihrer Versicherung erkennt MediRight Kassenbescheide beim WhatsApp-Upload
-            automatisch — kein manuelles Tippen mehr nötig.
-          </span>
+          <div className="flex gap-2">
+            <span>🤖</span>
+            <span>
+              Durch Angabe Ihrer Versicherung erkennt MediRight Kassenbescheide beim WhatsApp-Upload
+              automatisch — kein manuelles Tippen mehr nötig.
+            </span>
+          </div>
+          <div className="h-px" style={{ background: "rgba(92,198,183,0.25)" }} />
+          <div className="flex gap-2">
+            <span>🎯</span>
+            <div className="flex flex-col gap-1">
+              <p className="font-semibold" style={{ color: "var(--navy)" }}>Höhere Präzision durch Tarifangabe</p>
+              <p style={{ color: "var(--text-muted)" }}>
+                Mit Versicherung <strong>und</strong> Tarif analysiert MediRight Ihre Rechnungen und
+                Kassenbescheide präziser — abgelehnte Positionen werden tarifgenau bewertet,
+                Widerspruchschancen realistischer eingeschätzt.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <span>📅</span>
+            <p style={{ color: "var(--text-muted)" }}>
+              Die Vorsorge-Erinnerungen werden automatisch auf Ihren Tarif abgestimmt — mit direktem
+              Link zu den Leistungsbedingungen Ihrer Versicherung.
+            </p>
+          </div>
         </div>
 
         <Field label="Versicherungsgesellschaft">
