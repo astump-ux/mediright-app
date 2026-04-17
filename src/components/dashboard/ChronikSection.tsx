@@ -18,18 +18,73 @@ const statusLabel: Record<string, string> = {
   offen: "Offen",
 };
 
-// Known insurance Vorsorge info pages
-const PKV_VORSORGE_LINKS: Record<string, { url: string; label: string }> = {
-  'AXA':              { url: 'https://www.axa.de/privatkunden/gesundheit/private-krankenversicherung', label: 'AXA PKV Leistungsübersicht' },
-  'Allianz':          { url: 'https://www.allianz.de/gesundheit/private-krankenversicherung/', label: 'Allianz PKV Leistungen' },
-  'Barmenia':         { url: 'https://www.barmenia.de/privatkunden/kranken/', label: 'Barmenia PKV Leistungen' },
-  'DKV':              { url: 'https://www.dkv.com/gesundheit/private-krankenversicherung/', label: 'DKV PKV Leistungen' },
-  'Debeka':           { url: 'https://www.debeka.de/kranken/', label: 'Debeka PKV Leistungen' },
-  'Continentale':     { url: 'https://www.continentale.de/krankenversicherung', label: 'Continentale PKV Leistungen' },
-  'Hallesche':        { url: 'https://www.hallesche.de/krankenversicherung/', label: 'Hallesche PKV Leistungen' },
-  'Signal Iduna':     { url: 'https://www.signal-iduna.de/kranken/', label: 'Signal Iduna PKV Leistungen' },
-  'HUK-Coburg':       { url: 'https://www.huk.de/kranken/', label: 'HUK-Coburg PKV Leistungen' },
-  'Gothaer':          { url: 'https://www.gothaer.de/krankenversicherung/', label: 'Gothaer PKV Leistungen' },
+// Verified Vorsorge/Leistungen pages per PKV insurer (researched April 2026)
+// tariffLinks: lowercase tariff name substring → tariff-specific URL override
+const PKV_VORSORGE_LINKS: Record<string, {
+  url: string;
+  label: string;
+  tariffLinks?: Record<string, string>
+}> = {
+  'AXA': {
+    url: 'https://www.axa.de/pk/gesundheit/a/vorsorge-untersuchungen',
+    label: 'AXA Vorsorgeuntersuchungen',
+    tariffLinks: {
+      'activeme': 'https://www.axa.de/pk/gesundheit/p/activeme',
+      'active':   'https://www.axa.de/pk/gesundheit/p/activeme',
+    },
+  },
+  'Allianz': {
+    url: 'https://www.allianz.de/gesundheit/private-krankenversicherung/vorsorgeuntersuchungen-kosten/',
+    label: 'Allianz Vorsorgeuntersuchungen',
+  },
+  'DKV': {
+    url: 'https://www.dkv.com/gesundheit-vorsorge-erwachsene-7688.html',
+    label: 'DKV Gesundheitsvorsorge',
+  },
+  'Debeka': {
+    url: 'https://www.debeka.de/service/progesundheit/progesundheit-vorsorge/ambulante-vorsorgeuntersuchungen.html',
+    label: 'Debeka Vorsorgeuntersuchungen',
+  },
+  'Hallesche': {
+    url: 'https://www.hallesche.de/privatkunden/private-krankenversicherung/angestellte-und-selbststaendige',
+    label: 'Hallesche PKV Vorsorge',
+  },
+  'Barmenia': {
+    url: 'https://www.barmenia.de/deu/bde_privat/bde_service/bde_gesundheitsservice/uebersicht.xhtml',
+    label: 'Barmenia Gesundheitsservice',
+  },
+  'Continentale': {
+    url: 'https://www.continentale.de/privatkunden/krankenversicherung/pkv',
+    label: 'Continentale PKV Leistungen',
+  },
+  'Signal Iduna': {
+    url: 'https://www.signal-iduna.de/krankenversicherung/private-krankenversicherung/',
+    label: 'Signal Iduna PKV Leistungen',
+  },
+  'HUK-Coburg': {
+    url: 'https://www.huk.de/produkte/krankenversicherung/private-krankenversicherung.html',
+    label: 'HUK-Coburg PKV Leistungen',
+  },
+  'Gothaer': {
+    url: 'https://www.gothaer.de/krankenversicherung/private-krankenversicherung/',
+    label: 'Gothaer PKV Leistungen',
+  },
+}
+
+/**
+ * Returns the best Vorsorge URL for the given insurer + tariff combination.
+ * Checks tariff-specific overrides first (e.g. AXA ActiveMe → ActiveMe page).
+ */
+function getVorsorgeLink(pkvName: string, tarif: string): { url: string; label: string } | null {
+  const entry = PKV_VORSORGE_LINKS[pkvName]
+  if (!entry) return null
+  if (entry.tariffLinks && tarif) {
+    const tarifLower = tarif.toLowerCase()
+    for (const [key, url] of Object.entries(entry.tariffLinks)) {
+      if (tarifLower.includes(key)) return { url, label: entry.label }
+    }
+  }
+  return { url: entry.url, label: entry.label }
 }
 
 function formatDate(iso: string | null): string {
@@ -200,7 +255,8 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
   const { vorgaenge, vorsorgeLeistungen, currentYear } = data;
   const year = currentYear ?? new Date().getFullYear();
   const pkvName = data.user.pkvName ?? data.user.kasse ?? ""
-  const vorsorgeLink = PKV_VORSORGE_LINKS[pkvName] ?? null
+  const tarif   = data.user.tarif ?? ""
+  const vorsorgeLink = getVorsorgeLink(pkvName, tarif)
 
   // Default open — users should see their history immediately
   const [sectionOpen, setSectionOpen] = useState(true);
@@ -310,20 +366,22 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
                   href={vorsorgeLink.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] font-semibold flex-shrink-0"
+                  className="text-[10px] font-semibold flex-shrink-0 flex items-center gap-0.5"
                   style={{ color: "var(--mint-dark)", textDecoration: "none" }}
                   title={vorsorgeLink.label}
                 >
-                  {pkvName} Leistungen →
+                  {vorsorgeLink.label} ↗
                 </a>
               ) : pkvName ? (
-                <span className="text-[10px] text-slate-400 flex-shrink-0">{pkvName} Tarif</span>
+                <span className="text-[10px] text-slate-400 flex-shrink-0">
+                  {pkvName}{tarif ? ` ${tarif}` : ''} — <a href="/settings" className="underline" style={{ color: "var(--mint-dark)" }}>Tarif prüfen</a>
+                </span>
               ) : null}
             </div>
             <p className="text-[10px] text-slate-400 mb-4">
               {pkvName
-                ? `Basierend auf Ihrem ${pkvName}-Tarif — ✏️ = letzten Termin manuell eintragen`
-                : <>Versicherung in <a href="/settings" style={{ color: "var(--mint-dark)" }}>Einstellungen</a> angeben → tarif­spezifische Vorsorgeinfos</>
+                ? <>Basierend auf {pkvName}{tarif ? ` ${tarif}` : ''} — ✏️ = letzten Termin eintragen</>
+                : <>Versicherung in <a href="/settings" style={{ color: "var(--mint-dark)" }}>Einstellungen</a> angeben → tarif­spezifische Vorsorgeinfos & Link zu den Leistungsbedingungen</>
               }
             </p>
             {vorsorgeSorted.length > 0 ? (
