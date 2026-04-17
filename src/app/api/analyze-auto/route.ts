@@ -99,9 +99,9 @@ export async function POST(request: NextRequest) {
   // ── 5. Route ───────────────────────────────────────────────────────────────
   try {
     if (docType === 'kassenabrechnung') {
-      await runKassePipeline(vorgangId, userId, phone, pdfBuffer, vorgang.pdf_storage_path)
+      await runKassePipeline(vorgangId, userId, phone, pdfBuffer, vorgang.pdf_storage_path, pkvName)
     } else {
-      await runArztPipeline(vorgangId, userId, phone, pdfBuffer)
+      await runArztPipeline(vorgangId, userId, phone, pdfBuffer, pkvName)
     }
     return NextResponse.json({ success: true, vorgangId, docType })
   } catch (err) {
@@ -140,9 +140,10 @@ async function runArztPipeline(
   vorgangId: string,
   userId: string,
   phone: string | undefined,
-  pdfBuffer: Buffer
+  pdfBuffer: Buffer,
+  pkvName?: string | null
 ) {
-  const analyse = await analyzeRechnungPdf(pdfBuffer)
+  const analyse = await analyzeRechnungPdf(pdfBuffer, pkvName)
   console.log('[analyze-auto] GOÄ done, arzt:', analyse.arztName)
 
   // Write arzt_name directly onto vorgaenge (denormalized) so matching can use it
@@ -223,9 +224,10 @@ async function runKassePipeline(
   userId: string,
   phone: string | undefined,
   pdfBuffer: Buffer,
-  pdfStoragePath: string
+  pdfStoragePath: string,
+  pkvName?: string | null
 ) {
-  const analyse = await analyzeKassePdf(pdfBuffer)
+  const analyse = await analyzeKassePdf(pdfBuffer, pkvName)
   console.log('[analyze-auto] Kasse done, rechnungen:', analyse.rechnungen?.length ?? 0)
 
   // ── Compute split Einsparpotenzial from aktionstyp per position ─────────────

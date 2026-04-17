@@ -118,12 +118,59 @@ function extractJson<T>(raw: string): T {
   throw new Error(`JSON parse failed. Raw response (first 500 chars): ${raw.slice(0, 500)}`)
 }
 
-export async function analyzeRechnungPdf(pdfBuffer: Buffer): Promise<AnalyseResult> {
-  const [systemPrompt, userPrompt, model] = await Promise.all([
+// ── Tariff Intelligence Base ──────────────────────────────────────────────────
+
+interface TariffExclusion {
+  goae_ziffer: string | null
+  rejection_type: string | null
+  rejection_reason: string | null
+  leistung: string | null
+  confidence: string
+  occurrence_count: number
+}
+
+/**
+ * Fetches known rejection patterns for the given PKV tariff from tariff_exclusions.
+ * Returns a formatted prompt block, or '' if nothing found / table doesn't exist yet.
+ */
+async function fetchTariffContext(pkvName: string | null | undefined): Promise<string> {
+  if (!pkvName) return ''
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from('tariff_exclusions')
+      .select('goae_ziffer, rejection_type, rejection_reason, leistung, confidence, occurrence_count')
+      .eq('tariff', pkvName)
+      .in('confidence', ['haeufig', 'bestaetigt'])
+      .order('occurrence_count', { ascending: false })
+      .limit(20)
+
+    if (error || !data || data.length === 0) return ''
+
+    const lines = (data as TariffExclusion[]).map(e => {
+      const ziffer = e.goae_ziffer ? `GOÄ ${e.goae_ziffer}: ` : ''
+      const conf   = e.confidence === 'bestaetigt' ? '✓ bestätigt' : '~ häufig'
+      return `- ${conf} | ${ziffer}${e.leistung ?? ''}: ${e.rejection_reason ?? ''}`
+    })
+
+    return `\n\nBEKANNTE ABLEHNUNGSMUSTER FÜR ${pkvName} (Tariff Intelligence Base):\n` +
+           `Die folgenden Muster wurden in echten Bescheiden beobachtet und sind besonders präzise zu prüfen:\n` +
+           lines.join('\n')
+  } catch {
+    return ''
+  }
+}
+
+export async function analyzeRechnungPdf(pdfBuffer: Buffer, pkvName?: string | null): Promise<AnalyseResult> {
+  const [baseSystemPrompt, userPrompt, model] = await Promise.all([
     getSetting('goae_system_prompt', DEFAULT_SYSTEM_PROMPT),
     getSetting('goae_user_prompt', DEFAULT_USER_PROMPT),
     getSetting('goae_analyse_model', 'claude-sonnet-4-6'),
   ])
+
+  const tariffContext = await fetchTariffContext(pkvName)
+  const systemPrompt = tariffContext
+    ? baseSystemPrompt + tariffContext
+    : baseSystemPrompt
 
   const { text, usage } = await callAiWithPdf({
     model, systemPrompt, userPrompt,
@@ -427,16 +474,19 @@ Schreibe AUSSCHLIESSLICH in der Ich-Form als würde der Versicherte direkt an AX
 Starte den Text IMMER mit "Ich beantrage" oder "Gegen Ihre Ablehnung" oder "Hiermit widerspreche ich".
 Verwende NIEMALS: "Fordern Sie", "legen Sie vor", "sollte", "empfehle", "aussichtsreich", "könnte".`
 
-export async function analyzeKassePdf(pdfBuffer: Buffer): Promise<KasseAnalyseResult> {
+export async function analyzeKassePdf(pdfBuffer: Buffer, pkvName?: string | null): Promise<KasseAnalyseResult> {
   const [baseSystemPrompt, userPrompt, model] = await Promise.all([
     getSetting('kasse_analyse_prompt', DEFAULT_KASSE_SYSTEM_PROMPT),
     getSetting('kasse_analyse_user_prompt', DEFAULT_KASSE_USER_PROMPT),
     getSetting('kasse_analyse_model', 'claude-sonnet-4-6'),
   ])
 
+  const tariffContext = await fetchTariffContext(pkvName)
+
   // Always enforce 1st-person format for widerspruchBegruendung,
   // even if an older DB-stored prompt overrides the default.
-  const systemPrompt = baseSystemPrompt + WIDERSPRUCH_FORMAT_ENFORCEMENT
+  // Tariff context is injected between base prompt and widerspruch enforcement.
+  const systemPrompt = baseSystemPrompt + tariffContext + WIDERSPRUCH_FORMAT_ENFORCEMENT
 
   const { text, usage } = await callAiWithPdf({
     model, systemPrompt, userPrompt,

@@ -32,16 +32,25 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // ── 1. Fetch kasse_pdf_storage_path ───────────────────────────────────────
-    const { data: vorgang, error: fetchError } = await supabaseAdmin
-      .from('vorgaenge')
-      .select('id, kasse_pdf_storage_path')
-      .eq('id', vorgangId)
-      .single()
+    // ── 1. Fetch kasse_pdf_storage_path + user PKV name ───────────────────────
+    const [{ data: vorgang, error: fetchError }, profileResult] = await Promise.all([
+      supabaseAdmin
+        .from('vorgaenge')
+        .select('id, kasse_pdf_storage_path')
+        .eq('id', vorgangId)
+        .single(),
+      supabaseAdmin
+        .from('profiles')
+        .select('pkv_name')
+        .eq('id', userId)
+        .single(),
+    ])
 
     if (fetchError || !vorgang?.kasse_pdf_storage_path) {
       throw new Error(`Vorgang or kasse PDF not found: ${fetchError?.message}`)
     }
+
+    const pkvName = (profileResult.data as { pkv_name?: string | null } | null)?.pkv_name ?? null
 
     // ── 2. Download PDF from Supabase Storage ─────────────────────────────────
     const { data: fileData, error: downloadError } = await supabaseAdmin.storage
@@ -54,8 +63,8 @@ export async function POST(request: NextRequest) {
 
     const pdfBuffer = Buffer.from(await fileData.arrayBuffer())
 
-    // ── 3. Analyse with Claude ────────────────────────────────────────────────
-    const analyse = await analyzeKassePdf(pdfBuffer)
+    // ── 3. Analyse with Claude (+ tariff context injection) ───────────────────
+    const analyse = await analyzeKassePdf(pdfBuffer, pkvName)
 
     // ── 4. Update Vorgang ─────────────────────────────────────────────────────
     const { error: updateError } = await supabaseAdmin

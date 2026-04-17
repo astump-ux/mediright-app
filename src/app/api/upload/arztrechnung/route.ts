@@ -71,8 +71,15 @@ export async function POST(request: NextRequest) {
   const vorgangId = vorgang.id
 
   try {
+    // ── Fetch user PKV name for tariff context injection ─────────────────────
+    let pkvName: string | null = null
+    try {
+      const { data: p } = await admin.from('profiles').select('pkv_name').eq('id', user.id).single()
+      pkvName = (p as { pkv_name?: string | null } | null)?.pkv_name ?? null
+    } catch { /* profiles table may not have pkv_name yet */ }
+
     // ── Analyze with Claude ──────────────────────────────────────────────────
-    const analyse = await analyzeRechnungPdf(pdfBuffer)
+    const analyse = await analyzeRechnungPdf(pdfBuffer, pkvName)
 
     // ── Update vorgaenge ─────────────────────────────────────────────────────
     await admin.from('vorgaenge').update({
