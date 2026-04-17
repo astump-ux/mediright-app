@@ -50,6 +50,7 @@ export interface KasseStats {
   totalAbgelehnt: number;
   totalSelbstbehalt: number;
   widerspruchPotenzial: number;
+  widerspruchLaufend?: { betrag: number; count: number };
   kasseName: string;
   fachgruppenStats: FachgruppeStats[];
 }

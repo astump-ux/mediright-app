@@ -63,11 +63,12 @@ function BenchmarkRow({ label, sub, youPct, avgPct, youVal, avgVal, variant }: {
 }
 
 export default function KasseSection({ stats }: { stats: KasseStats }) {
-  const kasseName      = stats.kasseName || "PKV"
-  const totalAbgelehnt = stats.totalAbgelehnt ?? stats.stilleKuerzungTotal ?? 0
-  const widerspruchPot = stats.widerspruchPotenzial ?? 0
-  const isAboveAvg     = (stats.ablehnungsrateReal ?? 0) > 8
-  const hasRejections  = totalAbgelehnt > 0
+  const kasseName          = stats.kasseName || "PKV"
+  const totalAbgelehnt     = stats.totalAbgelehnt ?? stats.stilleKuerzungTotal ?? 0
+  const widerspruchPot     = stats.widerspruchPotenzial ?? 0
+  const widerspruchLaufend = stats.widerspruchLaufend
+  const isAboveAvg         = (stats.ablehnungsrateReal ?? 0) > 8
+  const hasRejections      = totalAbgelehnt > 0
 
   return (
     <section className="mt-8">
@@ -119,7 +120,16 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
 
               {/* Appeal potential & CTAs */}
               <div className="rounded-lg px-3 py-2.5" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
-                {widerspruchPot > 0 ? (
+                {widerspruchLaufend ? (
+                  <>
+                    <p className="text-xs font-bold mb-1" style={{ color: "#7f1d1d" }}>
+                      📨 Widerspruch läuft — € {widerspruchLaufend.betrag.toLocaleString("de-DE", { maximumFractionDigits: 0 })} in Bearbeitung
+                    </p>
+                    <p className="text-[11px] mb-2" style={{ color: "#991b1b" }}>
+                      Ihr Widerspruch wurde eingereicht. Aktuellen Status prüfen.
+                    </p>
+                  </>
+                ) : widerspruchPot > 0 ? (
                   <>
                     <p className="text-xs font-bold mb-1" style={{ color: "#7f1d1d" }}>
                       💡 Bis zu € {widerspruchPot.toLocaleString("de-DE", { maximumFractionDigits: 0 })} anfechtbar
@@ -141,7 +151,15 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
                   >
                     Kassenabrechnung öffnen →
                   </a>
-                  {widerspruchPot > 0 && (
+                  {widerspruchLaufend ? (
+                    <a
+                      href="/widersprueche"
+                      className="text-[11px] font-bold px-3 py-1.5 rounded-full"
+                      style={{ background: "white", color: "#1d4ed8", border: "1px solid #bfdbfe" }}
+                    >
+                      Widerspruch-Status prüfen →
+                    </a>
+                  ) : widerspruchPot > 0 ? (
                     <a
                       href="/widersprueche"
                       className="text-[11px] font-bold px-3 py-1.5 rounded-full"
@@ -149,7 +167,7 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
                     >
                       Widerspruch erstellen
                     </a>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </>

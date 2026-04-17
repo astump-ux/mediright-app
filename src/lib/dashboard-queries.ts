@@ -262,7 +262,9 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   // Fallback: if new columns are zero (rows predating migration 009), use totalAbgelehntKasse
   const totalWiderspruchKasse = kasseList.reduce((s, k) => s + ((k as { betrag_widerspruch_kasse?: number }).betrag_widerspruch_kasse ?? 0), 0)
   const totalKorrekturArzt    = kasseList.reduce((s, k) => s + ((k as { betrag_korrektur_arzt?: number }).betrag_korrektur_arzt    ?? 0), 0)
-  const widerspruchPotenzial  = totalWiderspruchKasse > 0 ? Math.round(totalWiderspruchKasse) : Math.round(totalAbgelehntKasse)
+  // Include both tracks (Kassenwiderspruch + Arztkorrektur) for full actionable amount
+  const totalActionable       = totalWiderspruchKasse + totalKorrekturArzt
+  const widerspruchPotenzial  = totalActionable > 0 ? Math.round(totalActionable) : Math.round(totalAbgelehntKasse)
   const korrekturArztPotenzial = Math.round(totalKorrekturArzt)
 
   const jahresausgaben = Math.round(rawVorgaenge.reduce((s, v) => s + (v.betrag_gesamt ?? 0), 0))
@@ -302,6 +304,11 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       }
     }
   }
+  // Capture the real (kasse_analyse-based) stille Kürzungen BEFORE the fallback.
+  // The fallback uses GOÄ einsparpotenzial, which double-counts with betrag_abgelehnt
+  // in the eigenanteilBreakdown — so we only use the real amount there.
+  const realSilentKuerzungTotal = stilleKuerzungTotal
+
   // Fallback to GOÄ einsparpotenzial if no gekuerzt positions found
   const einsparpotenzial = Math.round(rawVorgaenge.reduce((s, v) => s + (v.einsparpotenzial ?? 0), 0))
   if (stilleKuerzungTotal === 0 && einsparpotenzial > 0) {
@@ -331,7 +338,9 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     : 0
   const eigenanteilBreakdown: EigenanteilBreakdown = {
     abgelehnt:        Math.round(totalAbgelehntKasse),
-    stilleKuerzungen: Math.round(stilleKuerzungTotal),
+    // Use only real kasse_analyse-sourced Kürzungen, not the einsparpotenzial fallback.
+    // The fallback amount is already included in totalAbgelehntKasse → would double-count.
+    stilleKuerzungen: Math.round(realSilentKuerzungTotal),
     selbstbehalt:     Math.round(totalSelbstbehalt),
     offeneRechnungen,
   }
@@ -391,6 +400,20 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     }))
     .sort((a, b) => b.eingereicht - a.eingereicht) // highest volume first
 
+  // Active widerspruch check: any kassenbescheid where an appeal is currently running
+  const laufendItems = kasseList.filter(k =>
+    ['erstellt', 'gesendet', 'beantwortet'].includes((k as { widerspruch_status?: string | null }).widerspruch_status ?? '')
+  )
+  const widerspruchLaufend = laufendItems.length > 0
+    ? {
+        betrag: Math.round(laufendItems.reduce((s, k) => {
+          const ke = k as { betrag_widerspruch_kasse?: number; betrag_korrektur_arzt?: number }
+          return s + (ke.betrag_widerspruch_kasse ?? 0) + (ke.betrag_korrektur_arzt ?? 0)
+        }, 0)),
+        count: laufendItems.length,
+      }
+    : undefined
+
   const kasse: KasseStats = {
     erstattungsquote,
     erstattungsquoteAvg: 89,
@@ -402,6 +425,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     totalAbgelehnt: Math.round(totalAbgelehntKasse),
     totalSelbstbehalt: Math.round(totalSelbstbehalt),
     widerspruchPotenzial: Math.round(widerspruchPotenzial),
+    widerspruchLaufend,
     kasseName,
     fachgruppenStats,
   }
