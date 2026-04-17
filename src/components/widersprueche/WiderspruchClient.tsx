@@ -122,6 +122,125 @@ ${userName}`
   return { betreff, body }
 }
 
+// ── Arztreklamation brief generator ──────────────────────────────────────────
+// Generates the doctor-correction / attest-request letter from kasse_analyse JSONB.
+function generateArztBrief(fall: WiderspruchFall, userName: string): { betreff: string; body: string } {
+  const analyse = fall.kasse_analyse
+  const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const rechnungen = ((analyse?.rechnungen ?? []) as RawRechnung[])
+  const naechsteSchritte = (analyse?.naechsteSchritte as string[] | null) ?? []
+
+  const korrekturPos = rechnungen.flatMap(g =>
+    (g.positionen ?? [])
+      .filter(p => p.aktionstyp === 'korrektur_arzt')
+      .map(p => ({ arztName: g.arztName ?? null, p }))
+  )
+  const attestPos = rechnungen.flatMap(g =>
+    (g.positionen ?? [])
+      .filter(p => p.aktionstyp !== 'korrektur_arzt' && (p.status === 'abgelehnt' || p.status === 'gekuerzt'))
+      .map(p => ({ arztName: g.arztName ?? null, p }))
+  )
+
+  const hasKorrektur = korrekturPos.length > 0
+  const hasArztSchritte = naechsteSchritte.some(s => {
+    const l = s.toLowerCase()
+    return l.includes('arzt') || l.includes('attest') || l.includes('anfordern') || l.includes('stellungnahme')
+  })
+  const hasAttest = attestPos.length > 0 && hasArztSchritte
+
+  const arztName =
+    korrekturPos[0]?.arztName ??
+    attestPos[0]?.arztName ??
+    fall.vorgaenge[0]?.arzt_name ??
+    '[Arztpraxis]'
+
+  const betreff = hasKorrektur && hasAttest
+    ? 'Klärungsbedarf zu Ihrer Abrechnung – Rechnungskorrektur und ärztliche Bestätigung erbeten'
+    : hasKorrektur
+    ? 'Bitte um Rechnungskorrektur – Ihre Abrechnung'
+    : 'Bitte um ärztliche Bestätigung zur Notwendigkeit der Behandlung'
+
+  let body = `${arztName}\n[Adresse der Praxis – bitte eintragen]\n\n${heute}\n\nBetreff: ${betreff}\n\nSehr geehrte Damen und Herren,\n\nnach Prüfung meiner Abrechnung durch meine private Krankenversicherung (AXA) wende ich mich mit folgendem Klärungsbedarf an Sie:\n\n`
+
+  let sec = 1
+
+  if (hasKorrektur) {
+    body += `${hasAttest ? sec + '. ' : ''}BITTE UM RECHNUNGSKORREKTUR\n\n`
+    body += `Folgende Position(en) wurden von AXA abgelehnt, da die abgerechnete GOÄ-Ziffer nicht anerkannt wird:\n\n`
+    body += korrekturPos.map(({ p }) =>
+      `  - GOÄ Ziff. ${p.ziffer ?? '?'} "${p.bezeichnung ?? '?'}": ${(p.betragEingereicht ?? 0).toFixed(2)} € eingereicht\n    Ablehnungsgrund: ${p.ablehnungsgrund ?? 'Ziffer nicht anerkannt'}`
+    ).join('\n')
+    body += `\n\nIch bitte Sie, die korrekte GOÄ-Ziffer für die tatsächlich erbrachte Leistung zu verwenden und mir eine entsprechend korrigierte Rechnung zuzusenden.\n\n`
+    sec++
+  }
+
+  if (hasAttest) {
+    body += `${hasKorrektur ? sec + '. ' : ''}BITTE UM ÄRZTLICHE BESTÄTIGUNG\n\n`
+    body += `Für folgende Leistungen hat AXA die medizinische Notwendigkeit bestritten:\n\n`
+    body += attestPos.map(({ p }) =>
+      `  - GOÄ Ziff. ${p.ziffer ?? '?'} "${p.bezeichnung ?? '?'}": ${(p.betragEingereicht ?? 0).toFixed(2)} €\n    Ablehnungsgrund: ${p.ablehnungsgrund ?? 'Medizinische Notwendigkeit nicht belegt'}`
+    ).join('\n')
+    body += `\n\nDas Attest / die Stellungnahme sollte beinhalten:\n  - Diagnose (möglichst mit ICD-10-Code)\n  - Medizinische Begründung und Behandlungsziel\n  - Indikation für die konkrete Behandlung\n\n`
+  }
+
+  body += `Für Ihre Unterstützung bedanke ich mich herzlich.\n\nMit freundlichen Grüßen,\n${userName}`
+  return { betreff, body }
+}
+
+// ── Ziel-Bar (shows € goal for both procedure tracks) ────────────────────────
+function ZielBar({ fall }: { fall: WiderspruchFall }) {
+  const rechnungen = ((fall.kasse_analyse?.rechnungen ?? []) as RawRechnung[])
+
+  // Compute amounts from kasse_analyse positions as fallback
+  const kassePosBetrag = rechnungen
+    .flatMap(g => (g.positionen ?? []).filter(p =>
+      (p.status === 'abgelehnt' || p.status === 'gekuerzt') && p.aktionstyp !== 'korrektur_arzt'
+    ))
+    .reduce((s, p) => s + (p.betragEingereicht ?? 0) - (p.betragErstattet ?? 0), 0)
+
+  const arztPosBetrag = rechnungen
+    .flatMap(g => (g.positionen ?? []).filter(p => p.aktionstyp === 'korrektur_arzt'))
+    .reduce((s, p) => s + (p.betragEingereicht ?? 0) - (p.betragErstattet ?? 0), 0)
+
+  const kasseZiel = (fall.betrag_widerspruch_kasse != null && fall.betrag_widerspruch_kasse > 0)
+    ? fall.betrag_widerspruch_kasse
+    : kassePosBetrag > 0 ? kassePosBetrag : null
+
+  const arztZiel = (fall.betrag_korrektur_arzt != null && fall.betrag_korrektur_arzt > 0)
+    ? fall.betrag_korrektur_arzt
+    : arztPosBetrag > 0 ? arztPosBetrag : null
+
+  if (!kasseZiel && !arztZiel) return null
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 10, fontWeight: 700, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
+        Ziel:
+      </span>
+      {kasseZiel != null && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, background: blueL, border: `1.5px solid ${blue}` }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: blue, display: 'inline-block', flexShrink: 0 }} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8' }}>Kassenwiderspruch</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#1d4ed8', fontFamily: 'monospace' }}>{fmt(kasseZiel)}</span>
+        </div>
+      )}
+      {arztZiel != null && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, background: '#fff7ed', border: `1.5px solid ${orange}` }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: orange, display: 'inline-block', flexShrink: 0 }} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#9a3412' }}>Arztreklamation</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#9a3412', fontFamily: 'monospace' }}>{fmt(arztZiel)}</span>
+        </div>
+      )}
+      {kasseZiel != null && arztZiel != null && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, background: mintL, border: `1.5px solid ${mint}` }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#065f46' }}>Gesamt</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#065f46', fontFamily: 'monospace' }}>{fmt(kasseZiel + arztZiel)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Collapsible section helper ─────────────────────────────────────────────────
 function Section({
   icon, title, badge, defaultOpen = true, accent = '#e2e8f0', children,
@@ -456,6 +575,85 @@ function WiderspruchBriefNode({ fall, userName }: { fall: WiderspruchFall; userN
   )
 }
 
+// ── Timeline: Arztreklamation-Brief node ─────────────────────────────────────
+function ArztReklamationsBriefNode({ fall, userName }: { fall: WiderspruchFall; userName: string }) {
+  const [showBrief, setShowBrief] = useState(false)
+  const [copied, setCopied]       = useState(false)
+  const { betreff, body }         = generateArztBrief(fall, userName)
+  const [editBetreff, setEditBetreff] = useState(betreff)
+  const [editBody, setEditBody]       = useState(body)
+
+  const orangeL      = '#fff7ed'
+  const orangeAccent = '#9a3412'
+
+  return (
+    <div style={{ display: 'flex', gap: 14 }}>
+      {/* Timeline dot + line */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 24, flexShrink: 0 }}>
+        <div style={{ width: 14, height: 14, borderRadius: '50%', background: orange, border: '2px solid white', boxShadow: `0 0 0 2px ${orange}`, flexShrink: 0, marginTop: 4, zIndex: 1 }} />
+        <div style={{ width: 2, flex: 1, background: '#e2e8f0', marginTop: 4 }} />
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, paddingBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: orange }}>📤 Du → Arzt</span>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: orangeL, color: orangeAccent, border: `1px solid #fed7aa` }}>
+            📋 Entwurf
+          </span>
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 6 }}>Reklamationsschreiben an Arztpraxis</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <button
+            onClick={() => setShowBrief(v => !v)}
+            style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: showBrief ? orange : 'white', color: showBrief ? 'white' : slate, cursor: 'pointer' }}>
+            {showBrief ? '▲ Brief schließen' : '▼ Brief anzeigen'}
+          </button>
+          <span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>Vorlage für Arztreklamation / Attest-Anfrage</span>
+        </div>
+
+        {showBrief && (
+          <div style={{ border: `2px solid ${orange}`, borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ background: orangeL, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px solid #fed7aa` }}>
+              <span style={{ fontWeight: 700, color: orangeAccent, fontSize: 13 }}>📧 Reklamationsbrief an Arztpraxis</span>
+              <span style={{ fontSize: 11, color: orangeAccent }}>— Text kann angepasst werden</span>
+            </div>
+            <div style={{ padding: 14, background: 'white' }}>
+              <div style={{ marginBottom: 8 }}>
+                <label style={{ fontSize: 10, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 3 }}>Betreff</label>
+                <input value={editBetreff} onChange={e => setEditBetreff(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 12, color: navy, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: 10, fontWeight: 600, color: slate, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 3 }}>Brieftext</label>
+                <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={14}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 11, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={async () => {
+                  await navigator.clipboard.writeText(`Betreff: ${editBetreff}\n\n${editBody}`)
+                  setCopied(true); setTimeout(() => setCopied(false), 2000)
+                }}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: copied ? mintL : grey, color: copied ? '#065f46' : navy }}>
+                  {copied ? '✓ Kopiert' : '📋 Text kopieren'}
+                </button>
+                <button onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: blueL, color: '#1d4ed8' }}>
+                  In Gmail öffnen
+                </button>
+                <button onClick={() => window.open(`https://outlook.live.com/mail/0/deeplink/compose?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: '#e8f4fd', color: '#0078d4' }}>
+                  In Outlook öffnen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Timeline: single communication entry ──────────────────────────────────────
 function TimelineEntry({
   k, isLast, onReplyDraft,
@@ -747,6 +945,13 @@ function WiderspruchCard({ fall }: { fall: WiderspruchFall }) {
 
   const latestIncoming = [...kommunikationen].reverse().find(k => k.richtung === 'eingehend')
 
+  // Determine whether an Arztreklamation track exists
+  const arztTrackPositionen = ((fall.kasse_analyse?.rechnungen ?? []) as RawRechnung[])
+    .flatMap(g => (g.positionen ?? []).filter(p => p.aktionstyp === 'korrektur_arzt'))
+  const hasArztTrack =
+    (fall.betrag_korrektur_arzt != null && fall.betrag_korrektur_arzt > 0) ||
+    arztTrackPositionen.length > 0
+
   return (
     <div style={{
       background: 'white', borderRadius: 16,
@@ -804,7 +1009,7 @@ function WiderspruchCard({ fall }: { fall: WiderspruchFall }) {
 
           {/* ── Verfahrens-Verlauf (Timeline) ── */}
           <div style={{ marginTop: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
               <span style={{ fontSize: 11, fontWeight: 700, color: slate, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>
                 Verfahrens-Verlauf
@@ -812,8 +1017,16 @@ function WiderspruchCard({ fall }: { fall: WiderspruchFall }) {
               <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
             </div>
 
-            {/* Widerspruch sent node (always first) */}
+            {/* Goal bar: shows € targets for each active track */}
+            <ZielBar fall={fall} />
+
+            {/* Widerspruch sent node (always first — blue track, to AXA) */}
             <WiderspruchBriefNode fall={fall} userName={userName} />
+
+            {/* Arztreklamation node (orange track, to doctor) — only if relevant */}
+            {hasArztTrack && (
+              <ArztReklamationsBriefNode fall={fall} userName={userName} />
+            )}
 
             {/* Subsequent communications */}
             {kommunikationen.map((k, i) => (
