@@ -36,7 +36,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const [profileRes, vorgaengeRes, kasseRes, exclusionsRes] = await Promise.all([
     admin.from('profiles').select('full_name, pkv_name, pkv_tarif').eq('id', userId).single(),
     admin.from('vorgaenge')
-      .select('id, arzt_name, rechnungsdatum, betrag_gesamt, einsparpotenzial, status, kasse_match_status, kassenabrechnung_id')
+      .select('id, arzt_name, rechnungsdatum, rechnungsnummer, betrag_gesamt, einsparpotenzial, status, kasse_match_status, kassenabrechnung_id, goae_positionen')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(30),
@@ -60,16 +60,34 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const name    = profile?.full_name ?? 'dem Nutzer'
   const pkvName = profile?.pkv_name  ?? 'PKV'
 
-  // ── Format Vorgänge ───────────────────────────────────────────────────────
+  // ── Format Vorgänge (Arztrechnungen) ─────────────────────────────────────
   const formatVorgang = (v: Record<string, unknown>) => {
-    const datum  = v.rechnungsdatum as string | null ?? '?'
-    const arzt   = v.arzt_name as string | null ?? 'Unbekannt'
-    const betrag = typeof v.betrag_gesamt === 'number' ? `${(v.betrag_gesamt as number).toFixed(2)} €` : '?'
-    const status = v.status as string ?? '?'
-    const esp    = typeof v.einsparpotenzial === 'number' && (v.einsparpotenzial as number) > 0
+    const datum   = v.rechnungsdatum as string | null ?? '?'
+    const rgnr    = v.rechnungsnummer as string | null
+    const arzt    = v.arzt_name as string | null ?? 'Unbekannt'
+    const betrag  = typeof v.betrag_gesamt === 'number' ? `${(v.betrag_gesamt as number).toFixed(2)} €` : '?'
+    const status  = v.status as string ?? '?'
+    const esp     = typeof v.einsparpotenzial === 'number' && (v.einsparpotenzial as number) > 0
       ? ` | Einsparpotenzial: ${(v.einsparpotenzial as number).toFixed(2)} €` : ''
-    const kasse  = v.kassenabrechnung_id ? ' | Kassenbescheid vorhanden' : ' | Kassenbescheid ausstehend'
-    return `  • ${datum} | ${arzt} | ${betrag} | Status: ${status}${esp}${kasse}`
+    const kasse   = v.kassenabrechnung_id ? ' | Kassenbescheid vorhanden' : ' | Kassenbescheid ausstehend'
+    const rgnrStr = rgnr ? ` | Rg.-Nr. ${rgnr}` : ''
+
+    // GOÄ positions from the original invoice
+    let positionen = ''
+    const goaePos = v.goae_positionen
+    if (Array.isArray(goaePos) && goaePos.length > 0) {
+      const posLines = (goaePos as Array<Record<string, unknown>>).map(p => {
+        const z   = p.ziffer as string ?? '?'
+        const bez = p.bezeichnung as string ?? ''
+        const fak = typeof p.faktor === 'number' ? `${(p.faktor as number).toFixed(2)}×` : '?×'
+        const eur = typeof p.betrag === 'number' ? `${(p.betrag as number).toFixed(2)} €` : '?'
+        const flg = p.flag === 'hoch' ? ' ⚠️' : p.flag === 'pruefe' ? ' ⚡' : ''
+        return `      GOÄ ${z}: ${bez} | Faktor ${fak} | ${eur}${flg}`
+      })
+      positionen = '\n' + posLines.join('\n')
+    }
+
+    return `  • ${datum}${rgnrStr} | ${arzt} | ${betrag} | Status: ${status}${esp}${kasse}${positionen}`
   }
 
   // ── Format Kassenbescheide ────────────────────────────────────────────────
@@ -82,7 +100,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
     const eingereicht = `${eingereichtNum.toFixed(2)} €`
     const erstattet   = `${erstattetNum.toFixed(2)} €`
     const abgelehnt   = `${abgelehntNum.toFixed(2)} €`
-    const quote = eingereichtNum > 0 ? `${((erstattetNum / eingereichtNum) * 100).toFixed(0)}%` : '?'
+    const quote   = eingereichtNum > 0 ? `${((erstattetNum / eingereichtNum) * 100).toFixed(0)}%` : '?'
     const wStatus = k.widerspruch_status as string ?? 'keiner'
     const aStatus = k.arzt_reklamation_status as string ?? 'keiner'
     const wBetrag = typeof k.betrag_widerspruch_kasse === 'number' && (k.betrag_widerspruch_kasse as number) > 0
@@ -90,14 +108,37 @@ async function buildSystemPrompt(userId: string): Promise<string> {
     const aBetrag = typeof k.betrag_korrektur_arzt === 'number' && (k.betrag_korrektur_arzt as number) > 0
       ? ` | Arztkorrektur: ${(k.betrag_korrektur_arzt as number).toFixed(2)} € (${aStatus})` : ''
 
-    // Extract rejection reasons from kasse_analyse if present
-    let ablehnungen = ''
+    // Full position-by-position breakdown from kasse_analyse
+    let positionenDetail = ''
     const analyse = k.kasse_analyse as Record<string, unknown> | null
-    if (analyse?.ablehnungsgruende && Array.isArray(analyse.ablehnungsgruende) && analyse.ablehnungsgruende.length > 0) {
-      ablehnungen = `\n    Ablehnungsgründe: ${(analyse.ablehnungsgruende as string[]).join('; ')}`
+    if (analyse?.rechnungen && Array.isArray(analyse.rechnungen)) {
+      const rechnungen = analyse.rechnungen as Array<Record<string, unknown>>
+      const posLines: string[] = []
+      for (const rg of rechnungen) {
+        const arzt = rg.arztName as string | null ?? 'Unbekannt'
+        const rgnr = rg.rechnungsnummer as string | null
+        posLines.push(`    Rechnung: ${arzt}${rgnr ? ` | Rg.-Nr. ${rgnr}` : ''}`)
+        if (Array.isArray(rg.positionen)) {
+          for (const pos of rg.positionen as Array<Record<string, unknown>>) {
+            const ziffer  = pos.ziffer as string ?? '?'
+            const bez     = pos.bezeichnung as string ?? ''
+            const eingR   = typeof pos.betragEingereicht === 'number' ? `${(pos.betragEingereicht as number).toFixed(2)} €` : '?'
+            const erstR   = typeof pos.betragErstattet  === 'number' ? `${(pos.betragErstattet  as number).toFixed(2)} €` : '?'
+            const status  = pos.status as string ?? '?'
+            const grund   = pos.ablehnungsgrund as string | null
+            const aktion  = pos.aktionstyp as string | null
+            const statusIcon = status === 'erstattet' ? '✅' : status === 'abgelehnt' ? '❌' : '⚡'
+            let line = `      ${statusIcon} GOÄ ${ziffer}: ${bez} | Eingereicht: ${eingR} | Erstattet: ${erstR} | ${status}`
+            if (aktion) line += ` → ${aktion}`
+            if (grund)  line += `\n         Grund: ${grund}`
+            posLines.push(line)
+          }
+        }
+      }
+      if (posLines.length > 0) positionenDetail = '\n' + posLines.join('\n')
     }
 
-    return `  • ${datum}${ref} | Eingereicht: ${eingereicht} | Erstattet: ${erstattet} (${quote}) | Abgelehnt: ${abgelehnt}${wBetrag}${aBetrag}${ablehnungen}`
+    return `  • ${datum}${ref} | Eingereicht: ${eingereicht} | Erstattet: ${erstattet} (${quote}) | Abgelehnt: ${abgelehnt}${wBetrag}${aBetrag}${positionenDetail}`
   }
 
   // ── Format Tariff Exclusions ──────────────────────────────────────────────
