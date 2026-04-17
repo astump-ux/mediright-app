@@ -1,22 +1,47 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
 
 const navItems = [
-  { href: "/dashboard",         label: "Dashboard" },
-  { href: "/rechnungen",        label: "Rechnungen" },
-  { href: "/kassenabrechnung",  label: "Kassenabrechnungen" },
-  { href: "/widersprueche",     label: "Widersprüche" },
-  { href: "/aerzte",            label: "Ärzte" },
-  { href: "/admin",             label: "⚙️ Admin" },
-  { href: "/settings",          label: "👤 Einstellungen" },
+  { href: "/dashboard",        label: "Dashboard" },
+  { href: "/rechnungen",       label: "Rechnungen" },
+  { href: "/kassenabrechnung", label: "Kassenabrechnungen" },
+  { href: "/widersprueche",    label: "Widersprüche" },
+  { href: "/aerzte",           label: "Ärzte" },
+];
+
+const userMenuItems = [
+  { href: "/settings", label: "Einstellungen", icon: "⚙️" },
+  { href: "/admin",    label: "Admin",          icon: "🛠" },
 ];
 
 export default function Header() {
-  const pathname = usePathname();
+  const pathname  = usePathname();
+  const [open, setOpen] = useState(false);
+  const menuRef   = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  // Close on navigation
+  useEffect(() => { setOpen(false); }, [pathname]);
+
+  const isUserPageActive =
+    pathname.startsWith("/settings") || pathname.startsWith("/admin");
+
   return (
     <header className="sticky top-0 z-50" style={{ background: "var(--navy)" }}>
       <div className="max-w-[1100px] mx-auto px-6 h-[60px] flex items-center justify-between">
+
         {/* Logo */}
         <Link href="/dashboard" className="flex items-center gap-2 no-underline">
           <span
@@ -31,7 +56,7 @@ export default function Header() {
           />
         </Link>
 
-        {/* Nav */}
+        {/* Main nav */}
         <nav className="flex gap-1">
           {navItems.map((item) => {
             const active = pathname.startsWith(item.href);
@@ -41,7 +66,7 @@ export default function Header() {
                 href={item.href}
                 className="text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors"
                 style={{
-                  color: active ? "white" : "rgba(255,255,255,0.5)",
+                  color:      active ? "white" : "rgba(255,255,255,0.5)",
                   background: active ? "rgba(255,255,255,0.1)" : "transparent",
                 }}
               >
@@ -51,16 +76,69 @@ export default function Header() {
           })}
         </nav>
 
-        {/* User */}
-        <div className="flex items-center gap-2.5 text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>
-          <span>Alexander S.</span>
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-            style={{ background: "var(--mint-dark)" }}
+        {/* Avatar dropdown */}
+        <div ref={menuRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setOpen(o => !o)}
+            className="flex items-center justify-center text-xs font-bold text-white rounded-full transition-all"
+            style={{
+              width: 34, height: 34,
+              background: isUserPageActive || open
+                ? "var(--mint)"
+                : "var(--mint-dark)",
+              border: open ? "2px solid rgba(255,255,255,0.4)" : "2px solid transparent",
+              cursor: "pointer",
+            }}
+            aria-label="Benutzermenü"
           >
             AS
-          </div>
+          </button>
+
+          {open && (
+            <div
+              className="absolute right-0 mt-2 rounded-xl overflow-hidden"
+              style={{
+                top: "100%",
+                minWidth: 180,
+                background: "white",
+                boxShadow: "0 8px 32px rgba(15,23,42,0.18)",
+                border: "1px solid #e2e8f0",
+                zIndex: 100,
+              }}
+            >
+              {userMenuItems.map((item) => {
+                const active = pathname.startsWith(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="flex items-center gap-3 px-4 py-3 text-sm font-semibold no-underline transition-colors"
+                    style={{
+                      color:      active ? "#0f172a" : "#475569",
+                      background: active ? "#f1f5f9" : "transparent",
+                    }}
+                    onMouseEnter={e => {
+                      if (!active) (e.currentTarget as HTMLElement).style.background = "#f8fafc";
+                    }}
+                    onMouseLeave={e => {
+                      if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
+                    }}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                    {active && (
+                      <span
+                        className="ml-auto w-1.5 h-1.5 rounded-full"
+                        style={{ background: "var(--mint)" }}
+                      />
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
+
       </div>
     </header>
   );
