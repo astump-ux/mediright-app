@@ -75,7 +75,15 @@ export async function POST(request: NextRequest) {
       throw new Error(`DB update failed: ${updateError.message}`)
     }
 
-    // ── 5. Send WhatsApp summary ──────────────────────────────────────────────
+    // ── 5. [PHASE 2] Extract rejection patterns → tariff_exclusions ──────────
+    // TODO: After each successful analyse, extract patterns and upsert into tariff_exclusions:
+    //   for each position in analyse.rechnungen[].positionen where status='abgelehnt'|'gekuerzt':
+    //     upsert { tariff, goae_ziffer, rejection_type, rejection_reason, source:'ki_extraktion' }
+    //     increment occurrence_count; escalate confidence: 1-2→'einzelfall', 3-5→'haeufig', 6+→'bestaetigt'
+    // See: /sessions/kind-beautiful-galileo/mnt/.auto-memory/project_tariff_intelligence.md
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── 6. Send WhatsApp summary ──────────────────────────────────────────────
     if (phone) {
       const quote = analyse.erstattungsquote?.toFixed(0) ?? '?'
       const widerspruch = analyse.widerspruchEmpfohlen
