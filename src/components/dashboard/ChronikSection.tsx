@@ -148,9 +148,9 @@ function VorsorgeCard({ item }: { item: VorsorgeItem }) {
     <div className="rounded-xl p-3" style={{ background: styles.bg, border: `1px solid ${styles.border}` }}>
       {/* Icon + name */}
       <div className="flex items-start justify-between gap-1 mb-2">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="text-lg leading-none mb-1">{item.icon}</div>
-          <div className="text-xs font-bold leading-tight" style={{ color: "var(--navy)" }}>{item.name}</div>
+          <div className="text-xs font-bold leading-tight" style={{ color: "var(--navy)", overflowWrap: "break-word" }}>{item.name}</div>
         </div>
         {/* Inline-Edit trigger */}
         <button
