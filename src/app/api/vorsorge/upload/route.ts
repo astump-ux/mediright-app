@@ -163,18 +163,39 @@ Weitere Regeln:
     return NextResponse.json({ error: 'Keine Vorsorge-Leistungen im PDF gefunden.' }, { status: 422 })
   }
 
-  const allRows = templates.map((t: ExtractedItem) => ({
-    user_id:                user.id,
-    tarif_name:             `${kasseName} ${tarifName}`.trim() || 'Aus PDF',
-    name:                   t.name,
-    icon:                   FACH_ICONS[t.fachgebiet] ?? '💊',
-    fachgebiet:             t.fachgebiet,
-    empf_intervall_monate:  t.empf_intervall_monate,
-    axa_leistung:           t.axa_leistung ?? true,
-    geschlecht_spezifisch:  t.geschlecht_spezifisch ?? null,
-    hinweis:                t.hinweis ?? null,
-    quelle:                 'pdf_upload',
-  }))
+  // Default intervals by Fachgebiet — used when Claude returns null/invalid interval
+  const DEFAULT_INTERVALL: Record<string, number> = {
+    'Zahnarzt':          6,
+    'Gynäkologie':       12,
+    'Urologie':          12,
+    'Gastroenterologie': 12,
+    'Innere Medizin':    36,
+    'Dermatologie':      24,
+    'Radiologie':        24,
+    'Augenheilkunde':    24,
+  }
+
+  const allRows = templates
+    .filter((t: ExtractedItem) => t.name && t.fachgebiet) // skip items missing required fields
+    .map((t: ExtractedItem) => {
+      // Ensure empf_intervall_monate is a valid positive integer — never null
+      const rawInterval = Number(t.empf_intervall_monate)
+      const intervall = Number.isFinite(rawInterval) && rawInterval > 0
+        ? rawInterval
+        : DEFAULT_INTERVALL[t.fachgebiet] ?? 12
+      return {
+        user_id:                user.id,
+        tarif_name:             `${kasseName} ${tarifName}`.trim() || 'Aus PDF',
+        name:                   t.name,
+        icon:                   FACH_ICONS[t.fachgebiet] ?? '💊',
+        fachgebiet:             t.fachgebiet,
+        empf_intervall_monate:  intervall,
+        axa_leistung:           t.axa_leistung ?? true,
+        geschlecht_spezifisch:  t.geschlecht_spezifisch ?? null,
+        hinweis:                t.hinweis ?? null,
+        quelle:                 'pdf_upload',
+      }
+    })
 
   // Deduplicate by fachgebiet — unique constraint (user_id, fachgebiet) requires this.
   // If Claude returns two items for the same Fachgebiet, keep the last (usually more specific).
