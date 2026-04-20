@@ -288,7 +288,7 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
   const vorsorgeSorted = [...(vorsorgeLeistungen ?? [])].sort((a, b) => {
     const order = { faellig: 0, bald: 1, ok: 2, unbekannt: 3 };
     return order[a.status] - order[b.status];
-  }).slice(0, 6);
+  });
 
   const urgentVorsorge = vorsorgeSorted.filter(v => v.status === "faellig" || v.status === "bald");
 
