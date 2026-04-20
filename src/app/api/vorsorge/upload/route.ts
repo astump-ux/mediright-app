@@ -123,29 +123,30 @@ Antworte AUSSCHLIESSLICH als valides JSON-Array, ohne Markdown oder Erklärungen
 
 Nutzerkontext: ${ageContext} ${genderContext}
 
-WICHTIGE FILTERREGELN — strikte Einhaltung erforderlich:
-- AUSSCHLIESSEN: Alle Kinder- und Jugendvorsorge (U1–U9, U10, J1, J2, Schuluntersuchungen, pädiatrische Vorsorge, Neugeborenen-Screening, Zahnärztliche Frühuntersuchungen für Kinder)
-- AUSSCHLIESSEN: Leistungen die erst ab einem Alter relevant werden, das der Nutzer noch nicht erreicht hat
+FILTERREGELN:
+- AUSSCHLIESSEN: Kinder- und Jugendvorsorge (U1–U9, U10, J1, J2, Schuluntersuchungen, pädiatrische Vorsorge, Neugeborenen-Screening)
 - AUSSCHLIESSEN: Leistungen die ausschließlich für das andere Geschlecht gelten (wenn Geschlecht bekannt)
-- EINSCHLIESSEN: Nur Vorsorge/Früherkennung für Erwachsene die für diesen Nutzer jetzt oder in Zukunft relevant sind
+- EINSCHLIESSEN: Alle Erwachsenen-Vorsorge — auch wenn das Intervall sich mit dem Alter ändert (z.B. "einmalig 18–35, danach alle 3 Jahre" → IMMER einschließen, alter_ab=18)
+- EINSCHLIESSEN: Leistungen die erst ab einem späteren Alter starten (z.B. Darmkrebs ab 50) — alter_ab korrekt setzen, aber trotzdem einschließen damit der Nutzer weiß was auf ihn zukommt
+- NICHT filtern: "zu jung für diese Leistung" ist KEIN Ausschlussgrund — alter_ab dokumentiert, die App filtert selbst
 
 Gib NUR dieses JSON-Array zurück (kein anderer Text):
 [
   {
     "name": "Bezeichnung der Vorsorge",
     "fachgebiet": "Exaktes deutsches Fachgebiet (Innere Medizin | Dermatologie | Zahnarzt | Gynäkologie | Gastroenterologie | Urologie | Radiologie | Augenheilkunde | Orthopädie | HNO | Labordiagnostik | Allgemeinmedizin)",
-    "empf_intervall_monate": 12,
+    "empf_intervall_monate": 36,
     "axa_leistung": true,
     "geschlecht_spezifisch": null,
-    "alter_ab": null,
+    "alter_ab": 18,
     "hinweis": "Kurze Erklärung wann/wie oft (max. 80 Zeichen)"
   }
 ]
 Weitere Regeln:
-- empf_intervall_monate = Intervall in Monaten (6, 12, 24, 36 oder 60)
+- empf_intervall_monate = Intervall in Monaten (6, 12, 24, 36 oder 60) — NIEMALS null
 - geschlecht_spezifisch = "male" | "female" | null
-- alter_ab = Mindestalter als Zahl (z.B. 35, 45, 50) oder null wenn ab Geburt/Volljährigkeit
-- Maximal 10 der wichtigsten altersrelevanten Vorsorge-Leistungen`,
+- alter_ab = frühestes Mindestalter als Zahl (z.B. 18, 35, 45, 50) oder null — NIEMALS das höhere Folge-Alter bei Alters-Stufen
+- Maximal 12 Vorsorge-Leistungen für Erwachsene`,
           },
         ],
       }],
