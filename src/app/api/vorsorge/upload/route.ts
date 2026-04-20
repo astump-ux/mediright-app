@@ -131,7 +131,7 @@ Wichtige Regeln:
   const kasseName = (profile as { pkv_name?: string })?.pkv_name ?? profile?.versicherung ?? ''
   const tarifName = (profile as { pkv_tarif?: string })?.pkv_tarif ?? profile?.tarif ?? ''
 
-  const rows = templates.map((t: ExtractedItem) => ({
+  const allRows = templates.map((t: ExtractedItem) => ({
     user_id:                user.id,
     tarif_name:             `${kasseName} ${tarifName}`.trim() || 'Aus PDF',
     name:                   t.name,
@@ -143,6 +143,12 @@ Wichtige Regeln:
     hinweis:                t.hinweis ?? null,
     quelle:                 'pdf_upload',
   }))
+
+  // Deduplicate by fachgebiet — unique constraint (user_id, fachgebiet) requires this.
+  // If Claude returns two items for the same Fachgebiet, keep the last (usually more specific).
+  const seen = new Map<string, typeof allRows[0]>()
+  for (const row of allRows) seen.set(row.fachgebiet, row)
+  const rows = Array.from(seen.values())
 
   // Full replace: delete existing rows, insert fresh
   const { error: delError } = await supabase
