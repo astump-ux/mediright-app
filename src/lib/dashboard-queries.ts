@@ -137,12 +137,22 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   const yearEnd   = `${currentYear}-12-31`
 
   // Fetch profile (includes geschlecht + geburtsdatum for vorsorge filtering,
-  // and vorsorge_link_custom for custom insurer link override)
-  const { data: profile } = await supabase
+  // and vorsorge_link_custom for custom insurer link override).
+  // Progressive fallback: if a migration-gated column doesn't exist yet, retry with base set.
+  const PROFILE_NEW_COLS = ['vorsorge_link_custom', 'geburtsdatum', 'geschlecht']
+  let { data: profile, error: profileErr } = await supabase
     .from('profiles')
     .select('full_name, versicherung, tarif, pkv_name, pkv_tarif, geschlecht, vorsorge_link_custom, geburtsdatum')
     .eq('id', user.id)
     .single()
+  if (profileErr?.message && PROFILE_NEW_COLS.some(c => profileErr!.message.includes(c))) {
+    // Some migration-added column is missing — retry with the stable base columns
+    ;({ data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, versicherung, tarif, pkv_name, pkv_tarif')
+      .eq('id', user.id)
+      .single())
+  }
 
   // Fetch vorgaenge for current year
   const { data: rawVorgaenge, error } = await supabase
@@ -546,8 +556,9 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         axaLeistung: t.axa_leistung ?? true,
         geschlechtSpezifisch: (t.geschlecht_spezifisch as 'male' | 'female' | null) ?? null,
         hinweis: t.hinweis ?? null,
-        // Use FACH_ALTER_MIN as fallback if DB doesn't have an explicit alter_ab column yet
-        alterAb: FACH_ALTER_MIN[t.fachgebiet] ?? null,
+        // DB doesn't have alter_ab column yet → no age filtering for user-configured items.
+        // Age-appropriate items are controlled by the PDF prompt / init seeding instead.
+        alterAb: null,
         manualLastDate: t.letzte_untersuchung_datum ?? null,
       }))
     } else if (count === 0) {
@@ -574,17 +585,27 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   // Filter by gender and age — only show items relevant to this user.
   // Gender: hide gender-specific items that don't match (only if gender is known).
   // Age: hide items with a minimum age if user is known to be younger (don't hide if age unknown).
-  const filteredTemplates = vorsorgeTemplates.filter(t => {
-    // Gender filter
-    const gs = t.geschlechtSpezifisch
-    if (gs && userGeschlecht) {
-      if (userGeschlecht === 'male'   && gs === 'female') return false
-      if (userGeschlecht === 'female' && gs === 'male')   return false
-    }
-    // Age filter
-    if (t.alterAb !== null && userAge !== null && userAge < t.alterAb) return false
-    return true
-  })
+  function applyGenderAgeFilter(templates: AxaVorsorgeTemplate[]): AxaVorsorgeTemplate[] {
+    return templates.filter(t => {
+      // Gender filter
+      const gs = t.geschlechtSpezifisch
+      if (gs && userGeschlecht) {
+        if (userGeschlecht === 'male'   && gs === 'female') return false
+        if (userGeschlecht === 'female' && gs === 'male')   return false
+      }
+      // Age filter (only for hardcoded templates with explicit alterAb)
+      if (t.alterAb !== null && userAge !== null && userAge < t.alterAb) return false
+      return true
+    })
+  }
+
+  let filteredTemplates = applyGenderAgeFilter(vorsorgeTemplates)
+
+  // Safety fallback: if all DB items were filtered out (e.g. all gender-specific),
+  // fall back to hardcoded AXA templates so the user always sees something.
+  if (filteredTemplates.length === 0 && vorsorgeTemplates !== AXA_VORSORGE_TEMPLATES) {
+    filteredTemplates = applyGenderAgeFilter(AXA_VORSORGE_TEMPLATES)
+  }
 
   const vorsorgeLeistungen: VorsorgeItem[] = filteredTemplates.map(t => {
     // Manual override takes priority over computed date from vorgaenge
