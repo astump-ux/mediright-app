@@ -67,6 +67,7 @@ interface AxaVorsorgeTemplate {
   axaLeistung: boolean
   geschlechtSpezifisch: 'male' | 'female' | null
   hinweis: string | null
+  alterAb: number | null   // minimum age to show this item (null = no minimum)
   manualLastDate?: string | null
 }
 
@@ -74,46 +75,56 @@ const AXA_VORSORGE_TEMPLATES: AxaVorsorgeTemplate[] = [
   {
     id: 'v1', name: 'Gesundheits-Check-up',
     icon: '❤️', fachgebiet: 'Innere Medizin', empfIntervallMonate: 36, axaLeistung: true,
-    geschlechtSpezifisch: null,
+    geschlechtSpezifisch: null, alterAb: null,
     hinweis: 'Alle 3 Jahre ab 35 (einmalig 18–35); inkl. EKG, Blutbild, Urin, Ultraschall Nieren',
   },
   {
     id: 'v2', name: 'Hautkrebs-Screening',
     icon: '🧬', fachgebiet: 'Dermatologie', empfIntervallMonate: 24, axaLeistung: true,
-    geschlechtSpezifisch: null,
+    geschlechtSpezifisch: null, alterAb: 35,
     hinweis: 'Ab 35 alle 2 Jahre — gesetzliche & private Leistung (IGEL-frei)',
   },
   {
     id: 'v3', name: 'Darmkrebs-Früherkennung',
     icon: '🔬', fachgebiet: 'Gastroenterologie', empfIntervallMonate: 12, axaLeistung: true,
-    geschlechtSpezifisch: null,
+    geschlechtSpezifisch: null, alterAb: 50,
     hinweis: 'Ab 50: jährlicher Stuhltest; ab 55 alle 2 Jahre oder Koloskopie alle 10 J.',
   },
   {
     id: 'v4', name: 'Zahnarzt Prophylaxe',
     icon: '🦷', fachgebiet: 'Zahnarzt', empfIntervallMonate: 6, axaLeistung: true,
-    geschlechtSpezifisch: null,
+    geschlechtSpezifisch: null, alterAb: null,
     hinweis: 'Professionelle Zahnreinigung & Kontrolluntersuchung, 2× jährlich',
   },
   {
     id: 'v5', name: 'Gynäkologische Krebsvorsorge',
     icon: '🌸', fachgebiet: 'Gynäkologie', empfIntervallMonate: 12, axaLeistung: true,
-    geschlechtSpezifisch: 'female',
+    geschlechtSpezifisch: 'female', alterAb: 20,
     hinweis: 'Ab 20 jährlich; ab 35 Pap + HPV alle 3 Jahre',
   },
   {
     id: 'v6', name: 'Mammographie-Screening',
     icon: '📡', fachgebiet: 'Radiologie', empfIntervallMonate: 24, axaLeistung: true,
-    geschlechtSpezifisch: 'female',
+    geschlechtSpezifisch: 'female', alterAb: 50,
     hinweis: 'Frauen 50–69 alle 2 Jahre (gesetzl. Screening-Programm)',
   },
   {
     id: 'v7', name: 'Prostatakrebsfrüherkennung',
     icon: '💊', fachgebiet: 'Urologie', empfIntervallMonate: 12, axaLeistung: true,
-    geschlechtSpezifisch: 'male',
+    geschlechtSpezifisch: 'male', alterAb: 45,
     hinweis: 'Männer ab 45 jährlich — inkl. Ultraschall im AXA ActiveMe-Tarif',
   },
 ]
+
+// Fallback age thresholds by Fachgebiet — used when items come from user_vorsorge_config
+// (DB-stored items may not have alter_ab, so we apply known minimums)
+const FACH_ALTER_MIN: Record<string, number> = {
+  'Dermatologie':      35,
+  'Gastroenterologie': 50,
+  'Urologie':          45,
+  'Radiologie':        50,
+  'Gynäkologie':       20,
+}
 
 export async function getDashboardData(): Promise<DashboardData | null> {
   const supabase = await createServerSupabaseClient()
@@ -125,11 +136,11 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   const yearStart = `${currentYear}-01-01`
   const yearEnd   = `${currentYear}-12-31`
 
-  // Fetch profile (includes geschlecht for gender-based vorsorge filtering,
+  // Fetch profile (includes geschlecht + geburtsdatum for vorsorge filtering,
   // and vorsorge_link_custom for custom insurer link override)
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, versicherung, tarif, pkv_name, pkv_tarif, geschlecht, vorsorge_link_custom')
+    .select('full_name, versicherung, tarif, pkv_name, pkv_tarif, geschlecht, vorsorge_link_custom, geburtsdatum')
     .eq('id', user.id)
     .single()
 
@@ -498,6 +509,20 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   // If user_vorsorge_config has no entries yet, trigger async seeding so
   // the next dashboard load will have proper data.
   const userGeschlecht = (profile as { geschlecht?: string | null })?.geschlecht ?? null
+
+  // Compute current age from geburtsdatum (null if not set)
+  const geburtsdatumRaw = (profile as { geburtsdatum?: string | null })?.geburtsdatum ?? null
+  const userAge: number | null = geburtsdatumRaw
+    ? (() => {
+        const today = new Date()
+        const dob   = new Date(geburtsdatumRaw)
+        let age = today.getFullYear() - dob.getFullYear()
+        if (today.getMonth() < dob.getMonth() ||
+           (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate())) age--
+        return age
+      })()
+    : null
+
   let vorsorgeTemplates: AxaVorsorgeTemplate[] = AXA_VORSORGE_TEMPLATES
   try {
     const { data: userConfig, count } = await supabase
@@ -521,6 +546,8 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         axaLeistung: t.axa_leistung ?? true,
         geschlechtSpezifisch: (t.geschlecht_spezifisch as 'male' | 'female' | null) ?? null,
         hinweis: t.hinweis ?? null,
+        // Use FACH_ALTER_MIN as fallback if DB doesn't have an explicit alter_ab column yet
+        alterAb: FACH_ALTER_MIN[t.fachgebiet] ?? null,
         manualLastDate: t.letzte_untersuchung_datum ?? null,
       }))
     } else if (count === 0) {
@@ -544,14 +571,18 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     }
   }
 
-  // Gender-specific exclusions — hide items that don't apply to the user's gender.
-  // Uses geschlechtSpezifisch field ('male'|'female'|null) from the template.
-  // null = applies to all genders. Only filter if gender is known (not null).
+  // Filter by gender and age — only show items relevant to this user.
+  // Gender: hide gender-specific items that don't match (only if gender is known).
+  // Age: hide items with a minimum age if user is known to be younger (don't hide if age unknown).
   const filteredTemplates = vorsorgeTemplates.filter(t => {
+    // Gender filter
     const gs = t.geschlechtSpezifisch
-    if (!gs || !userGeschlecht) return true          // no gender data → show all
-    if (userGeschlecht === 'male'   && gs === 'female') return false
-    if (userGeschlecht === 'female' && gs === 'male')   return false
+    if (gs && userGeschlecht) {
+      if (userGeschlecht === 'male'   && gs === 'female') return false
+      if (userGeschlecht === 'female' && gs === 'male')   return false
+    }
+    // Age filter
+    if (t.alterAb !== null && userAge !== null && userAge < t.alterAb) return false
     return true
   })
 

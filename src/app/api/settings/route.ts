@@ -33,11 +33,14 @@ const ALLOWED_FIELDS_BASE = [
 const ALLOWED_FIELDS_021 = [...ALLOWED_FIELDS_BASE, 'geschlecht']
 // Fields available after migration 023 (vorsorge_link_custom)
 const ALLOWED_FIELDS_023 = [...ALLOWED_FIELDS_021, 'vorsorge_link_custom']
+// Fields available after migration 024 (geburtsdatum)
+const ALLOWED_FIELDS_024 = [...ALLOWED_FIELDS_023, 'geburtsdatum']
 
 // Columns added in each migration — for graceful progressive fallback
 const MIGRATION_COLUMNS: Record<string, string[]> = {
   '021': ['geschlecht'],
   '023': ['vorsorge_link_custom'],
+  '024': ['geburtsdatum'],
 }
 
 function stripUnknownColumns(updates: Record<string, unknown>, errorMsg: string): Record<string, unknown> {
@@ -55,7 +58,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Try with all columns; progressively fall back if a migration hasn't run yet
-  const fullSelect = 'full_name, phone_whatsapp, pkv_name, pkv_nummer, pkv_tarif, pkv_seit, benachrichtigung_whatsapp, geschlecht, vorsorge_link_custom'
+  const fullSelect = 'full_name, phone_whatsapp, pkv_name, pkv_nummer, pkv_tarif, pkv_seit, benachrichtigung_whatsapp, geschlecht, vorsorge_link_custom, geburtsdatum'
   let { data, error } = await getSupabaseAdmin()
     .from('profiles')
     .select(fullSelect)
@@ -87,7 +90,7 @@ export async function PATCH(request: NextRequest) {
 
   // Build updates from whitelisted fields (all migrations)
   const updates: Record<string, unknown> = {}
-  for (const key of ALLOWED_FIELDS_023) {
+  for (const key of ALLOWED_FIELDS_024) {
     if (key in body) updates[key] = body[key]
   }
 

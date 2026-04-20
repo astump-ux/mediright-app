@@ -10,6 +10,7 @@ interface Profile {
   pkv_seit: string;
   benachrichtigung_whatsapp: boolean;
   geschlecht: string;
+  geburtsdatum: string;
   vorsorge_link_custom: string;
   email?: string;
 }
@@ -23,6 +24,7 @@ const EMPTY: Profile = {
   pkv_seit: "",
   benachrichtigung_whatsapp: true,
   geschlecht: "",
+  geburtsdatum: "",
   vorsorge_link_custom: "",
   email: "",
 };
@@ -242,6 +244,17 @@ export default function SettingsClient() {
               </button>
             ))}
           </div>
+        </Field>
+
+        <Field
+          label="Geburtsdatum"
+          hint="Viele Vorsorgeuntersuchungen sind altersabhängig — z.B. Hautkrebs-Screening erst ab 35, Darmkrebsfrüherkennung ab 50, Prostatauntersuchung ab 45. Mit Ihrem Geburtsdatum zeigt MediRight nur die für Ihr Alter relevanten Erinnerungen."
+        >
+          <Input
+            value={profile.geburtsdatum}
+            onChange={(v) => set("geburtsdatum", v)}
+            type="date"
+          />
         </Field>
       </Section>
 
