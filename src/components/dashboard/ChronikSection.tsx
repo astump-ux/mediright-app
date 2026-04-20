@@ -359,34 +359,14 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
 
           {/* Vorsorge-Erinnerungen */}
           <Card>
-            {/* Header + source link */}
-            <div className="flex items-start justify-between gap-2 mb-1">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                📅 Vorsorge-Erinnerungen
-              </p>
-              {vorsorgeLink ? (
-                <a
-                  href={vorsorgeLink.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[10px] font-semibold flex-shrink-0 flex items-center gap-0.5"
-                  style={{ color: "var(--mint-dark)", textDecoration: "none" }}
-                  title={vorsorgeLink.label}
-                >
-                  {vorsorgeLink.label} ↗
-                </a>
-              ) : pkvName ? (
-                <span className="text-[10px] text-slate-400 flex-shrink-0">
-                  {pkvName}{tarif ? ` ${tarif}` : ''} — <a href="/settings" className="underline" style={{ color: "var(--mint-dark)" }}>Tarif prüfen</a>
-                </span>
-              ) : null}
-            </div>
-            <p className="text-[10px] text-slate-400 mb-4">
-              {pkvName
-                ? <>Basierend auf {pkvName}{tarif ? ` ${tarif}` : ''} — ✏️ = letzten Termin eintragen</>
-                : <>Versicherung in <a href="/settings" style={{ color: "var(--mint-dark)" }}>Einstellungen</a> angeben → tarif­spezifische Vorsorgeinfos & Link zu den Leistungsbedingungen</>
-              }
+            {/* Header */}
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+              📅 Vorsorge-Erinnerungen
             </p>
+            <p className="text-[10px] text-slate-400 mb-4">
+              ✏️ = letzten Termin manuell eintragen
+            </p>
+
             {vorsorgeSorted.length > 0 ? (
               <div className="grid grid-cols-3 gap-2">
                 {vorsorgeSorted.map((item) => (
@@ -399,20 +379,14 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
               </div>
             )}
 
-            {/* Share card teaser */}
-            <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 flex-wrap gap-2">
-              <div>
-                <div className="text-sm font-bold" style={{ color: "var(--navy)" }}>
-                  🔗 Mein Gesundheitsjahr {year}
-                </div>
-                <div className="text-xs text-slate-500">Jahresübersicht als PDF oder Share-Card</div>
-              </div>
-              <button
-                className="text-xs font-bold px-3 py-1.5 rounded-full"
-                style={{ background: "var(--purple-light)", color: "var(--purple)" }}
-              >
-                📤 Export
-              </button>
+            {/* Settings hint */}
+            <div className="mt-4 pt-3 border-t border-slate-100">
+              <p className="text-[10px] text-slate-400">
+                📋 Vorsorge-PDF oder Link zu Ihren Leistungsbedingungen hinterlegen →{" "}
+                <a href="/settings" style={{ color: "var(--mint-dark)", textDecoration: "underline" }}>
+                  Einstellungen
+                </a>
+              </p>
             </div>
           </Card>
         </div>
