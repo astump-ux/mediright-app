@@ -182,15 +182,6 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
             </div>
           )}
 
-          {/* Erstattungsquote footer */}
-          {stats.erstattungsquote > 0 && (
-            <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-xs text-slate-400">Erstattungsquote gesamt</span>
-              <span className="font-bold text-sm" style={{ color: stats.erstattungsquote >= stats.erstattungsquoteAvg ? "#059669" : "#b45309" }}>
-                {stats.erstattungsquote}%
-              </span>
-            </div>
-          )}
         </Card>
 
         {/* ── Benchmark Vergleich ───────────────────────────────────────────── */}
@@ -199,7 +190,7 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
             👥 Sie im Vergleich — {kasseName} Kunden
           </p>
           <p className="text-[10px] text-slate-400 mb-3">
-            Ablehnungsquote je Fachgebiet vs. PKV-Durchschnitt (anonymisierte Referenzwerte)
+            Erstattungsquote je Fachgebiet vs. PKV-Durchschnitt (anonymisierte Referenzwerte)
           </p>
 
           {/* Erstattungsquote overall */}
@@ -213,25 +204,28 @@ export default function KasseSection({ stats }: { stats: KasseStats }) {
             variant={stats.erstattungsquote >= stats.erstattungsquoteAvg ? "good" : "warn"}
           />
 
-          {/* Per-Fachgruppe breakdown */}
+          {/* Per-Fachgruppe breakdown — Erstattungsquote (= 100 - Ablehnungsquote) */}
           {stats.fachgruppenStats.length > 0
             ? stats.fachgruppenStats.map((fg) => {
-                const bench = FACH_BENCHMARK[normalizeFach(fg.fach)] ?? FACH_BENCHMARK['default']
+                const benchAblehnung = FACH_BENCHMARK[normalizeFach(fg.fach)] ?? FACH_BENCHMARK['default']
+                const benchErstattung = 100 - benchAblehnung
+                const youErstattung  = 100 - fg.ablehnungsquote
                 const variant: "good" | "warn" | "bad" =
-                  fg.ablehnungsquote <= bench ? "good"
-                  : fg.ablehnungsquote <= bench * 1.75 ? "warn"
+                  fg.ablehnungsquote <= benchAblehnung ? "good"
+                  : fg.ablehnungsquote <= benchAblehnung * 1.75 ? "warn"
                   : "bad"
-                const youPctBar = Math.min(100, Math.round((fg.ablehnungsquote / (bench * 2 || 1)) * 50))
-                const avgPctBar = Math.min(100, Math.round((bench / (bench * 2 || 1)) * 50))
+                // Bar widths: scale so avg always sits at ~50% of bar width
+                const youPctBar = Math.min(100, Math.round((youErstattung / 100) * 100))
+                const avgPctBar = Math.min(100, Math.round((benchErstattung / 100) * 100))
                 return (
                   <BenchmarkRow
                     key={fg.fach}
-                    label={`${fg.fach} — Ablehnungsquote`}
+                    label={`${fg.fach} — Erstattungsquote`}
                     sub={`${fg.vorgaenge} Vorgang${fg.vorgaenge !== 1 ? "änge" : ""} · € ${fg.eingereicht.toLocaleString("de-DE")} eingereicht`}
                     youPct={youPctBar}
                     avgPct={avgPctBar}
-                    youVal={fg.ablehnungsquote === 0 ? "0%" : `${fg.ablehnungsquote}%`}
-                    avgVal={`Ø PKV: ${bench}%`}
+                    youVal={`${youErstattung}%`}
+                    avgVal={`Ø PKV: ${benchErstattung}%`}
                     variant={variant}
                   />
                 )

@@ -8,12 +8,16 @@ export default function KPIGrid({ data }: { data: DashboardData }) {
   const year        = data.currentYear ?? new Date().getFullYear()
   const count       = data.vorgangCount ?? data.vorgaenge.length
   const eCount        = data.einsparpotenzialCount ?? 0
-  const kasseName     = data.user.kasse || "PKV"
-  const kassePot      = data.widerspruchPotenzialKasse ?? 0
-  const arztGOÄPot    = data.einsparpotenzial ?? 0
-  const arztKassePot  = data.korrekturArztPotenzial ?? 0
-  const arztPot       = Math.max(arztGOÄPot, arztKassePot)
-  const totalPot      = kassePot + arztPot
+  const kasseName       = data.user.kasse || "PKV"
+  // widerspruchPotenzialKasse = kasse widerspruch + arzt korrektur (combined)
+  // We split it back into its components for the breakdown display.
+  const kassePotTotal   = data.widerspruchPotenzialKasse ?? 0
+  const arztKorrektur   = data.korrekturArztPotenzial ?? 0
+  const kassePotPure    = Math.max(0, kassePotTotal - arztKorrektur)   // pure AXA Widerspruch
+  const arztGOÄPot      = data.einsparpotenzial ?? 0
+  // GOÄ savings that aren't already counted in arztKorrektur
+  const goaExtra        = Math.max(0, arztGOÄPot - arztKorrektur)
+  const totalPot        = kassePotTotal + goaExtra
 
   // Erstattungsquote color
   const quoteColor = data.erstattungsquote >= 80 ? "#22c55e"
@@ -80,16 +84,22 @@ export default function KPIGrid({ data }: { data: DashboardData }) {
 
           {/* Split breakdown */}
           <div className="flex flex-col gap-1">
-            {kassePot > 0 && (
+            {kassePotPure > 0 && (
               <div className="flex items-center justify-between text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
                 <span>🛡️ {kasseName} Widerspruch</span>
-                <span className="font-bold" style={{ color: "var(--mint)" }}>€ {fmt(kassePot)}</span>
+                <span className="font-bold" style={{ color: "var(--mint)" }}>€ {fmt(kassePotPure)}</span>
               </div>
             )}
-            {arztPot > 0 && (
+            {arztKorrektur > 0 && (
               <div className="flex items-center justify-between text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
-                <span>🩺 {arztKassePot > arztGOÄPot ? "Ärzte Korrektur" : "Ärzte GOÄ"}</span>
-                <span className="font-bold" style={{ color: "rgba(255,255,255,0.75)" }}>€ {fmt(arztPot)}</span>
+                <span>🩺 Arzt Reklamation</span>
+                <span className="font-bold" style={{ color: "rgba(255,255,255,0.75)" }}>€ {fmt(arztKorrektur)}</span>
+              </div>
+            )}
+            {goaExtra > 0 && (
+              <div className="flex items-center justify-between text-[11px]" style={{ color: "rgba(255,255,255,0.55)" }}>
+                <span>📋 Ärzte GOÄ</span>
+                <span className="font-bold" style={{ color: "rgba(255,255,255,0.75)" }}>€ {fmt(goaExtra)}</span>
               </div>
             )}
             {totalPot === 0 && eCount === 0 && (

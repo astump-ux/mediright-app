@@ -89,7 +89,15 @@ function KasseBescheidMini({ arzt }: { arzt: Arzt }) {
 function ArztCard({ arzt }: { arzt: Arzt }) {
   const variant = arzt.flagged ? "flagged" : "ok";
   const amp = arzt.avgFaktor > 0 ? faktorAmpel(arzt.avgFaktor) : null
-  const hasKasseBescheid = (arzt.eingereichtBeiKasse ?? 0) > 0
+  const eingereicht = arzt.eingereichtBeiKasse ?? 0
+  const erstattet   = arzt.erstattetVonKasse   ?? 0
+  const abgelehnt   = arzt.abgelehntVonKasse   ?? 0
+  const hasKasseBescheid = eingereicht > 0
+  // After a Kassenbescheid exists, derive the status tag from the actual outcome —
+  // not from GOÄ factor analysis alone (which may say "Regelfall" even with rejections).
+  const erstattungsquote = hasKasseBescheid && eingereicht > 0
+    ? Math.round((erstattet / eingereicht) * 100)
+    : null
   return (
     <Card variant={variant} className="mb-4">
       {/* Header */}
@@ -102,7 +110,18 @@ function ArztCard({ arzt }: { arzt: Arzt }) {
             {arzt.fachrichtung}{arzt.ort ? ` · ${arzt.ort}` : ""} · {arzt.besuche} Besuch{arzt.besuche !== 1 ? "e" : ""}
           </div>
           <div className="flex gap-2 flex-wrap mt-2">
-            {arzt.flagged ? (
+            {/* Primary status tag: kassenbescheid outcome takes priority over GOÄ flag */}
+            {hasKasseBescheid && erstattungsquote !== null ? (
+              abgelehnt > 0 ? (
+                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                  ⚠ {erstattungsquote}% erstattet
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                  ✓ {erstattungsquote}% erstattet
+                </span>
+              )
+            ) : arzt.flagged ? (
               <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
                 ↑ Auffälliger Faktor
               </span>
