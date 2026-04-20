@@ -3,6 +3,8 @@ import { useState, useEffect } from "react";
 import type { KasseBescheid, UnmatchedVorgang } from "@/app/kassenabrechnung/page";
 import type { KasseRechnungGruppe, KasseAnalyseResult, KassePosition } from "@/lib/goae-analyzer";
 import { getSupabaseClient } from "@/lib/supabase";
+import { WIDERSPRUCH_STATUS_CFG, WIDERSPRUCH_ACTIVE_STATUSES, KassenwiderspruchBadge, ArztreklamationBadge } from "@/components/ui/WiderspruchStatus";
+import HandlungsempfehlungPanel from "@/components/ui/HandlungsempfehlungPanel";
 
 function useUserFullName(): string {
   const [name, setName] = useState("[Ihr vollständiger Name]");
@@ -40,15 +42,9 @@ function confidenceLabel(c: number | null | undefined): string | null {
   return "niedrig";
 }
 
-// ── Widerspruch status config ─────────────────────────────────────────────────
-const WIDERSPRUCH_STATUS_CFG: Record<string, { icon: string; label: string; bg: string; color: string; border: string }> = {
-  erstellt:    { icon: "📝", label: "Widerspruch erstellt",         bg: "#f1f5f9", color: "#64748b", border: "#cbd5e1" },
-  gesendet:    { icon: "📨", label: "Widerspruch gesendet — läuft", bg: "#eff6ff", color: "#1d4ed8", border: "#93c5fd" },
-  beantwortet: { icon: "💬", label: "AXA hat geantwortet",          bg: "#fffbeb", color: "#92400e", border: "#fcd34d" },
-  erfolgreich: { icon: "✅", label: "Widerspruch erfolgreich",       bg: "#ecfdf5", color: "#065f46", border: "#6ee7b7" },
-  abgelehnt:   { icon: "❌", label: "Widerspruch endabgelehnt",      bg: "#fef2f2", color: "#991b1b", border: "#fca5a5" },
-};
-const WIDERSPRUCH_ACTIVE = ["gesendet", "beantwortet", "erfolgreich", "abgelehnt"];
+// WIDERSPRUCH_STATUS_CFG and WIDERSPRUCH_ACTIVE_STATUSES imported from @/components/ui/WiderspruchStatus
+// Keep local alias for backward-compat with existing code in this file:
+const WIDERSPRUCH_ACTIVE = WIDERSPRUCH_ACTIVE_STATUSES;
 
 // ── KPI header ────────────────────────────────────────────────────────────────
 
@@ -476,26 +472,8 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
         <div className="px-5 py-3 flex items-center justify-between gap-3 flex-wrap"
           style={{ background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0" }}>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Kassenwiderspruch chip */}
-            {widerspruchActive && statusCfg && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full"
-                style={{ background: statusCfg.bg, border: `1.5px solid ${statusCfg.border}` }}>
-                <span>{statusCfg.icon}</span>
-                <span className="text-xs font-bold" style={{ color: statusCfg.color }}>
-                  🔵 Kassenwiderspruch: {statusCfg.label}
-                </span>
-              </div>
-            )}
-            {/* Arztreklamation chip */}
-            {arztSent && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full"
-                style={{ background: "#fff7ed", border: "1.5px solid #fb923c" }}>
-                <span>✅</span>
-                <span className="text-xs font-bold" style={{ color: "#9a3412" }}>
-                  🟠 Arztreklamation: Gesendet
-                </span>
-              </div>
-            )}
+            {widerspruchActive && widerspruchStatus && <KassenwiderspruchBadge status={widerspruchStatus} />}
+            <ArztreklamationBadge sent={arztSent} />
             <p className="text-xs" style={{ color: "#64748b" }}>Alle Details im Widerspruchs-Tab</p>
           </div>
           <a href="/widersprueche"
@@ -572,67 +550,17 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
         </table>
       )}
 
-      {/* ── Handlungsempfehlung ──
-            Show when: Widerspruch empfohlen AND at least one track still has pending actions.
-            Kassenwiderspruch section: only when kasse not yet sent.
-            Arztreklamation section: independent — shown as long as arzt not yet sent.      ── */}
-      {widerspruch && (!widerspruchActive || !arztSent) && (
-        <div className="border-t" style={{ borderColor: "#fecaca" }}>
-          <div className="px-5 py-4" style={{ background: "#fffbeb" }}>
+      {/* ── Handlungsempfehlung (unified shared component) ── */}
+      {widerspruch && (
+        <div className="border-t px-5 py-4" style={{ borderColor: "#fecaca", background: "#fffbeb" }}>
+          <HandlungsempfehlungPanel
+            analyse={analyse}
+            widerspruchStatus={widerspruchStatus}
+            arztSent={arztSent}
+            hasArztAction={hasArztAction}
+          />
 
-            {/* ── Header with Erfolgschance ── */}
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <span>⚡</span>
-                <p className="text-sm font-semibold" style={{ color: "#92400e" }}>Handlungsempfehlung</p>
-              </div>
-              {erfolg != null && (
-                <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "white", border: "1px solid #fcd34d" }}>
-                  <div className="text-right">
-                    <div className="font-extrabold leading-none" style={{ fontSize: 22, color: erfolgColor }}>{erfolg}%</div>
-                    <div className="text-xs mt-0.5" style={{ color: "#64748b" }}>Erfolgschance</div>
-                  </div>
-                  {confLabel && (
-                    <div className="pl-2 border-l" style={{ borderColor: "#e2e8f0" }}>
-                      <div className="text-xs mb-1" style={{ color: "#64748b" }}>KI-Konfidenz</div>
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: confBg, color: confColor }}>{confLabel}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {begruendung && (
-              <p className="text-sm mb-4" style={{ color: "#78350f", lineHeight: 1.6 }}>{begruendung}</p>
-            )}
-
-            {schritte && schritte.length > 0 && (
-              <div className="mb-4">
-                <div
-                  className="flex items-center justify-between cursor-pointer select-none mb-2"
-                  onClick={() => setShowSchritte(v => !v)}
-                >
-                  <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "#92400e" }}>
-                    Nächste Schritte ({schritte.length})
-                  </p>
-                  <span className="text-xs" style={{ color: "#92400e", opacity: 0.6 }}>{showSchritte ? "▲" : "▼"}</span>
-                </div>
-                {showSchritte && (
-                  <div className="flex flex-col gap-2">
-                    {schritte.map((s, i) => (
-                      <div key={i} className="flex gap-3 items-start">
-                        <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#f59e0b", color: "white" }}>
-                          {i + 1}
-                        </span>
-                        <p className="text-sm" style={{ color: "#78350f", lineHeight: 1.5 }}>{s}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Schritt A: Klärung beim Arzt ──
+          {/* ── Schritt A: Klärung beim Arzt ──
                   Independent of Kassenwiderspruch status — stays visible until arzt is sent. ── */}
             {!arztSent && (() => {
               const arztSchritte = arztSchritteAus(analyse?.naechsteSchritte);
@@ -752,7 +680,6 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
               </div>
             )}
 
-          </div>
         </div>
       )}
     </div>
@@ -762,7 +689,8 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
 // ── Single Kassenbescheid card ─────────────────────────────────────────────────
 
 function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen]               = useState(true);
+  const [downloading, setDownloading] = useState(false);
   const quote = kasse.betrag_eingereicht > 0
     ? (kasse.betrag_erstattet / kasse.betrag_eingereicht) * 100
     : 0;
@@ -770,6 +698,18 @@ function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
   const widerspruchStatus = kasse.widerspruch_status ?? null;
   const widerspruchActive = WIDERSPRUCH_ACTIVE.includes(widerspruchStatus ?? "");
   const statusCfg = widerspruchStatus ? WIDERSPRUCH_STATUS_CFG[widerspruchStatus] : null;
+
+  async function handleDownloadPdf(e: React.MouseEvent) {
+    e.stopPropagation(); // don't toggle card open/close
+    setDownloading(true);
+    try {
+      const res = await fetch(`/api/kassenabrechnungen/${kasse.id}/pdf-url`);
+      const { url } = await res.json();
+      if (url) window.open(url, '_blank');
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   const allGruppen: Array<{
     gruppe: KasseRechnungGruppe | null;
@@ -823,6 +763,16 @@ function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
             style={{ background: `${quoteColor(quote)}15`, color: quoteColor(quote) }}>
             {quote.toFixed(0)}% erstattet
           </span>
+          {/* PDF download */}
+          <button
+            onClick={handleDownloadPdf}
+            disabled={downloading}
+            title="Originalbescheid herunterladen"
+            className="text-xs font-semibold px-3 py-1 rounded-lg"
+            style={{ background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0", cursor: downloading ? "wait" : "pointer" }}
+          >
+            {downloading ? "…" : "📄 PDF"}
+          </button>
           <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>{open ? "▲" : "▼"}</span>
         </div>
       </button>

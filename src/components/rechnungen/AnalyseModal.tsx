@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react'
 import type { KasseRechnungGruppe, KasseAnalyseResult } from '@/lib/goae-analyzer'
 import { getSupabaseClient } from '@/lib/supabase'
+import HandlungsempfehlungPanel from '@/components/ui/HandlungsempfehlungPanel'
+import { KassenwiderspruchBadge, ArztreklamationBadge } from '@/components/ui/WiderspruchStatus'
 
 function useUserFullName(): string {
   const [name, setName] = useState('[Ihr vollständiger Name]')
@@ -629,6 +631,8 @@ function KassenbescheidSection({
   })
   const hasKasseAction  = kassePositionen.length > 0
   const hasArztAction   = arztPositionen.length > 0
+  // Arztreklamation status is not tracked inside this modal view — default to false
+  const arztSent        = false
 
   const erfolgColor = erfolg == null ? slate : erfolg >= 70 ? '#22c55e' : erfolg >= 40 ? amber : red
   const erfolgBg    = erfolg == null ? '#f1f5f9' : erfolg >= 70 ? mintLight : erfolg >= 40 ? amberLight : redLight
@@ -732,61 +736,15 @@ function KassenbescheidSection({
         </div>
       )}
 
-      {/* ── Handlungsempfehlung — collapses together with Abgelehnte Positionen ── */}
+      {/* ── Handlungsempfehlung — shared component, collapses with positions ── */}
       {showPositionen && widerspruch && abgelehnt > 0 && (
-        <div style={{ background: amberLight, border: `1px solid ${amber}`, borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13 }}>⚡ Handlungsempfehlung</div>
-            {/* ── Probability + Confidence display ── */}
-            {erfolg != null && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'white', borderRadius: 10, padding: '6px 12px', border: `1px solid ${erfolgColor}22` }}>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: erfolgColor, lineHeight: 1 }}>{erfolg}%</div>
-                  <div style={{ fontSize: 10, color: slate, marginTop: 2 }}>Erfolgschance</div>
-                </div>
-                {(() => {
-                  // Derive aggregate confidence from positions
-                  const avgConf = abgelehntePos.length > 0
-                    ? abgelehntePos.reduce((s, p) => s + ((p as {confidence?: number | null}).confidence ?? 60), 0) / abgelehntePos.length
-                    : null
-                  const label = confidenceLabel(avgConf)
-                  const confColor = label === 'hoch' ? '#065f46' : label === 'mittel' ? '#92400e' : slate
-                  const confBg   = label === 'hoch' ? mintLight : label === 'mittel' ? amberLight : '#f1f5f9'
-                  return label ? (
-                    <div style={{ borderLeft: '1px solid #e2e8f0', paddingLeft: 10 }}>
-                      <div style={{ fontSize: 10, color: slate, marginBottom: 3 }}>KI-Konfidenz</div>
-                      <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: confBg, color: confColor }}>
-                        {label}
-                      </span>
-                    </div>
-                  ) : null
-                })()}
-              </div>
-            )}
-          </div>
-          {begruendung && (
-            <p style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6, marginBottom: 12 }}>{begruendung}</p>
-          )}
-          {/* ── Nächste Schritte (collapsible) ── */}
-          {schritte && schritte.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <div
-                onClick={() => setShowSchritte(v => !v)}
-                style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: showSchritte ? 6 : 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
-              >
-                <span>Nächste Schritte ({schritte.length})</span>
-                <span style={{ fontWeight: 400, fontSize: 11, opacity: 0.7 }}>{showSchritte ? '▲' : '▼'}</span>
-              </div>
-              {showSchritte && schritte.map((s, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 5 }}>
-                  <span style={{ flexShrink: 0, width: 18, height: 18, borderRadius: '50%', background: amber, color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {i + 1}
-                  </span>
-                  <span style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>{s}</span>
-                </div>
-              ))}
-            </div>
-          )}
+        <div style={{ marginBottom: 8 }}>
+          <HandlungsempfehlungPanel
+            analyse={analyse}
+            widerspruchStatus={widerspruchStatus ?? null}
+            arztSent={arztSent}
+            hasArztAction={hasArztAction}
+          />
           {/* ── Schritt A: Klärung beim Arzt ── */}
           {(() => {
             const arztSchritte = arztSchritteAus(analyse?.naechsteSchritte)

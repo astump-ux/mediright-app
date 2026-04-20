@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react'
 import { getSupabaseClient } from '@/lib/supabase'
 import type { WiderspruchFall, WiderspruchKommunikation, WiderspruchVorgang } from '@/app/widersprueche/page'
+import { WIDERSPRUCH_STATUS_CFG, KassenwiderspruchBadge, ArztreklamationBadge } from '@/components/ui/WiderspruchStatus'
+import HandlungsempfehlungPanel from '@/components/ui/HandlungsempfehlungPanel'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const navy   = '#0f172a'
@@ -16,14 +18,8 @@ const blueL  = '#eff6ff'
 const grey   = '#f1f5f9'
 const orange = '#fb923c'
 
-// ── Status config ─────────────────────────────────────────────────────────────
-const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string; accent: string; icon: string }> = {
-  erstellt:    { icon: '📝', label: 'Entwurf',          bg: grey,       color: slate,     accent: '#cbd5e1' },
-  gesendet:    { icon: '📨', label: 'Gesendet',          bg: blueL,      color: '#1d4ed8', accent: blue },
-  beantwortet: { icon: '💬', label: 'Beantwortet',       bg: amberL,     color: '#92400e', accent: amber },
-  erfolgreich: { icon: '✅', label: 'Erfolgreich',        bg: mintL,      color: '#065f46', accent: mint },
-  abgelehnt:   { icon: '❌', label: 'Endabgelehnt',      bg: '#fef2f2',  color: '#991b1b', accent: red },
-}
+// ── Status config — imported from shared WiderspruchStatus, aliased for local use ──────────
+const STATUS_CONFIG = WIDERSPRUCH_STATUS_CFG as Record<string, { label: string; bg: string; color: string; border: string; icon: string }>
 
 const DRINGLICHKEIT_COLOR: Record<string, string> = {
   hoch: red, mittel: amber, niedrig: mint,
@@ -435,62 +431,26 @@ function RechnungenSection({ vorgaenge }: { vorgaenge: WiderspruchVorgang[] }) {
   )
 }
 
-// ── KI-Analyse section ────────────────────────────────────────────────────────
+// ── KI-Analyse section (wraps shared HandlungsempfehlungPanel in Section chrome) ──────────
 function KiAnalyseSection({ fall }: { fall: WiderspruchFall }) {
   const analyse = fall.kasse_analyse
-  const widerspruchEmpfohlen  = analyse?.widerspruchEmpfohlen as boolean | null
-  const erklaerung            = analyse?.widerspruchErklaerung as string | null
-  const erfolg                = analyse?.widerspruchErfolgswahrscheinlichkeit as number | null
-  const schritte              = analyse?.naechsteSchritte as string[] | null
-  const zusammenfassung       = analyse?.zusammenfassung as string | null
+  const arztSent = (fall.arzt_reklamation_status ?? '') === 'gesendet'
+  // Does this fall have any korrektur_arzt positions?
+  const hasArztAction = ((fall.kasse_analyse?.rechnungen ?? []) as Array<{ positionen?: Array<{ status: string; aktionstyp?: string | null }> }>).some((g) =>
+    (g.positionen ?? []).some((p) => p.aktionstyp === 'korrektur_arzt' && (p.status === 'abgelehnt' || p.status === 'gekuerzt'))
+  )
 
-  if (!widerspruchEmpfohlen && !erklaerung && erfolg == null) return null
-
-  const erfolgColor = erfolg == null ? slate : erfolg >= 70 ? '#22c55e' : erfolg >= 40 ? amber : red
+  if (!analyse?.widerspruchEmpfohlen && !analyse?.widerspruchErklaerung && analyse?.widerspruchErfolgswahrscheinlichkeit == null) return null
 
   return (
     <Section icon="🤖" title="KI-Analyse & Handlungsempfehlung" accent="#fcd34d" defaultOpen={true}>
-      {/* Summary */}
-      {zusammenfassung && (
-        <div style={{ fontSize: 12, color: '#334155', lineHeight: 1.6, marginBottom: 10, padding: '8px 10px', background: '#f8fafc', borderRadius: 8 }}>
-          {zusammenfassung}
-        </div>
-      )}
-
-      {/* Erfolgschance */}
-      {erfolg != null && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'white', borderRadius: 10, padding: '6px 14px', border: `1.5px solid ${erfolgColor}` }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: erfolgColor, lineHeight: 1 }}>{erfolg}%</div>
-            <div style={{ fontSize: 10, color: slate, marginTop: 1 }}>Erfolgschance</div>
-          </div>
-          {erklaerung && (
-            <p style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6, margin: 0, flex: 1 }}>{erklaerung}</p>
-          )}
-        </div>
-      )}
-      {!erfolg && erklaerung && (
-        <p style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6, margin: '0 0 10px' }}>{erklaerung}</p>
-      )}
-
-      {/* Nächste Schritte */}
-      {schritte && schritte.length > 0 && (
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-            Nächste Schritte
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {schritte.map((s, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <span style={{ flexShrink: 0, width: 18, height: 18, borderRadius: '50%', background: amber, color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {i + 1}
-                </span>
-                <span style={{ fontSize: 11, color: '#78350f', lineHeight: 1.5 }}>{s}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <HandlungsempfehlungPanel
+        analyse={analyse as Parameters<typeof HandlungsempfehlungPanel>[0]['analyse']}
+        widerspruchStatus={fall.widerspruch_status ?? null}
+        arztSent={arztSent}
+        hasArztAction={hasArztAction}
+        defaultOpen={true}
+      />
     </Section>
   )
 }
@@ -993,7 +953,7 @@ function WiderspruchCard({ fall }: { fall: WiderspruchFall }) {
       background: 'white', borderRadius: 16,
       boxShadow: '0 2px 10px rgba(0,0,0,0.07)',
       overflow: 'hidden',
-      borderLeft: `5px solid ${cfg.accent}`,
+      borderLeft: `5px solid ${cfg.border}`,
     }}>
       {/* ── Card header ── */}
       <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
@@ -1023,7 +983,7 @@ function WiderspruchCard({ fall }: { fall: WiderspruchFall }) {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
           <div style={{ fontSize: 17, fontWeight: 800, color: red }}>{fmt(fall.betrag_abgelehnt)}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20, background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.accent}30` }}>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20, background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}` }}>
               {cfg.icon} {cfg.label}
             </span>
             <button onClick={() => setOpen(o => !o)}
