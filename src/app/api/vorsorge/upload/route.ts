@@ -35,6 +35,7 @@ interface ExtractedItem {
   empf_intervall_monate: number
   axa_leistung?: boolean
   geschlecht_spezifisch?: 'male' | 'female' | null
+  alter_ab?: number | null
   hinweis?: string | null
 }
 
@@ -63,6 +64,39 @@ export async function POST(req: NextRequest) {
   const arrayBuffer = await file.arrayBuffer()
   const base64 = Buffer.from(arrayBuffer).toString('base64')
 
+  // Load profile before Claude call — need age + insurer name for the prompt
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('pkv_name, pkv_tarif, versicherung, tarif, geburtsdatum, geschlecht')
+    .eq('id', user.id)
+    .single()
+
+  const kasseName = (profile as { pkv_name?: string })?.pkv_name ?? profile?.versicherung ?? ''
+  const tarifName = (profile as { pkv_tarif?: string })?.pkv_tarif ?? profile?.tarif ?? ''
+
+  // Compute age for age-aware extraction
+  const geburtsdatumRaw = (profile as { geburtsdatum?: string | null })?.geburtsdatum ?? null
+  let userAge: number | null = null
+  if (geburtsdatumRaw) {
+    const today = new Date()
+    const dob   = new Date(geburtsdatumRaw)
+    let age = today.getFullYear() - dob.getFullYear()
+    if (today.getMonth() < dob.getMonth() ||
+       (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate())) age--
+    userAge = age
+  }
+  const userGeschlecht = (profile as { geschlecht?: string | null })?.geschlecht ?? null
+
+  // Build age/gender context string for the prompt
+  const ageContext = userAge !== null
+    ? `Der Nutzer ist ${userAge} Jahre alt.`
+    : 'Das Alter des Nutzers ist nicht bekannt — extrahiere Leistungen für Erwachsene ab 18.'
+  const genderContext = userGeschlecht === 'male'
+    ? 'Der Nutzer ist männlich.'
+    : userGeschlecht === 'female'
+    ? 'Die Nutzerin ist weiblich.'
+    : 'Das Geschlecht ist nicht bekannt — schließe beide geschlechtsspezifischen Leistungen ein.'
+
   // Analyse with Claude (document API)
   let templates: ExtractedItem[] = []
   try {
@@ -86,7 +120,15 @@ Antworte AUSSCHLIESSLICH als valides JSON-Array, ohne Markdown oder Erklärungen
           {
             type: 'text',
             text: `Analysiere dieses PKV-Leistungsverzeichnis oder Vorsorge-Dokument.
-Extrahiere alle Vorsorgeuntersuchungen und präventiven Leistungen als JSON-Array.
+
+Nutzerkontext: ${ageContext} ${genderContext}
+
+WICHTIGE FILTERREGELN — strikte Einhaltung erforderlich:
+- AUSSCHLIESSEN: Alle Kinder- und Jugendvorsorge (U1–U9, U10, J1, J2, Schuluntersuchungen, pädiatrische Vorsorge, Neugeborenen-Screening, Zahnärztliche Frühuntersuchungen für Kinder)
+- AUSSCHLIESSEN: Leistungen die erst ab einem Alter relevant werden, das der Nutzer noch nicht erreicht hat
+- AUSSCHLIESSEN: Leistungen die ausschließlich für das andere Geschlecht gelten (wenn Geschlecht bekannt)
+- EINSCHLIESSEN: Nur Vorsorge/Früherkennung für Erwachsene die für diesen Nutzer jetzt oder in Zukunft relevant sind
+
 Gib NUR dieses JSON-Array zurück (kein anderer Text):
 [
   {
@@ -95,15 +137,15 @@ Gib NUR dieses JSON-Array zurück (kein anderer Text):
     "empf_intervall_monate": 12,
     "axa_leistung": true,
     "geschlecht_spezifisch": null,
+    "alter_ab": null,
     "hinweis": "Kurze Erklärung wann/wie oft (max. 80 Zeichen)"
   }
 ]
-Wichtige Regeln:
-- empf_intervall_monate = Untersuchungsintervall in Monaten (6, 12, 24, 36 oder 60)
-- axa_leistung = true wenn die Leistung im Dokument aufgeführt ist
-- geschlecht_spezifisch = "male" wenn nur Männer, "female" wenn nur Frauen, null für alle
-- Maximal 10 der wichtigsten Vorsorge-Leistungen
-- Nur Prävention/Früherkennung — keine Behandlungen`,
+Weitere Regeln:
+- empf_intervall_monate = Intervall in Monaten (6, 12, 24, 36 oder 60)
+- geschlecht_spezifisch = "male" | "female" | null
+- alter_ab = Mindestalter als Zahl (z.B. 35, 45, 50) oder null wenn ab Geburt/Volljährigkeit
+- Maximal 10 der wichtigsten altersrelevanten Vorsorge-Leistungen`,
           },
         ],
       }],
@@ -120,16 +162,6 @@ Wichtige Regeln:
   if (!Array.isArray(templates) || templates.length === 0) {
     return NextResponse.json({ error: 'Keine Vorsorge-Leistungen im PDF gefunden.' }, { status: 422 })
   }
-
-  // Load insurer name for tarif_name label
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('pkv_name, pkv_tarif, versicherung, tarif')
-    .eq('id', user.id)
-    .single()
-
-  const kasseName = (profile as { pkv_name?: string })?.pkv_name ?? profile?.versicherung ?? ''
-  const tarifName = (profile as { pkv_tarif?: string })?.pkv_tarif ?? profile?.tarif ?? ''
 
   const allRows = templates.map((t: ExtractedItem) => ({
     user_id:                user.id,

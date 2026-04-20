@@ -132,7 +132,13 @@ export default function SettingsClient() {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Current Vorsorge config — loaded on mount to show status even after page refresh
+  const [vorsorgeConfig, setVorsorgeConfig] = useState<{
+    count: number; quelle: string; names: string[]
+  } | null>(null);
+
   useEffect(() => {
+    // Load profile
     fetch("/api/settings")
       .then((r) => r.json())
       .then(({ profile: p, email }) => {
@@ -140,6 +146,20 @@ export default function SettingsClient() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+
+    // Load current Vorsorge config status
+    fetch("/api/vorsorge/init")
+      .then((r) => r.json())
+      .then(({ templates }) => {
+        if (Array.isArray(templates) && templates.length > 0) {
+          setVorsorgeConfig({
+            count: templates.length,
+            quelle: templates[0]?.quelle ?? "unbekannt",
+            names: templates.map((t: { name: string }) => t.name),
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   function set(key: keyof Profile, value: string | boolean) {
@@ -177,7 +197,9 @@ export default function SettingsClient() {
       const res = await fetch("/api/vorsorge/upload", { method: "POST", body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Fehler beim Upload");
-      setPdfResult({ count: json.seeded, items: json.items ?? [] });
+      const items = json.items ?? [];
+      setPdfResult({ count: json.seeded, items });
+      setVorsorgeConfig({ count: json.seeded, quelle: "pdf_upload", names: items });
       setPdfState("done");
     } catch (e) {
       setPdfError(e instanceof Error ? e.message : "Unbekannter Fehler");
@@ -379,10 +401,33 @@ export default function SettingsClient() {
           <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
         </div>
 
+        {/* Current config status — shown after page refresh if config exists */}
+        {vorsorgeConfig && pdfState === "idle" && (
+          <div
+            className="rounded-xl px-4 py-3 flex items-start gap-3"
+            style={{ background: "rgba(92,198,183,0.07)", border: "1.5px solid rgba(92,198,183,0.2)" }}
+          >
+            <span className="text-base leading-none mt-0.5">
+              {vorsorgeConfig.quelle === "pdf_upload" ? "📄" : "🤖"}
+            </span>
+            <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+              <p className="text-xs font-semibold" style={{ color: "var(--navy)" }}>
+                {vorsorgeConfig.count} Vorsorge-Leistungen gespeichert
+                <span className="font-normal ml-1" style={{ color: "var(--text-muted)" }}>
+                  ({vorsorgeConfig.quelle === "pdf_upload" ? "aus PDF" : vorsorgeConfig.quelle === "ai_research" ? "KI-Recherche" : "Standard"})
+                </span>
+              </p>
+              <p className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
+                {vorsorgeConfig.names.slice(0, 4).join(" · ")}{vorsorgeConfig.names.length > 4 ? ` + ${vorsorgeConfig.names.length - 4} weitere` : ""}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* PDF Upload */}
         <Field
-          label="Leistungsverzeichnis / Vorsorge-PDF hochladen"
-          hint="KI analysiert das PDF automatisch und aktualisiert Ihre Vorsorge-Erinnerungen — alle bisherigen Einträge werden ersetzt."
+          label={vorsorgeConfig ? "Vorsorge-PDF erneut hochladen" : "Leistungsverzeichnis / Vorsorge-PDF hochladen"}
+          hint="KI analysiert das PDF alters- und geschlechtsspezifisch und aktualisiert Ihre Vorsorge-Erinnerungen — bisherige Einträge werden ersetzt."
         >
           <input
             ref={fileInputRef}
