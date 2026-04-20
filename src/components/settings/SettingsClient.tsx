@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Profile {
   full_name: string;
@@ -10,6 +10,7 @@ interface Profile {
   pkv_seit: string;
   benachrichtigung_whatsapp: boolean;
   geschlecht: string;
+  vorsorge_link_custom: string;
   email?: string;
 }
 
@@ -22,10 +23,12 @@ const EMPTY: Profile = {
   pkv_seit: "",
   benachrichtigung_whatsapp: true,
   geschlecht: "",
+  vorsorge_link_custom: "",
   email: "",
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+type PdfState  = "idle" | "uploading" | "done" | "error";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -121,6 +124,12 @@ export default function SettingsClient() {
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("idle");
 
+  // PDF upload state
+  const [pdfState, setPdfState] = useState<PdfState>("idle");
+  const [pdfResult, setPdfResult] = useState<{ count: number; items: string[] } | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
@@ -153,6 +162,24 @@ export default function SettingsClient() {
     } catch {
       setSaveState("error");
       setTimeout(() => setSaveState("idle"), 3000);
+    }
+  }
+
+  async function uploadPdf(file: File) {
+    setPdfState("uploading");
+    setPdfResult(null);
+    setPdfError(null);
+    try {
+      const fd = new FormData();
+      fd.append("pdf", file);
+      const res = await fetch("/api/vorsorge/upload", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Fehler beim Upload");
+      setPdfResult({ count: json.seeded, items: json.items ?? [] });
+      setPdfState("done");
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : "Unbekannter Fehler");
+      setPdfState("error");
     }
   }
 
@@ -314,6 +341,90 @@ export default function SettingsClient() {
             onChange={(v) => set("pkv_seit", v)}
             type="date"
           />
+        </Field>
+      </Section>
+
+      {/* ── Vorsorge-Unterlagen ───────────────────────────────────────── */}
+      <Section title="Vorsorge-Unterlagen">
+        {/* Custom URL */}
+        <Field
+          label="Link zu den Vorsorgebestimmungen Ihrer Kasse"
+          hint="Wird im Dashboard als Direktlink zu den Leistungsbedingungen angezeigt — überschreibt den automatischen Link."
+        >
+          <Input
+            value={profile.vorsorge_link_custom}
+            onChange={(v) => set("vorsorge_link_custom", v)}
+            placeholder="https://www.meinekasse.de/vorsorge"
+            type="url"
+          />
+        </Field>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3 my-1">
+          <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>oder</span>
+          <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+        </div>
+
+        {/* PDF Upload */}
+        <Field
+          label="Leistungsverzeichnis / Vorsorge-PDF hochladen"
+          hint="KI analysiert das PDF automatisch und aktualisiert Ihre Vorsorge-Erinnerungen — alle bisherigen Einträge werden ersetzt."
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) uploadPdf(file);
+              // Reset input so re-upload of same file triggers onChange
+              e.target.value = "";
+            }}
+          />
+          <div className="flex gap-2 items-center flex-wrap">
+            <button
+              type="button"
+              disabled={pdfState === "uploading"}
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-xl px-4 py-2.5 text-sm font-semibold flex items-center gap-2 transition-all"
+              style={{
+                background: pdfState === "uploading" ? "var(--bg-subtle)" : "var(--navy)",
+                color: pdfState === "uploading" ? "var(--text-muted)" : "white",
+                border: "none",
+                cursor: pdfState === "uploading" ? "wait" : "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {pdfState === "uploading" ? (
+                <>
+                  <span
+                    className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin inline-block"
+                    style={{ borderColor: "var(--text-muted)", borderTopColor: "transparent" }}
+                  />
+                  Analysiere…
+                </>
+              ) : (
+                <>📄 PDF auswählen & analysieren</>
+              )}
+            </button>
+
+            {/* Result feedback */}
+            {pdfState === "done" && pdfResult && (
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold" style={{ color: "#059669" }}>
+                  ✅ {pdfResult.count} Vorsorge-Leistungen erkannt
+                </span>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {pdfResult.items.slice(0, 3).join(", ")}{pdfResult.items.length > 3 ? ` + ${pdfResult.items.length - 3} weitere` : ""}
+                </span>
+              </div>
+            )}
+            {pdfState === "error" && pdfError && (
+              <span className="text-sm" style={{ color: "#ef4444" }}>❌ {pdfError}</span>
+            )}
+          </div>
         </Field>
       </Section>
 

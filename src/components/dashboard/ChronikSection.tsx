@@ -256,7 +256,10 @@ export default function ChronikSection({ data }: { data: DashboardData }) {
   const year = currentYear ?? new Date().getFullYear();
   const pkvName = data.user.pkvName ?? data.user.kasse ?? ""
   const tarif   = data.user.tarif ?? ""
-  const vorsorgeLink = getVorsorgeLink(pkvName, tarif)
+  // Custom link (set by user in Settings → Vorsorge-Unterlagen) takes priority
+  const vorsorgeLink = data.user.vorsorgeCustomLink
+    ? { url: data.user.vorsorgeCustomLink, label: `${pkvName || 'Vorsorge'} Leistungen` }
+    : getVorsorgeLink(pkvName, tarif)
 
   // Default open — users should see their history immediately
   const [sectionOpen, setSectionOpen] = useState(true);

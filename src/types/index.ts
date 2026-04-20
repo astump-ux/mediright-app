@@ -89,7 +89,7 @@ export interface WiderspruchVerfahren {
 }
 
 export interface DashboardData {
-  user: { name: string; tarif: string; kasse: string; pkvName?: string };
+  user: { name: string; tarif: string; kasse: string; pkvName?: string; vorsorgeCustomLink?: string };
   currentYear: number;
   vorgangCount: number;
   einsparpotenzialCount: number;

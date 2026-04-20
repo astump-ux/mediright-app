@@ -31,25 +31,48 @@ const ALLOWED_FIELDS_BASE = [
   'benachrichtigung_whatsapp',
 ]
 const ALLOWED_FIELDS_021 = [...ALLOWED_FIELDS_BASE, 'geschlecht']
+// Fields available after migration 023 (vorsorge_link_custom)
+const ALLOWED_FIELDS_023 = [...ALLOWED_FIELDS_021, 'vorsorge_link_custom']
+
+// Columns added in each migration — for graceful progressive fallback
+const MIGRATION_COLUMNS: Record<string, string[]> = {
+  '021': ['geschlecht'],
+  '023': ['vorsorge_link_custom'],
+}
+
+function stripUnknownColumns(updates: Record<string, unknown>, errorMsg: string): Record<string, unknown> {
+  const stripped = { ...updates }
+  for (const cols of Object.values(MIGRATION_COLUMNS)) {
+    for (const col of cols) {
+      if (errorMsg.includes(col)) delete stripped[col]
+    }
+  }
+  return stripped
+}
 
 export async function GET() {
   const user = await getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Try with geschlecht (requires migration 021); fall back gracefully if column doesn't exist
+  // Try with all columns; progressively fall back if a migration hasn't run yet
+  const fullSelect = 'full_name, phone_whatsapp, pkv_name, pkv_nummer, pkv_tarif, pkv_seit, benachrichtigung_whatsapp, geschlecht, vorsorge_link_custom'
   let { data, error } = await getSupabaseAdmin()
     .from('profiles')
-    .select('full_name, phone_whatsapp, pkv_name, pkv_nummer, pkv_tarif, pkv_seit, benachrichtigung_whatsapp, geschlecht')
+    .select(fullSelect)
     .eq('id', user.id)
     .single()
 
-  if (error?.message?.includes('geschlecht')) {
-    // Migration 021 not yet run — retry without geschlecht column
-    ;({ data, error } = await getSupabaseAdmin()
-      .from('profiles')
-      .select('full_name, phone_whatsapp, pkv_name, pkv_nummer, pkv_tarif, pkv_seit, benachrichtigung_whatsapp')
-      .eq('id', user.id)
-      .single())
+  // Fallback: strip unknown column from select if migration is pending
+  if (error?.message) {
+    const unknownCol = Object.values(MIGRATION_COLUMNS).flat().find(c => error!.message.includes(c))
+    if (unknownCol) {
+      const fallbackSelect = fullSelect.split(', ').filter(c => c !== unknownCol).join(', ')
+      ;({ data, error } = await getSupabaseAdmin()
+        .from('profiles')
+        .select(fallbackSelect)
+        .eq('id', user.id)
+        .single())
+    }
   }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -62,9 +85,9 @@ export async function PATCH(request: NextRequest) {
 
   const body = await request.json()
 
-  // Build updates from whitelisted fields (include geschlecht if present)
+  // Build updates from whitelisted fields (all migrations)
   const updates: Record<string, unknown> = {}
-  for (const key of ALLOWED_FIELDS_021) {
+  for (const key of ALLOWED_FIELDS_023) {
     if (key in body) updates[key] = body[key]
   }
 
@@ -73,20 +96,20 @@ export async function PATCH(request: NextRequest) {
     .update(updates)
     .eq('id', user.id)
 
-  if (error?.message?.includes('geschlecht')) {
-    // Migration 021 not yet run — retry without geschlecht
-    const safeUpdates: Record<string, unknown> = {}
-    for (const key of ALLOWED_FIELDS_BASE) {
-      if (key in updates) safeUpdates[key] = updates[key]
+  if (error?.message) {
+    const unknownCol = Object.values(MIGRATION_COLUMNS).flat().find(c => error.message.includes(c))
+    if (unknownCol) {
+      // Retry without columns from pending migrations
+      const safeUpdates = stripUnknownColumns(updates, error.message)
+      const { error: error2 } = await getSupabaseAdmin()
+        .from('profiles')
+        .update(safeUpdates)
+        .eq('id', user.id)
+      if (error2) return NextResponse.json({ error: error2.message }, { status: 500 })
+      return NextResponse.json({ success: true, note: `${unknownCol} skipped — migration pending` })
     }
-    const { error: error2 } = await getSupabaseAdmin()
-      .from('profiles')
-      .update(safeUpdates)
-      .eq('id', user.id)
-    if (error2) return NextResponse.json({ error: error2.message }, { status: 500 })
-    return NextResponse.json({ success: true, note: 'geschlecht skipped — migration 021 pending' })
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
 }

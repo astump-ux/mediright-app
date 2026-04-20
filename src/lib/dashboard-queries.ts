@@ -125,10 +125,11 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   const yearStart = `${currentYear}-01-01`
   const yearEnd   = `${currentYear}-12-31`
 
-  // Fetch profile (includes geschlecht for gender-based vorsorge filtering)
+  // Fetch profile (includes geschlecht for gender-based vorsorge filtering,
+  // and vorsorge_link_custom for custom insurer link override)
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, versicherung, tarif, pkv_name, pkv_tarif, geschlecht')
+    .select('full_name, versicherung, tarif, pkv_name, pkv_tarif, geschlecht, vorsorge_link_custom')
     .eq('id', user.id)
     .single()
 
@@ -622,6 +623,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       tarif: (profile as { pkv_tarif?: string })?.pkv_tarif ?? profile?.tarif ?? '–',
       kasse: kasseName,
       pkvName: kasseName,
+      vorsorgeCustomLink: (profile as { vorsorge_link_custom?: string | null })?.vorsorge_link_custom ?? undefined,
     },
     currentYear,
     vorgangCount: vorgaenge.length,
