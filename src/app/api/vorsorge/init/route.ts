@@ -36,23 +36,61 @@ const FACH_ICONS: Record<string, string> = {
   'Zahnarzt':         '🦷',
 }
 
-// Hardcoded fallback for AXA ActiveMe-U
-const AXA_ACTIVEME_U_FALLBACK = [
-  { name: 'Internist Jahres-Check',    icon: '❤️', fachgebiet: 'Innere Medizin',   empf_intervall_monate: 12, axa_leistung: true },
-  { name: 'Labor-Basisprofil',         icon: '🔬', fachgebiet: 'Labordiagnostik',  empf_intervall_monate: 12, axa_leistung: true },
-  { name: 'Dermatologie Hautscreening',icon: '🧬', fachgebiet: 'Dermatologie',     empf_intervall_monate: 24, axa_leistung: true },
-  { name: 'Augenarzt Sehtest',         icon: '👁️', fachgebiet: 'Augenheilkunde',   empf_intervall_monate: 24, axa_leistung: true },
-  { name: 'Zahnarzt Prophylaxe',       icon: '🦷', fachgebiet: 'Zahnarzt',         empf_intervall_monate: 6,  axa_leistung: true },
-  { name: 'Gynäkologische Vorsorge',   icon: '🌸', fachgebiet: 'Gynäkologie',      empf_intervall_monate: 12, axa_leistung: true },
-]
-
 interface VorsorgeTemplate {
   name: string
   icon: string
   fachgebiet: string
   empf_intervall_monate: number
   axa_leistung: boolean
+  geschlecht_spezifisch: 'male' | 'female' | null
+  hinweis: string | null
 }
+
+// Hardcoded fallback for AXA ActiveMe-U (PDF-verified: VM184-186, 04/2023)
+const AXA_ACTIVEME_U_FALLBACK: VorsorgeTemplate[] = [
+  {
+    name: 'Gesundheits-Check-up',
+    icon: '❤️', fachgebiet: 'Innere Medizin', empf_intervall_monate: 36, axa_leistung: true,
+    geschlecht_spezifisch: null,
+    hinweis: 'Alle 3 Jahre ab 35 (einmalig 18–35); inkl. EKG, Blutbild, Urin, Ultraschall Nieren',
+  },
+  {
+    name: 'Hautkrebs-Screening',
+    icon: '🧬', fachgebiet: 'Dermatologie', empf_intervall_monate: 24, axa_leistung: true,
+    geschlecht_spezifisch: null,
+    hinweis: 'Ab 35 alle 2 Jahre — gesetzliche & private Leistung (IGEL-frei)',
+  },
+  {
+    name: 'Darmkrebs-Früherkennung',
+    icon: '🔬', fachgebiet: 'Gastroenterologie', empf_intervall_monate: 12, axa_leistung: true,
+    geschlecht_spezifisch: null,
+    hinweis: 'Ab 50: jährlicher Stuhltest; ab 55 alle 2 Jahre oder Koloskopie alle 10 J.',
+  },
+  {
+    name: 'Zahnarzt Prophylaxe',
+    icon: '🦷', fachgebiet: 'Zahnarzt', empf_intervall_monate: 6, axa_leistung: true,
+    geschlecht_spezifisch: null,
+    hinweis: 'Professionelle Zahnreinigung & Kontrolluntersuchung, 2× jährlich',
+  },
+  {
+    name: 'Gynäkologische Krebsvorsorge',
+    icon: '🌸', fachgebiet: 'Gynäkologie', empf_intervall_monate: 12, axa_leistung: true,
+    geschlecht_spezifisch: 'female',
+    hinweis: 'Ab 20 jährlich; ab 35 Pap + HPV alle 3 Jahre',
+  },
+  {
+    name: 'Mammographie-Screening',
+    icon: '📡', fachgebiet: 'Radiologie', empf_intervall_monate: 24, axa_leistung: true,
+    geschlecht_spezifisch: 'female',
+    hinweis: 'Frauen 50–69 alle 2 Jahre (gesetzl. Screening-Programm)',
+  },
+  {
+    name: 'Prostatakrebsfrüherkennung',
+    icon: '💊', fachgebiet: 'Urologie', empf_intervall_monate: 12, axa_leistung: true,
+    geschlecht_spezifisch: 'male',
+    hinweis: 'Männer ab 45 jährlich — inkl. Ultraschall im AXA ActiveMe-Tarif',
+  },
+]
 
 async function researchTarifVorsorge(
   kasseName: string,
@@ -78,14 +116,18 @@ Gib NUR dieses JSON-Array zurück (kein anderer Text):
 [
   {
     "name": "Bezeichnung der Vorsorge",
-    "fachgebiet": "Exaktes deutsches Fachgebiet (z.B. Innere Medizin, Dermatologie, Augenheilkunde, Zahnarzt, Gynäkologie, Labordiagnostik, Orthopädie, HNO)",
+    "fachgebiet": "Exaktes deutsches Fachgebiet (z.B. Innere Medizin, Dermatologie, Augenheilkunde, Zahnarzt, Gynäkologie, Labordiagnostik, Gastroenterologie, Urologie, Radiologie)",
     "empf_intervall_monate": 12,
-    "axa_leistung": true
+    "axa_leistung": true,
+    "geschlecht_spezifisch": null,
+    "hinweis": "Kurze Erklärung wann/wie oft (max. 80 Zeichen)"
   }
 ]
 Gib maximal 8 der wichtigsten Vorsorge-Leistungen zurück.
 empf_intervall_monate = empfohlenes Untersuchungsintervall in Monaten (6, 12, 24 oder 36).
-axa_leistung = true wenn die Leistung im Tarif enthalten ist.`
+axa_leistung = true wenn die Leistung im Tarif enthalten ist.
+geschlecht_spezifisch = "male" wenn nur für Männer, "female" wenn nur für Frauen, null wenn für alle.
+hinweis = kurzer Kontext-Text für den User.`
       }]
     })
     const rawText = response.content[0].type === 'text' ? response.content[0].text : '[]'
@@ -93,6 +135,8 @@ axa_leistung = true wenn die Leistung im Tarif enthalten ist.`
     return (parsed as VorsorgeTemplate[]).map(t => ({
       ...t,
       icon: FACH_ICONS[t.fachgebiet] ?? '💊',
+      geschlecht_spezifisch: (t.geschlecht_spezifisch as 'male' | 'female' | null) ?? null,
+      hinweis: t.hinweis ?? null,
     }))
   } catch (err) {
     console.error('[vorsorge/init] Claude research failed, using AXA fallback:', err)
@@ -132,16 +176,18 @@ export async function POST(req: NextRequest) {
   // Research tariff benefits
   const templates = await researchTarifVorsorge(kasseName, tarifName)
 
-  // Upsert into user_vorsorge_config
+  // Upsert into user_vorsorge_config (includes migration 022 columns: geschlecht_spezifisch, hinweis)
   const rows = templates.map(t => ({
-    user_id:               user.id,
-    tarif_name:            `${kasseName} ${tarifName}`.trim(),
-    name:                  t.name,
-    icon:                  t.icon,
-    fachgebiet:            t.fachgebiet,
-    empf_intervall_monate: t.empf_intervall_monate,
-    axa_leistung:          t.axa_leistung,
-    quelle:                'ai_research',
+    user_id:                user.id,
+    tarif_name:             `${kasseName} ${tarifName}`.trim(),
+    name:                   t.name,
+    icon:                   t.icon,
+    fachgebiet:             t.fachgebiet,
+    empf_intervall_monate:  t.empf_intervall_monate,
+    axa_leistung:           t.axa_leistung,
+    geschlecht_spezifisch:  t.geschlecht_spezifisch,
+    hinweis:                t.hinweis,
+    quelle:                 'ai_research',
   }))
 
   const { error } = await supabase

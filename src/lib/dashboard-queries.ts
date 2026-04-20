@@ -3,19 +3,20 @@ import type { DashboardData, Vorgang, Arzt, KasseStats, FachgruppeStats, Vorsorg
 
 // Icons/colors for Fachgebiete
 const FACH_META: Record<string, { icon: string; farbe: string }> = {
-  'Innere Medizin':    { icon: '❤️',  farbe: '#fca5a5' },
-  'Kardiologie':       { icon: '💓',  farbe: '#fca5a5' },
-  'Labordiagnostik':   { icon: '🔬',  farbe: '#c4b5fd' },
-  'Dermatologie':      { icon: '🧬',  farbe: '#93c5fd' },
-  'Augenheilkunde':    { icon: '👁️',  farbe: '#6ee7b7' },
-  'Orthopädie':        { icon: '🦴',  farbe: '#fde68a' },
-  'Neurologie':        { icon: '🧠',  farbe: '#a5b4fc' },
-  'Psychiatrie':       { icon: '🧠',  farbe: '#a5b4fc' },
-  'Gynäkologie':       { icon: '🌸',  farbe: '#f9a8d4' },
-  'Urologie':          { icon: '💊',  farbe: '#e2e8f0' },
-  'Radiologie':        { icon: '📡',  farbe: '#bfdbfe' },
-  'Allgemeinmedizin':  { icon: '🏥',  farbe: '#bbf7d0' },
-  'Zahnarzt':          { icon: '🦷',  farbe: '#e0f2fe' },
+  'Innere Medizin':     { icon: '❤️',  farbe: '#fca5a5' },
+  'Kardiologie':        { icon: '💓',  farbe: '#fca5a5' },
+  'Labordiagnostik':    { icon: '🔬',  farbe: '#c4b5fd' },
+  'Dermatologie':       { icon: '🧬',  farbe: '#93c5fd' },
+  'Augenheilkunde':     { icon: '👁️',  farbe: '#6ee7b7' },
+  'Orthopädie':         { icon: '🦴',  farbe: '#fde68a' },
+  'Neurologie':         { icon: '🧠',  farbe: '#a5b4fc' },
+  'Psychiatrie':        { icon: '🧠',  farbe: '#a5b4fc' },
+  'Gynäkologie':        { icon: '🌸',  farbe: '#f9a8d4' },
+  'Urologie':           { icon: '💊',  farbe: '#e2e8f0' },
+  'Radiologie':         { icon: '📡',  farbe: '#bfdbfe' },
+  'Allgemeinmedizin':   { icon: '🏥',  farbe: '#bbf7d0' },
+  'Zahnarzt':           { icon: '🦷',  farbe: '#e0f2fe' },
+  'Gastroenterologie':  { icon: '🔬',  farbe: '#c4b5fd' },
 }
 
 function fachMeta(fach: string | null) {
@@ -51,20 +52,67 @@ function vorsorgeStatus(naechstesDatum: string | null): VorsorgeItem['status'] {
 }
 
 /**
- * AXA ActiveMe-U Vorsorge-Leistungen (hardcoded fallback)
+ * AXA ActiveMe-U Vorsorge-Leistungen (PDF-verified, VM184-186, 04/2023)
  *
- * No separate DB table is needed — these templates are matched against the
- * user's existing vorgaenge (by Fachgebiet) to derive the last visit date
- * and calculate when the next check-up is due.  If you ever add a
- * "vorsorge_leistungen" table the queries below will use that instead.
+ * Source: AXA Vorsorgeuntersuchungen Produktblatt (April 2023).
+ * geschlechtSpezifisch: 'male' | 'female' | null — items are filtered per user gender.
+ * hinweis: short tooltip context shown in VorsorgeCard.
  */
-const AXA_VORSORGE_TEMPLATES = [
-  { id: 'v1', name: 'Internist Jahres-Check',     icon: '❤️', fachgebiet: 'Innere Medizin',   empfIntervallMonate: 12, axaLeistung: true },
-  { id: 'v2', name: 'Labor-Basisprofil',           icon: '🔬', fachgebiet: 'Labordiagnostik',  empfIntervallMonate: 12, axaLeistung: true },
-  { id: 'v3', name: 'Dermatologie Hautscreening',  icon: '🧬', fachgebiet: 'Dermatologie',     empfIntervallMonate: 24, axaLeistung: true },
-  { id: 'v4', name: 'Augenarzt Sehtest',           icon: '👁️', fachgebiet: 'Augenheilkunde',   empfIntervallMonate: 24, axaLeistung: true },
-  { id: 'v5', name: 'Zahnarzt Prophylaxe',         icon: '🦷', fachgebiet: 'Zahnarzt',         empfIntervallMonate: 6,  axaLeistung: true },
-  { id: 'v6', name: 'Gynäkologische Vorsorge',     icon: '🌸', fachgebiet: 'Gynäkologie',      empfIntervallMonate: 12, axaLeistung: true },
+interface AxaVorsorgeTemplate {
+  id: string
+  name: string
+  icon: string
+  fachgebiet: string
+  empfIntervallMonate: number
+  axaLeistung: boolean
+  geschlechtSpezifisch: 'male' | 'female' | null
+  hinweis: string | null
+  manualLastDate?: string | null
+}
+
+const AXA_VORSORGE_TEMPLATES: AxaVorsorgeTemplate[] = [
+  {
+    id: 'v1', name: 'Gesundheits-Check-up',
+    icon: '❤️', fachgebiet: 'Innere Medizin', empfIntervallMonate: 36, axaLeistung: true,
+    geschlechtSpezifisch: null,
+    hinweis: 'Alle 3 Jahre ab 35 (einmalig 18–35); inkl. EKG, Blutbild, Urin, Ultraschall Nieren',
+  },
+  {
+    id: 'v2', name: 'Hautkrebs-Screening',
+    icon: '🧬', fachgebiet: 'Dermatologie', empfIntervallMonate: 24, axaLeistung: true,
+    geschlechtSpezifisch: null,
+    hinweis: 'Ab 35 alle 2 Jahre — gesetzliche & private Leistung (IGEL-frei)',
+  },
+  {
+    id: 'v3', name: 'Darmkrebs-Früherkennung',
+    icon: '🔬', fachgebiet: 'Gastroenterologie', empfIntervallMonate: 12, axaLeistung: true,
+    geschlechtSpezifisch: null,
+    hinweis: 'Ab 50: jährlicher Stuhltest; ab 55 alle 2 Jahre oder Koloskopie alle 10 J.',
+  },
+  {
+    id: 'v4', name: 'Zahnarzt Prophylaxe',
+    icon: '🦷', fachgebiet: 'Zahnarzt', empfIntervallMonate: 6, axaLeistung: true,
+    geschlechtSpezifisch: null,
+    hinweis: 'Professionelle Zahnreinigung & Kontrolluntersuchung, 2× jährlich',
+  },
+  {
+    id: 'v5', name: 'Gynäkologische Krebsvorsorge',
+    icon: '🌸', fachgebiet: 'Gynäkologie', empfIntervallMonate: 12, axaLeistung: true,
+    geschlechtSpezifisch: 'female',
+    hinweis: 'Ab 20 jährlich; ab 35 Pap + HPV alle 3 Jahre',
+  },
+  {
+    id: 'v6', name: 'Mammographie-Screening',
+    icon: '📡', fachgebiet: 'Radiologie', empfIntervallMonate: 24, axaLeistung: true,
+    geschlechtSpezifisch: 'female',
+    hinweis: 'Frauen 50–69 alle 2 Jahre (gesetzl. Screening-Programm)',
+  },
+  {
+    id: 'v7', name: 'Prostatakrebsfrüherkennung',
+    icon: '💊', fachgebiet: 'Urologie', empfIntervallMonate: 12, axaLeistung: true,
+    geschlechtSpezifisch: 'male',
+    hinweis: 'Männer ab 45 jährlich — inkl. Ultraschall im AXA ActiveMe-Tarif',
+  },
 ]
 
 export async function getDashboardData(): Promise<DashboardData | null> {
@@ -449,21 +497,30 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   // If user_vorsorge_config has no entries yet, trigger async seeding so
   // the next dashboard load will have proper data.
   const userGeschlecht = (profile as { geschlecht?: string | null })?.geschlecht ?? null
-  let vorsorgeTemplates: typeof AXA_VORSORGE_TEMPLATES & { manualLastDate?: string | null }[] = AXA_VORSORGE_TEMPLATES
+  let vorsorgeTemplates: AxaVorsorgeTemplate[] = AXA_VORSORGE_TEMPLATES
   try {
     const { data: userConfig, count } = await supabase
       .from('user_vorsorge_config')
-      .select('id, name, icon, fachgebiet, empf_intervall_monate, axa_leistung, letzte_untersuchung_datum', { count: 'exact' })
+      .select('id, name, icon, fachgebiet, empf_intervall_monate, axa_leistung, letzte_untersuchung_datum, geschlecht_spezifisch, hinweis', { count: 'exact' })
       .eq('user_id', user.id)
     if (userConfig && userConfig.length > 0) {
-      vorsorgeTemplates = userConfig.map(t => ({
+      type UserConfigRow = {
+        id: string; name: string; icon: string; fachgebiet: string
+        empf_intervall_monate: number; axa_leistung: boolean | null
+        letzte_untersuchung_datum?: string | null
+        geschlecht_spezifisch?: string | null
+        hinweis?: string | null
+      }
+      vorsorgeTemplates = (userConfig as UserConfigRow[]).map(t => ({
         id: t.id,
         name: t.name,
         icon: t.icon,
         fachgebiet: t.fachgebiet,
         empfIntervallMonate: t.empf_intervall_monate,
         axaLeistung: t.axa_leistung ?? true,
-        manualLastDate: (t as { letzte_untersuchung_datum?: string | null }).letzte_untersuchung_datum ?? null,
+        geschlechtSpezifisch: (t.geschlecht_spezifisch as 'male' | 'female' | null) ?? null,
+        hinweis: t.hinweis ?? null,
+        manualLastDate: t.letzte_untersuchung_datum ?? null,
       }))
     } else if (count === 0) {
       // No config yet — trigger background seeding (fire-and-forget, no await)
@@ -486,17 +543,20 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     }
   }
 
-  // Gender-specific exclusions:
-  // 'Gynäkologie' only relevant for female users; hide for male if gender is set.
-  const FEMALE_ONLY_FACH = ['Gynäkologie']
+  // Gender-specific exclusions — hide items that don't apply to the user's gender.
+  // Uses geschlechtSpezifisch field ('male'|'female'|null) from the template.
+  // null = applies to all genders. Only filter if gender is known (not null).
   const filteredTemplates = vorsorgeTemplates.filter(t => {
-    if (userGeschlecht === 'male' && FEMALE_ONLY_FACH.includes(t.fachgebiet)) return false
+    const gs = t.geschlechtSpezifisch
+    if (!gs || !userGeschlecht) return true          // no gender data → show all
+    if (userGeschlecht === 'male'   && gs === 'female') return false
+    if (userGeschlecht === 'female' && gs === 'male')   return false
     return true
   })
 
   const vorsorgeLeistungen: VorsorgeItem[] = filteredTemplates.map(t => {
     // Manual override takes priority over computed date from vorgaenge
-    const manualDate = (t as { manualLastDate?: string | null }).manualLastDate ?? null
+    const manualDate = t.manualLastDate ?? null
     const computedDate = lastDateByFach.get(t.fachgebiet) ?? null
     const letzteDatum = manualDate ?? computedDate
     const naechstesDatum = letzteDatum ? addMonths(letzteDatum, t.empfIntervallMonate) : null
