@@ -54,15 +54,54 @@ function KpiBox({ label, value, warn, good, sub }: { label: string; value: strin
     </div>
   )
 }
-function FlagBadge({ flag }: { flag?: string }) {
-  if (!flag || flag === 'ok') return (
-    <span style={{ background: mintLight, color: '#065f46', fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>✓ OK</span>
-  )
-  if (flag === 'pruefe') return (
-    <span style={{ background: amberLight, color: '#92400e', fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>⚠ Prüfen</span>
-  )
+/** Multi-dimensional risk tags for a single GOÄ position */
+function RisikoTags({ pos }: { pos: GoaePosition }) {
+  const tags: { label: string; bg: string; color: string; border: string; title?: string }[] = []
+
+  // 1 — Faktor-Ampel (nur wenn auffällig)
+  if (pos.flag === 'hoch')
+    tags.push({ label: '🔴 >3,5×', bg: redLight, color: '#991b1b', border: '#fca5a5', title: 'Höchstsatz — Begründung zwingend erforderlich' })
+  else if (pos.flag === 'pruefe')
+    tags.push({ label: '⚠ >2,3×', bg: amberLight, color: '#92400e', border: '#fde68a', title: 'Über Schwellenwert — §12 GOÄ Begründung prüfen' })
+
+  // 2 — Analogziffer
+  if (pos.analog)
+    tags.push({ label: '📝 Analog', bg: '#fffbeb', color: '#92400e', border: '#fcd34d', title: 'Analogziffer nach §6 Abs.2 GOÄ — PKVs lehnen häufig ab wenn keine passende Originalziffer existiert' })
+
+  // 3 — Kumulationsverbot
+  if (pos.kumulationsrisiko)
+    tags.push({ label: `⚡ Kumulation${pos.kumulationskonflikt ? ` (${pos.kumulationskonflikt})` : ''}`, bg: redLight, color: '#991b1b', border: '#fca5a5', title: pos.risikohinweis ?? 'Mögliches Kumulationsverbot mit einer anderen Position (§4 GOÄ)' })
+
+  // 4 — Begründungsqualität (nur wenn Faktor > 2,3)
+  if (pos.begruendungsqualitaet === 'generisch')
+    tags.push({ label: '📋 Begr. generisch', bg: amberLight, color: '#92400e', border: '#fde68a', title: 'Begründung zu unspezifisch — PKVs akzeptieren Floskeln wie "auf Wunsch" oder "besonderer Aufwand" nicht' })
+  else if (pos.begruendungsqualitaet === 'fehlend')
+    tags.push({ label: '📋 Begr. fehlt', bg: redLight, color: '#991b1b', border: '#fca5a5', title: 'Keine schriftliche Begründung gefunden — bei Faktor >2,3× Pflicht nach §12 GOÄ' })
+
+  // 5 — Fachgebiet-Abweichung
+  if (pos.fachgebietAbweichung)
+    tags.push({ label: '🏥 Fachgebiet?', bg: '#f0f9ff', color: '#075985', border: '#bae6fd', title: pos.risikohinweis ?? 'Leistung liegt möglicherweise außerhalb des Fachgebiets des abrechnenden Arztes' })
+
+  // 6 — AXA-Risikoeinschätzung
+  if (pos.axaRisiko === 'hoch')
+    tags.push({ label: '🛡️ AXA: hohes Risiko', bg: redLight, color: '#991b1b', border: '#fca5a5', title: pos.risikohinweis ?? 'Diese Leistung wird von PKVs häufig abgelehnt (IGeL-Verdacht oder kein Versicherungsschutz)' })
+  else if (pos.axaRisiko === 'mittel')
+    tags.push({ label: '🛡️ AXA: Risiko', bg: amberLight, color: '#92400e', border: '#fde68a', title: pos.risikohinweis ?? 'Erstattung hängt von Diagnose und Begründung ab — gelegentlich strittig' })
+
+  if (tags.length === 0) return <span style={{ color: '#94a3b8', fontSize: 11 }}>–</span>
+
   return (
-    <span style={{ background: redLight, color: '#991b1b', fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>🔴 Hoch</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+      {tags.map((t, i) => (
+        <span
+          key={i}
+          title={t.title}
+          style={{ background: t.bg, color: t.color, border: `1px solid ${t.border}`, fontSize: 10, padding: '2px 7px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap', cursor: t.title ? 'help' : 'default' }}
+        >
+          {t.label}
+        </span>
+      ))}
+    </div>
   )
 }
 function StatusBadge({ status }: { status: string }) {
@@ -123,6 +162,13 @@ interface GoaePosition {
   faktor: number
   betrag: number
   flag?: 'ok' | 'pruefe' | 'hoch'
+  analog?: boolean
+  kumulationsrisiko?: boolean
+  kumulationskonflikt?: string | null
+  begruendungsqualitaet?: 'ausreichend' | 'generisch' | 'fehlend' | null
+  fachgebietAbweichung?: boolean
+  axaRisiko?: 'hoch' | 'mittel' | null
+  risikohinweis?: string | null
 }
 interface KassePosition {
   ziffer: string
@@ -146,6 +192,8 @@ interface GoaeAnalyse {
   flagFehlendeBegrundung?: boolean
   einsparpotenzial?: number
   zusammenfassung?: string
+  flagRechnungUnvollstaendig?: boolean
+  fehlendePflichtangaben?: string[]
 }
 interface KasseAnalyse {
   referenznummer?: string
@@ -1012,7 +1060,7 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
           )}
           {isRechnung && (
             <>
-              <SectionHeader num={1} title="Ist die Rechnung korrekt?" sub="GOÄ-Prüfung: Faktoren, Ziffern-Logik, Begründungspflicht" accent={navy} />
+              <SectionHeader num={1} title="Ist die Rechnung korrekt?" sub="GOÄ-Prüfung: Faktoren, Kumulationsverbote, Analogziffern, Formalien" accent={navy} />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
                 <KpiBox label="Rechnungsbetrag" value={`${rData.betragGesamt?.toFixed(2) ?? '–'} €`} />
                 <KpiBox label="Max. Faktor" value={`${rData.maxFaktor ?? '–'}×`} warn={rData.flagFaktorUeberSchwellenwert} sub={rData.maxFaktor && rData.maxFaktor > 2.3 ? '§12 GOÄ — Begründung prüfen' : undefined} />
@@ -1032,31 +1080,66 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
                   )}
                 </div>
               )}
-              <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 8 }}>GOÄ-Positionen ({rData.goaePositionen?.length ?? 0})</div>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc' }}>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', color: slate, fontWeight: 600, width: 70 }}>Ziffer</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', color: slate, fontWeight: 600 }}>Bezeichnung</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', color: slate, fontWeight: 600 }}>Faktor</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', color: slate, fontWeight: 600 }}>Betrag</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'center', color: slate, fontWeight: 600 }}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(rData.goaePositionen ?? []).map((pos, i) => (
-                      <tr key={i} style={{ borderTop: '1px solid #f1f5f9', background: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                        <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: navy }}>{pos.ziffer}</td>
-                        <td style={{ padding: '8px 12px', color: '#334155' }}>{pos.bezeichnung}</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: (pos.faktor ?? 0) > 2.3 ? red : navy }}>{pos.faktor}×</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right', color: navy }}>{pos.betrag?.toFixed(2)} €</td>
-                        <td style={{ padding: '8px 12px', textAlign: 'center' }}><FlagBadge flag={pos.flag} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {/* Formale Unvollständigkeit */}
+              {rData.flagRechnungUnvollstaendig && (rData.fehlendePflichtangaben ?? []).length > 0 && (
+                <div style={{ background: redLight, border: `1px solid ${red}`, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#991b1b' }}>
+                  <strong>⚠ Formale Pflichtangaben fehlen (§12 GOÄ)</strong>
+                  <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                    {(rData.fehlendePflichtangaben ?? []).map((f, i) => <li key={i}>{f}</li>)}
+                  </ul>
+                  <div style={{ fontSize: 11, marginTop: 4, color: '#7f1d1d' }}>Eine unvollständige Rechnung kann von der Kasse formell abgelehnt werden — fordern Sie vom Arzt eine korrigierte Version an.</div>
+                </div>
+              )}
+              {/* GOÄ-Positionen Tabelle */}
+              {(() => {
+                const positionen = rData.goaePositionen ?? []
+                const risikoCount = positionen.filter(p =>
+                  p.flag === 'pruefe' || p.flag === 'hoch' || p.analog || p.kumulationsrisiko ||
+                  p.begruendungsqualitaet === 'generisch' || p.begruendungsqualitaet === 'fehlend' ||
+                  p.fachgebietAbweichung || p.axaRisiko
+                ).length
+                return (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: navy }}>GOÄ-Positionen ({positionen.length})</div>
+                      {risikoCount > 0 && (
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: amberLight, color: '#92400e', border: `1px solid #fde68a` }}>
+                          {risikoCount} Position{risikoCount !== 1 ? 'en' : ''} mit Hinweis
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '8px 12px', textAlign: 'left', color: slate, fontWeight: 600, width: 65 }}>Ziffer</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'left', color: slate, fontWeight: 600 }}>Bezeichnung</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: slate, fontWeight: 600, width: 55 }}>Faktor</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: slate, fontWeight: 600, width: 70 }}>Betrag</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', color: slate, fontWeight: 600, width: 140 }}>Hinweise</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {positionen.map((pos, i) => {
+                            const hasRisk = pos.flag === 'pruefe' || pos.flag === 'hoch' || pos.analog || pos.kumulationsrisiko ||
+                              pos.begruendungsqualitaet === 'generisch' || pos.begruendungsqualitaet === 'fehlend' ||
+                              pos.fachgebietAbweichung || pos.axaRisiko
+                            return (
+                              <tr key={i} style={{ borderTop: '1px solid #f1f5f9', background: hasRisk ? '#fffbeb' : (i % 2 === 0 ? 'white' : '#fafafa') }}>
+                                <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 11, color: navy }}>{pos.ziffer}</td>
+                                <td style={{ padding: '8px 12px', color: '#334155' }}>{pos.bezeichnung}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: (pos.faktor ?? 0) > 2.3 ? red : navy }}>{pos.faktor}×</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: navy }}>{pos.betrag?.toFixed(2)} €</td>
+                                <td style={{ padding: '6px 10px' }}><RisikoTags pos={pos} /></td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )
+              })()}
               <SectionHeader num={2} title="Muss die Kasse zahlen?" sub="Erstattungs-Check: Was hat AXA erstattet, was abgelehnt — und warum?" accent="#b45309" />
               {kassePotenzial > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>

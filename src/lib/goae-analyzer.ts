@@ -8,7 +8,27 @@ export interface GoaePosition {
   bezeichnung: string
   faktor: number
   betrag: number
+  /** Faktor-Ampel: 'ok' ≤2.3×, 'pruefe' 2.3–3.5×, 'hoch' >3.5× */
   flag?: 'ok' | 'pruefe' | 'hoch'
+  /** True wenn die Position analog zu einer anderen GOÄ-Ziffer abgerechnet wird (§6 Abs.2 GOÄ) */
+  analog?: boolean
+  /** True wenn diese Ziffer mit einer anderen Position auf dieser Rechnung kumuliert und das laut GOÄ verboten ist */
+  kumulationsrisiko?: boolean
+  /** Welche andere Ziffer den Konflikt verursacht, z.B. "GOÄ 3" */
+  kumulationskonflikt?: string | null
+  /** Qualität der schriftlichen Begründung wenn Faktor > 2,3×. Null wenn Faktor ≤ 2,3× */
+  begruendungsqualitaet?: 'ausreichend' | 'generisch' | 'fehlend' | null
+  /** True wenn diese Leistung typischerweise außerhalb des Fachgebiets des abrechnenden Arztes liegt */
+  fachgebietAbweichung?: boolean
+  /**
+   * Bekanntes PKV-Ablehnungsrisiko für diese Ziffer:
+   * 'hoch'  = häufig abgelehnt (IGeL-Verdacht, oft nicht erstattungsfähig)
+   * 'mittel' = gelegentlich strittig, abhängig von Diagnose/Begründung
+   * null    = kein besonderes Risiko bekannt
+   */
+  axaRisiko?: 'hoch' | 'mittel' | null
+  /** Kurzer Hinweis für den User warum diese Position riskant ist (max 1 Satz) */
+  risikohinweis?: string | null
 }
 
 export interface AnalyseResult {
@@ -24,6 +44,10 @@ export interface AnalyseResult {
   einsparpotenzial: number
   zusammenfassung: string
   whatsappNachricht: string
+  /** True wenn formale Pflichtangaben nach §12 GOÄ fehlen (Datum, Arztname, Ziffernbezeichnung etc.) */
+  flagRechnungUnvollstaendig?: boolean
+  /** Liste der fehlenden Pflichtangaben */
+  fehlendePflichtangaben?: string[]
 }
 
 // Hardcoded fallbacks — used if DB is unavailable
@@ -36,6 +60,33 @@ WICHTIGE GOÄ-REGELN:
 - Höchstsatz mit Begründung: 3,5-fach (Ausnahme: bis 7-fach bei bestimmten Positionen)
 - Faktoren über 2,3 MÜSSEN schriftlich begründet sein (§12 GOÄ)
 - Doppelberechnungen sind verboten (§4 GOÄ)
+
+KUMULATIONSVERBOTE (§4 GOÄ) — prüfe jede Kombination:
+- GOÄ 1 (kurze Beratung) neben GOÄ 3, 4 oder 5 (Untersuchungen) am selben Tag ist unzulässig — GOÄ 1 ist in Untersuchungsziffern enthalten
+- GOÄ 5 (ausführliche Untersuchung) schließt GOÄ 6, 7, 8 (Teiluntersuchungen) aus
+- GOÄ 26 (EKG) und GOÄ 27 (Langzeit-EKG) nicht gleichzeitig abrechenbar
+- GOÄ 45 und GOÄ 46 schließen sich gegenseitig aus
+- Labor: GOÄ 3511 (großes Blutbild) schließt GOÄ 3550+3551 aus
+- Operative Zuschläge (GOÄ 440–449) nicht zusätzlich zu Grundleistung wenn bereits enthalten
+- Allgemein: Leistungen die methodisch in einer anderen enthalten sind, dürfen nicht addiert werden
+
+ANALOGZIFFERN (§6 Abs.2 GOÄ):
+- Erkennung: Ziffer enthält "analog", "A", oder die Bezeichnung enthält "entsprechend" / "analog"
+- Analogziffern sind grundsätzlich Risikoposition — viele PKVs lehnen ab wenn keine passende Originalziffer existiert
+- Immer axaRisiko mindestens "mittel" setzen
+
+BEGRÜNDUNGSQUALITÄT bei Faktor > 2,3×:
+- "ausreichend": Individuelle, nachvollziehbare medizinische Begründung für den erhöhten Aufwand
+- "generisch": Floskeln wie "auf Wunsch", "besonderer Aufwand", "schwieriger Patient" ohne Substanz — PKVs akzeptieren das NICHT
+- "fehlend": Kein Begründungstext erkennbar
+
+FORMALE VOLLSTÄNDIGKEIT (§12 GOÄ Pflichtangaben):
+Prüfe ob vorhanden: Datum der Leistungserbringung, Name+Anschrift des Arztes, Rechnungsdatum, Rechnungsnummer,
+GOÄ-Ziffern mit Bezeichnung, Faktor je Position. Fehlt etwas → flagRechnungUnvollstaendig = true.
+
+BEKANNTE PKV-RISIKOPOSITION EN (axaRisiko):
+- 'hoch': IGeL-typische Leistungen (Akupunktur ohne Indikation, ästhetische Behandlungen, Reisemedizin-Impfberatung ohne Reise, Homöopathie-Ziffern GOÄ 30/31, GOÄ 725–728 Hypnose ohne Indikation)
+- 'mittel': Ernährungsberatung (GOÄ 77/78), Psychosomatik-Ziffern ohne psychiatrische Diagnose, Analogziffern generell, Positionen ohne direkte Diagnose-Referenz
 
 Gib deine Antwort AUSSCHLIESSLICH als valides JSON zurück, ohne Markdown-Formatierung.`
 
@@ -54,25 +105,41 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
       "bezeichnung": "Beratung, auch telefonisch",
       "faktor": 2.3,
       "betrag": 10.72,
-      "flag": "ok"
+      "flag": "ok",
+      "analog": false,
+      "kumulationsrisiko": false,
+      "kumulationskonflikt": null,
+      "begruendungsqualitaet": null,
+      "fachgebietAbweichung": false,
+      "axaRisiko": null,
+      "risikohinweis": null
     }
   ],
   "maxFaktor": 2.3,
   "flagFaktorUeberSchwellenwert": false,
   "flagFehlendeBegrundung": false,
   "einsparpotenzial": 0.00,
+  "flagRechnungUnvollstaendig": false,
+  "fehlendePflichtangaben": [],
   "zusammenfassung": "Kurze Zusammenfassung der Rechnung auf Deutsch",
   "whatsappNachricht": "Kurze WhatsApp-Nachricht (max 3 Sätze) mit den wichtigsten Befunden für den Patienten"
 }
 
-Flag-Werte für goaePositionen:
-- "ok" = Faktor ≤ 2,3 (Regelfall)
-- "pruefe" = Faktor zwischen 2,3 und 3,5 (Begründung prüfen)
-- "hoch" = Faktor > 3,5 (Begründung zwingend nötig)
+Feldbeschreibungen für goaePositionen:
+- flag: "ok" (Faktor ≤2,3), "pruefe" (2,3–3,5), "hoch" (>3,5)
+- analog: true wenn als Analogziffer abgerechnet (enthält "analog", "A" oder entsprechenden Hinweis)
+- kumulationsrisiko: true wenn diese Ziffer mit einer anderen Position auf DIESER Rechnung ein GOÄ-Kumulationsverbot verletzt
+- kumulationskonflikt: die kolliderende Ziffer als String (z.B. "GOÄ 3") oder null
+- begruendungsqualitaet: nur befüllen wenn Faktor > 2,3×: "ausreichend" | "generisch" | "fehlend". Sonst null.
+- fachgebietAbweichung: true wenn die Leistung typischerweise nicht zum Fachgebiet des abrechnenden Arztes gehört
+- axaRisiko: "hoch" (IGeL, homöopathisch, ästhetisch, häufig abgelehnt) | "mittel" (streitig, diagnoseabhängig) | null
+- risikohinweis: max 1 Satz Erklärung warum diese Position riskant ist (nur wenn axaRisiko oder kumulationsrisiko gesetzt). Null sonst.
 
 flagFaktorUeberSchwellenwert = true wenn irgendein Faktor > 2,3
-flagFehlendeBegrundung = true wenn Faktor > 2,3 aber keine schriftliche Begründung erkennbar
-einsparpotenzial = Betrag der reduziert werden könnte wenn alle Positionen auf 2,3-fach gedeckelt`
+flagFehlendeBegrundung = true wenn Faktor > 2,3 aber keine schriftliche Begründung auf der Rechnung erkennbar
+einsparpotenzial = Betrag der reduziert werden könnte wenn alle Positionen auf 2,3-fach gedeckelt
+flagRechnungUnvollstaendig = true wenn §12 GOÄ Pflichtangaben fehlen (Leistungsdatum, Arztdaten, Ziffernbezeichnung, etc.)
+fehlendePflichtangaben = Liste der fehlenden Felder als Strings, z.B. ["Leistungsdatum fehlt", "Arztadresse unvollständig"]`
 
 // Fetch a setting from DB with fallback
 async function getSetting(key: string, fallback: string): Promise<string> {
