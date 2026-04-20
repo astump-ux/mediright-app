@@ -684,8 +684,8 @@ function KassenbescheidSection({
         </div>
       )}
 
-      {/* ── Handlungsempfehlung ── */}
-      {widerspruch && abgelehnt > 0 && (
+      {/* ── Handlungsempfehlung — collapses together with Abgelehnte Positionen ── */}
+      {showPositionen && widerspruch && abgelehnt > 0 && (
         <div style={{ background: amberLight, border: `1px solid ${amber}`, borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ fontWeight: 700, color: '#92400e', fontSize: 13 }}>⚡ Handlungsempfehlung</div>
@@ -966,8 +966,25 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
   const isRechnung = type === 'rechnung'
   const rData = data as GoaeAnalyse
   const kData = data as KasseAnalyse
-  const goaePotenzial  = rData.einsparpotenzial ?? 0
-  const kassePotenzial = kasseGruppe?.betragAbgelehnt ?? kassenbescheid?.betragAbgelehnt ?? 0
+  const goaePotenzial = rData.einsparpotenzial ?? 0
+
+  // Split abgelehnte positions by action type so KPIs are consistent with Handlungsempfehlung below.
+  // The kassenbescheid analysis sets aktionstyp per position:
+  //   'korrektur_arzt'   → doctor correction needed  (shown in Schritt 1)
+  //   'widerspruch_kasse'→ formal AXA appeal needed  (shown in Schritt 2)
+  type PosWithAction = { status: string; aktionstyp?: string | null; betragEingereicht?: number; betragErstattet?: number }
+  const allKassePos = (kasseGruppe?.positionen ?? []) as PosWithAction[]
+  const abgelehnteKassePos = allKassePos.filter(p => p.status === 'abgelehnt' || p.status === 'gekuerzt')
+  const arztPos    = abgelehnteKassePos.filter(p => p.aktionstyp === 'korrektur_arzt')
+  const kassePos   = abgelehnteKassePos.filter(p => p.aktionstyp !== 'korrektur_arzt')
+  const kasseArztPot = arztPos.reduce((s, p) => s + (p.betragEingereicht ?? 0) - (p.betragErstattet ?? 0), 0)
+  const kasseWiderspr = kassePos.reduce((s, p) => s + (p.betragEingereicht ?? 0) - (p.betragErstattet ?? 0), 0)
+  // Arzt KPI: kassenbescheid korrektur_arzt takes priority; fall back to GOÄ einsparpotenzial
+  const arztKorrekturPot = kasseArztPot > 0 ? kasseArztPot : goaePotenzial
+  // Kasse KPI: only the widerspruch_kasse portion; fall back to total abgelehnt minus arzt
+  const totalAbgelehnt = kasseGruppe?.betragAbgelehnt ?? kassenbescheid?.betragAbgelehnt ?? 0
+  const kassePotenzial = kasseWiderspr > 0 ? kasseWiderspr
+    : Math.max(0, totalAbgelehnt - kasseArztPot)
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
@@ -999,7 +1016,7 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
                 <KpiBox label="Rechnungsbetrag" value={`${rData.betragGesamt?.toFixed(2) ?? '–'} €`} />
                 <KpiBox label="Max. Faktor" value={`${rData.maxFaktor ?? '–'}×`} warn={rData.flagFaktorUeberSchwellenwert} sub={rData.maxFaktor && rData.maxFaktor > 2.3 ? '§12 GOÄ — Begründung prüfen' : undefined} />
-                <KpiBox label="Korrektur-Potenzial (Arzt)" value={goaePotenzial > 0 ? `${goaePotenzial.toFixed(2)} €` : '–'} warn={goaePotenzial > 0} sub={goaePotenzial > 0 ? 'Arzt hat zu hoch abgerechnet' : 'Keine GOÄ-Beanstandung'} />
+                <KpiBox label="Korrektur-Potenzial (Arzt)" value={arztKorrekturPot > 0 ? `${arztKorrekturPot.toFixed(2)} €` : '–'} warn={arztKorrekturPot > 0} sub={arztKorrekturPot > 0 ? (kasseArztPot > 0 ? 'Arzt Reklamation (Kasse)' : 'GOÄ-Beanstandung') : 'Keine Beanstandung'} />
               </div>
               {(rData.flagFehlendeBegrundung || rData.flagFaktorUeberSchwellenwert) && (
                 <div style={{ background: redLight, border: `1px solid ${red}`, borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#991b1b' }}>
