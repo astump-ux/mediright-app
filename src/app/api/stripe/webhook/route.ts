@@ -10,7 +10,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
-import { stripe, CREDIT_PACKS } from '@/lib/stripe'
+import { getStripe, CREDIT_PACKS } from '@/lib/stripe'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import {
   addCredits,
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
   let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(body, signature, secret)
+    event = getStripe().webhooks.constructEvent(body, signature, secret)
   } catch (err) {
     console.error('[stripe-webhook] signature verification failed:', err)
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })

@@ -9,7 +9,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { stripe, CREDIT_PACKS, PRO_SUBSCRIPTION, type CreditPackId } from '@/lib/stripe'
+import { getStripe, CREDIT_PACKS, PRO_SUBSCRIPTION, type CreditPackId } from '@/lib/stripe'
 import { getUserCreditStatus, setStripeCustomerId } from '@/lib/credits'
 
 export async function POST(req: NextRequest) {
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   let stripeCustomerId = creditStatus.stripeCustomerId
 
   if (!stripeCustomerId) {
-    const customer = await stripe.customers.create({
+    const customer = await getStripe().customers.create({
       email:    user.email,
       metadata: { supabase_user_id: user.id },
     })
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   // ── Create checkout session ─────────────────────────────────────────────────
   const appUrl  = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
-  const session = await stripe.checkout.sessions.create({
+  const session = await getStripe().checkout.sessions.create({
     customer:             stripeCustomerId,
     mode,
     line_items:           [{ price: priceId, quantity: 1 }],
