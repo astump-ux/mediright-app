@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { classifyPdf, analyzeRechnungPdf, analyzeKassePdf } from '@/lib/goae-analyzer'
 import { matchKasseToVorgaenge, matchVorgangToKasse } from '@/lib/matching'
+import { checkAndDeductAnalysisCredit } from '@/lib/credits'
 import twilio from 'twilio'
 
 export const maxDuration = 60
@@ -95,6 +96,27 @@ export async function POST(request: NextRequest) {
   // ── 4. Classify ────────────────────────────────────────────────────────────
   const docType = await classifyPdf(pdfBuffer, pkvName)
   console.log('[analyze-auto] docType:', docType)
+
+  // ── 4b. Credit gate ────────────────────────────────────────────────────────
+  const creditReason = docType === 'kassenabrechnung' ? 'kasse_analyse' : 'rechnung_analyse'
+  const creditCheck  = await checkAndDeductAnalysisCredit(userId, creditReason, { vorgangId, docType })
+  if (!creditCheck.allowed) {
+    console.log('[analyze-auto] credit gate blocked:', creditCheck.error, '| userId:', userId)
+    if (phone) {
+      await sendWhatsApp(phone,
+        `⚠️ Keine Analyse-Credits verfügbar.\n\nBitte kaufe Credits unter: ${process.env.NEXT_PUBLIC_APP_URL ?? 'https://mediright.app'}/pricing\n\nDein Dokument wurde gespeichert und kann nach dem Kauf erneut analysiert werden.`
+      )
+    }
+    // Mark vorgang as pending-credit so it can be re-triggered later
+    await supabaseAdmin
+      .from('vorgaenge')
+      .update({ analyse_status: 'pending_credits', updated_at: new Date().toISOString() })
+      .eq('id', vorgangId)
+    return NextResponse.json({ error: 'no_credits', message: 'No analysis credits remaining' }, { status: 402 })
+  }
+  if (creditCheck.usedFree) {
+    console.log('[analyze-auto] used free analysis for userId:', userId)
+  }
 
   // ── 5. Route ───────────────────────────────────────────────────────────────
   try {

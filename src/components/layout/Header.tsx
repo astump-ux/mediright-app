@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
+import type { CreditStatus } from "@/lib/credits";
 
 const navItems = [
   { href: "/dashboard",        label: "Dashboard" },
@@ -15,6 +16,7 @@ export default function Header() {
   const pathname  = usePathname();
   const [open, setOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [credits, setCredits] = useState<CreditStatus | null>(null);
   const menuRef   = useRef<HTMLDivElement>(null);
 
   // Fetch user role once on mount
@@ -22,6 +24,14 @@ export default function Header() {
     fetch('/api/user/role')
       .then(r => r.json())
       .then(d => setIsAdmin(d.role === 'admin'))
+      .catch(() => {})
+  }, [])
+
+  // Fetch credit status once on mount
+  useEffect(() => {
+    fetch('/api/credits')
+      .then(r => r.json())
+      .then(d => setCredits(d as CreditStatus))
       .catch(() => {})
   }, [])
 
@@ -40,10 +50,21 @@ export default function Header() {
   useEffect(() => { setOpen(false); }, [pathname]);
 
   const userMenuItems = [
-    { href: "/settings", label: "Einstellungen", icon: "⚙️" },
-    { href: "/admin",    label: "Admin",          icon: "🛠" },
+    { href: "/pricing",  label: "Credits & Abo",   icon: "⚡" },
+    { href: "/settings", label: "Einstellungen",   icon: "⚙️" },
+    { href: "/admin",    label: "Admin",            icon: "🛠" },
     ...(isAdmin ? [{ href: "/system", label: "System", icon: "🔧" }] : []),
   ];
+
+  // Credit badge helpers
+  const creditBadge = (() => {
+    if (!credits) return null
+    if (credits.isPro) return { label: 'PRO', bg: 'var(--mint)', color: '#0f172a' }
+    const total = credits.balance + credits.freeRemaining
+    if (total === 0) return { label: '0 Credits', bg: '#fee2e2', color: '#991b1b' }
+    if (total <= 1) return { label: `${total} Credit`, bg: '#fef3c7', color: '#92400e' }
+    return { label: `${total} Credits`, bg: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)' }
+  })()
 
   const isUserPageActive =
     pathname.startsWith("/settings") ||
@@ -87,6 +108,23 @@ export default function Header() {
             );
           })}
         </nav>
+
+        {/* Credit badge */}
+        {creditBadge && (
+          <Link
+            href="/pricing"
+            className="no-underline"
+            style={{
+              fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+              background: creditBadge.bg, color: creditBadge.color,
+              border: credits?.isPro ? 'none' : '1px solid rgba(255,255,255,0.15)',
+              transition: 'opacity 0.15s',
+            }}
+            title="Credits & Abo verwalten"
+          >
+            {creditBadge.label}
+          </Link>
+        )}
 
         {/* Avatar dropdown */}
         <div ref={menuRef} style={{ position: "relative" }}>
