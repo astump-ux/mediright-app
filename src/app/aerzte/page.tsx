@@ -17,7 +17,8 @@ type KassePositionRaw = {
   status?: 'erstattet' | 'gekuerzt' | 'abgelehnt'
 }
 type KasseRechnungRaw = {
-  matchedVorgangId?: string
+  matchedVorgangId?: string | null
+  arztName?: string | null
   betragEingereicht?: number; betragErstattet?: number; betragAbgelehnt?: number
   positionen?: KassePositionRaw[]
 }
@@ -34,9 +35,10 @@ type VorgangRow = {
   flag_fehlende_begruendung: boolean | null; flag_faktor_ueber_schwellenwert: boolean | null
   einsparpotenzial: number | null
   goae_positionen: GoaePositionRaw[] | null
-  aerzte: unknown       // ArztRow via FK
+  aerzte: unknown
   kassenabrechnung_id: string | null
-  kassenabrechnungen: unknown  // KassenabrechRow via FK
+  // kassenabrechnungen joined only for widerspruch_status / arzt_reklamation_status
+  kassenabrechnungen: unknown
 }
 
 function fmtMonYY(iso: string | null): string {
@@ -64,7 +66,7 @@ export default async function AerztePage() {
     .single()
   const kasseName: string = (profile?.versicherung as string | null) ?? 'PKV'
 
-  // ── 2. All Vorgänge with linked Arzt + Kassenbescheid ─────────────────────
+  // ── 2. All Vorgänge (with arzt + kasse status for actions) ───────────────
   const { data: rawVorgaenge } = await admin
     .from('vorgaenge')
     .select(`
@@ -72,18 +74,23 @@ export default async function AerztePage() {
       flag_fehlende_begruendung, flag_faktor_ueber_schwellenwert,
       einsparpotenzial, goae_positionen, kassenabrechnung_id,
       aerzte ( id, name, fachgebiet ),
-      kassenabrechnungen (
-        id, bescheiddatum,
-        betrag_eingereicht, betrag_erstattet, betrag_abgelehnt,
-        widerspruch_status, arzt_reklamation_status, kasse_analyse
-      )
+      kassenabrechnungen ( id, widerspruch_status, arzt_reklamation_status )
     `)
     .eq('user_id', user.id)
     .order('rechnungsdatum', { ascending: true })
 
   const vorgaenge = (rawVorgaenge ?? []) as VorgangRow[]
 
-  // ── 3. Benchmark reference data ───────────────────────────────────────────
+  // ── 3. ALL Kassenabrechnungen separately — source of truth for €-Daten ───
+  // Same approach as dashboard-queries.ts: query independently, not via FK join,
+  // so we can apply matchedVorgangId + fuzzy-name fallback reliably.
+  const { data: rawKasse } = await admin
+    .from('kassenabrechnungen')
+    .select('id, bescheiddatum, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_status, arzt_reklamation_status, kasse_analyse')
+    .eq('user_id', user.id)
+    .order('bescheiddatum', { ascending: true })
+
+  // ── 4. Benchmark reference data ───────────────────────────────────────────
   const { data: fachBenchmarks } = await admin
     .from('fachgruppen_benchmarks')
     .select('fachgruppe, ablehnungsquote_avg, stichprobe_beschreibung')
@@ -97,79 +104,124 @@ export default async function AerztePage() {
   const fachBenchMap = new Map<string, { avg: number; quelle: string }>(
     (fachBenchmarks ?? []).map(b => [b.fachgruppe, { avg: Number(b.ablehnungsquote_avg), quelle: b.stichprobe_beschreibung ?? '' }])
   )
-  const kasseAvg   = kasseBenchmarkRow ? Number(kasseBenchmarkRow.ablehnungsquote_avg) : null
+  const kasseAvg    = kasseBenchmarkRow ? Number(kasseBenchmarkRow.ablehnungsquote_avg) : null
   const kasseQuelle = kasseBenchmarkRow?.stichprobe_beschreibung ?? ''
 
-  // ── 4. Group Vorgänge by Arzt ─────────────────────────────────────────────
-  type ArztAgg = {
-    arzt: ArztRow
-    vorgaenge: VorgangRow[]
-  }
-  const arztMap = new Map<string, ArztAgg>()
+  // ── 5. Build lookup maps from Vorgänge ────────────────────────────────────
+  // vorgangId → ArztRow
+  const vorgangToArzt = new Map<string, ArztRow>()
   for (const v of vorgaenge) {
-    const arzt = (v.aerzte as unknown) as ArztRow | null
-    if (!arzt?.id) continue
-    if (!arztMap.has(arzt.id)) arztMap.set(arzt.id, { arzt, vorgaenge: [] })
-    arztMap.get(arzt.id)!.vorgaenge.push(v)
+    const a = (v.aerzte as unknown) as ArztRow | null
+    if (a?.id) vorgangToArzt.set(v.id, a)
   }
 
-  // ── 5. Build ArztAkteData per Arzt ────────────────────────────────────────
+  // ── 6. Walk all Kassenabrechnungen → build per-arzt AND per-vorgang maps ──
+  // Uses the same matchedVorgangId → fuzzy-name fallback as dashboard-queries.ts
+  type KasseAgg = { eingereicht: number; erstattet: number; abgelehnt: number }
+  const arztKasseMap    = new Map<string, KasseAgg>()   // arztId → totals
+  const vorgangKasseMap = new Map<string, KasseAgg & {  // vorgangId → this-visit slice
+    bescheiddatum: string | null
+    positionen: KassePositionRaw[]
+  }>()
+
+  for (const k of rawKasse ?? []) {
+    const ka = k.kasse_analyse as KasseAnalyseRaw | null
+    if (!ka?.rechnungen) continue
+
+    for (const gruppe of ka.rechnungen) {
+      // ── Resolve arztId ──────────────────────────────────────────────
+      let arztId: string | undefined
+      let resolvedVorgangId: string | undefined
+
+      if (gruppe.matchedVorgangId) {
+        resolvedVorgangId = gruppe.matchedVorgangId
+        arztId = vorgangToArzt.get(gruppe.matchedVorgangId)?.id
+      }
+      // Fuzzy name fallback (same logic as dashboard-queries.ts)
+      if (!arztId && gruppe.arztName) {
+        const needle = gruppe.arztName.toLowerCase()
+        for (const [vid, arzt] of vorgangToArzt.entries()) {
+          const hayName = arzt.name.toLowerCase()
+          if (hayName.includes(needle) || needle.includes(hayName.split(' ').pop() ?? '')) {
+            arztId = arzt.id
+            resolvedVorgangId = vid
+            break
+          }
+        }
+      }
+      if (!arztId) continue
+
+      const amounts: KasseAgg = {
+        eingereicht: gruppe.betragEingereicht ?? 0,
+        erstattet:   gruppe.betragErstattet   ?? 0,
+        abgelehnt:   gruppe.betragAbgelehnt   ?? 0,
+      }
+
+      // Accumulate arzt totals
+      const existing = arztKasseMap.get(arztId) ?? { eingereicht: 0, erstattet: 0, abgelehnt: 0 }
+      arztKasseMap.set(arztId, {
+        eingereicht: existing.eingereicht + amounts.eingereicht,
+        erstattet:   existing.erstattet   + amounts.erstattet,
+        abgelehnt:   existing.abgelehnt   + amounts.abgelehnt,
+      })
+
+      // Per-vorgang slice (for Verlauf chart + GOÄ rejection matching)
+      if (resolvedVorgangId) {
+        vorgangKasseMap.set(resolvedVorgangId, {
+          ...amounts,
+          bescheiddatum: k.bescheiddatum,
+          positionen:    gruppe.positionen ?? [],
+        })
+      }
+    }
+  }
+
+  // ── 7. Group Vorgänge by Arzt ─────────────────────────────────────────────
+  type ArztAgg = { arzt: ArztRow; vorgaenge: VorgangRow[] }
+  const arztMap = new Map<string, ArztAgg>()
+  for (const v of vorgaenge) {
+    const a = (v.aerzte as unknown) as ArztRow | null
+    if (!a?.id) continue
+    if (!arztMap.has(a.id)) arztMap.set(a.id, { arzt: a, vorgaenge: [] })
+    arztMap.get(a.id)!.vorgaenge.push(v)
+  }
+
+  // ── 8. Build ArztAkteData per Arzt ────────────────────────────────────────
   const aerzte: ArztAkteData[] = Array.from(arztMap.values()).map(({ arzt, vorgaenge: avs }) => {
     const fach = arzt.fachgebiet ?? 'Sonstige'
 
-    // ── Totals ──
-    const gesamtBetrag     = avs.reduce((s, v) => s + (v.betrag_gesamt ?? 0), 0)
-    const eingereichtTotal = avs.reduce((s, v) => {
-      const k = (v.kassenabrechnungen as unknown) as KassenabrechRow | null
-      if (!k) return s
-      const ka = k.kasse_analyse
-      if (!ka?.rechnungen) return s
-      const gruppe = ka.rechnungen.find(r => r.matchedVorgangId === v.id)
-      return s + (gruppe?.betragEingereicht ?? 0)
-    }, 0)
-    const erstattetTotal = avs.reduce((s, v) => {
-      const k = (v.kassenabrechnungen as unknown) as KassenabrechRow | null
-      if (!k) return s
-      const ka = k.kasse_analyse
-      const gruppe = ka?.rechnungen?.find(r => r.matchedVorgangId === v.id)
-      return s + (gruppe?.betragErstattet ?? 0)
-    }, 0)
-    const abgelehntTotal = avs.reduce((s, v) => {
-      const k = (v.kassenabrechnungen as unknown) as KassenabrechRow | null
-      if (!k) return s
-      const ka = k.kasse_analyse
-      const gruppe = ka?.rechnungen?.find(r => r.matchedVorgangId === v.id)
-      return s + (gruppe?.betragAbgelehnt ?? 0)
-    }, 0)
+    // ── Totals (from arztKasseMap — reliable, fuzzy-fallback included) ──
+    const gesamtBetrag   = avs.reduce((s, v) => s + (v.betrag_gesamt ?? 0), 0)
+    const kasseData      = arztKasseMap.get(arzt.id)
+    const eingereichtTotal = kasseData?.eingereicht ?? 0
+    const erstattetTotal   = kasseData?.erstattet   ?? 0
+    const abgelehntTotal   = kasseData?.abgelehnt   ?? 0
 
     const hatKassenbescheid = eingereichtTotal > 0
     const ablehnungsquote   = eingereichtTotal > 0
       ? Math.round((abgelehntTotal / eingereichtTotal) * 100)
       : 0
 
-    // ── Verlauf per Besuch ──
+    // ── Verlauf per Besuch (from vorgangKasseMap) ──
     const verlauf: VerlaufPunkt[] = avs.map(v => {
-      const k   = (v.kassenabrechnungen as unknown) as KassenabrechRow | null
-      const ka  = k?.kasse_analyse ?? null
-      const grp = ka?.rechnungen?.find(r => r.matchedVorgangId === v.id) ?? null
-      const eingereicht = grp?.betragEingereicht ?? null
-      const erstattet   = grp?.betragErstattet   ?? null
-      const abgelehnt   = grp?.betragAbgelehnt   ?? null
+      const slice = vorgangKasseMap.get(v.id) ?? null
+      const eingereicht = slice?.eingereicht ?? null
+      const erstattet   = slice?.erstattet   ?? null
+      const abgelehnt   = slice?.abgelehnt   ?? null
       const quote = eingereicht && eingereicht > 0
         ? Math.round(((abgelehnt ?? 0) / eingereicht) * 100)
         : null
       return {
-        datum:          fmtMonYY(v.rechnungsdatum),
-        betrag:         v.betrag_gesamt ?? 0,
-        erstattet:      erstattet,
-        abgelehnt:      abgelehnt,
+        datum:           fmtMonYY(v.rechnungsdatum),
+        betrag:          v.betrag_gesamt ?? 0,
+        erstattet,
+        abgelehnt,
         ablehnungsquote: quote,
-        hasBescheid:    !!k,
+        hasBescheid:     !!slice,
       }
     })
 
-    // ── GOÄ Muster — aggregate codes across all visits ──
-    // zifferKey → { haeufigkeit, faktoren[], betraege[], rejectedCount, totalWithBescheid }
+    // ── GOÄ Muster — aggregate across all visits, with rejection data ──
     type ZiffAgg = {
       ziffer: string; bezeichnung: string; risiko: 'ok' | 'pruefe' | 'hoch'
       haeufigkeit: number; faktoren: number[]
@@ -179,37 +231,29 @@ export default async function AerztePage() {
 
     for (const v of avs) {
       const positionen = v.goae_positionen ?? []
-      const k  = (v.kassenabrechnungen as unknown) as KassenabrechRow | null
-      const ka = k?.kasse_analyse ?? null
-      const grp = ka?.rechnungen?.find(r => r.matchedVorgangId === v.id) ?? null
+      const kassSlice  = vorgangKasseMap.get(v.id) ?? null
 
       for (const pos of positionen) {
-        const key = pos.ziffer
-        if (!ziffMap.has(key)) {
+        if (!ziffMap.has(pos.ziffer)) {
           const risiko: 'ok' | 'pruefe' | 'hoch' =
             pos.axaRisiko === 'hoch' ? 'hoch'
             : (pos.flag === 'hoch' || pos.flag === 'pruefe') ? pos.flag
             : 'ok'
-          ziffMap.set(key, {
-            ziffer: key,
-            bezeichnung: pos.bezeichnung ?? `GOÄ ${key}`,
-            risiko,
-            haeufigkeit: 0, faktoren: [],
+          ziffMap.set(pos.ziffer, {
+            ziffer: pos.ziffer, bezeichnung: pos.bezeichnung ?? `GOÄ ${pos.ziffer}`,
+            risiko, haeufigkeit: 0, faktoren: [],
             rejectedCount: 0, totalWithBescheid: 0,
           })
         }
-        const agg = ziffMap.get(key)!
+        const agg = ziffMap.get(pos.ziffer)!
         agg.haeufigkeit++
         if (pos.faktor) agg.faktoren.push(pos.faktor)
 
-        // Match against kassenbescheid positionen for rejection data
-        if (grp?.positionen) {
-          const kassPos = grp.positionen.find(kp => kp.ziffer === key)
+        if (kassSlice?.positionen) {
+          const kassPos = kassSlice.positionen.find(kp => kp.ziffer === pos.ziffer)
           if (kassPos) {
             agg.totalWithBescheid++
-            if (kassPos.status === 'abgelehnt' || kassPos.status === 'gekuerzt') {
-              agg.rejectedCount++
-            }
+            if (kassPos.status === 'abgelehnt' || kassPos.status === 'gekuerzt') agg.rejectedCount++
           }
         }
       }
@@ -217,10 +261,10 @@ export default async function AerztePage() {
 
     const goaMuster: GoaMusterItem[] = Array.from(ziffMap.values())
       .map(z => ({
-        ziffer:            z.ziffer,
-        bezeichnung:       z.bezeichnung,
-        haeufigkeit:       z.haeufigkeit,
-        avgFaktor:         z.faktoren.length > 0
+        ziffer:       z.ziffer,
+        bezeichnung:  z.bezeichnung,
+        haeufigkeit:  z.haeufigkeit,
+        avgFaktor:    z.faktoren.length > 0
           ? Math.round((z.faktoren.reduce((s, f) => s + f, 0) / z.faktoren.length) * 10) / 10
           : 1.0,
         axaAblehnungsrate: z.totalWithBescheid > 0
@@ -229,7 +273,7 @@ export default async function AerztePage() {
         risiko: z.risiko,
       }))
       .sort((a, b) => b.haeufigkeit - a.haeufigkeit)
-      .slice(0, 8)   // top 8 codes
+      .slice(0, 8)
 
     // ── Benchmarks ──
     const fachBench = fachBenchMap.get(fach) ?? fachBenchMap.get('Sonstige') ?? null
@@ -239,7 +283,6 @@ export default async function AerztePage() {
       label:          `Ø ${fach} (PKV, kassenübergreifend)`,
       quelle:         fachBench.quelle,
     } : null
-
     const benchmarkKasse = (kasseAvg !== null && hatKassenbescheid) ? {
       thisArzt:       ablehnungsquote,
       vergleichswert: kasseAvg,
@@ -268,42 +311,34 @@ export default async function AerztePage() {
         })
       }
     }
-    for (const v of avs) {
-      const k = (v.kassenabrechnungen as unknown) as KassenabrechRow | null
-      if (!k) continue
-      if (k.widerspruch_status === 'erstellt') {
-        offeneAktionen.push({
-          typ: 'widerspruch_offen',
-          label: `Kassenwiderspruch erstellt, noch nicht gesendet`,
-          href: '/widersprueche',
-          prioritaet: 'hoch',
-        })
-        break
-      }
-      if (k.arzt_reklamation_status === 'erstellt') {
-        offeneAktionen.push({
-          typ: 'arzt_reklamation',
-          label: `Arztreklamation erstellt, noch nicht gesendet`,
-          href: '/widersprueche',
-          prioritaet: 'hoch',
-        })
-        break
-      }
+    // Check widerspruch/reklamation status from the joined kassenabrechnungen
+    const widerspruchOffen = avs.some(v => {
+      const k = (v.kassenabrechnungen as { widerspruch_status?: string | null } | null)
+      return k?.widerspruch_status === 'erstellt'
+    })
+    if (widerspruchOffen) {
+      offeneAktionen.push({ typ: 'widerspruch_offen', label: 'Kassenwiderspruch erstellt, noch nicht gesendet', href: '/widersprueche', prioritaet: 'hoch' })
+    }
+    const reklamationOffen = avs.some(v => {
+      const k = (v.kassenabrechnungen as { arzt_reklamation_status?: string | null } | null)
+      return k?.arzt_reklamation_status === 'erstellt'
+    })
+    if (reklamationOffen) {
+      offeneAktionen.push({ typ: 'arzt_reklamation', label: 'Arztreklamation erstellt, noch nicht gesendet', href: '/widersprueche', prioritaet: 'hoch' })
     }
 
-    const flagged = avs.some(v => v.flag_fehlende_begruendung || v.flag_faktor_ueber_schwellenwert)
-
+    const flagged  = avs.some(v => v.flag_fehlende_begruendung || v.flag_faktor_ueber_schwellenwert)
     const daten    = avs.map(v => v.rechnungsdatum).filter(Boolean) as string[]
     const sortiert = [...daten].sort()
 
     return {
-      id:                arzt.id,
-      name:              arzt.name,
-      fachrichtung:      fach,
-      ersterBesuch:      fmtDE(sortiert[0] ?? null),
-      letzterBesuch:     fmtDE(sortiert[sortiert.length - 1] ?? null),
-      besuche:           avs.length,
-      gesamtBetrag:      Math.round(gesamtBetrag),
+      id:                  arzt.id,
+      name:                arzt.name,
+      fachrichtung:        fach,
+      ersterBesuch:        fmtDE(sortiert[0] ?? null),
+      letzterBesuch:       fmtDE(sortiert[sortiert.length - 1] ?? null),
+      besuche:             avs.length,
+      gesamtBetrag:        Math.round(gesamtBetrag),
       eingereichtBeiKasse: Math.round(eingereichtTotal),
       erstattetVonKasse:   Math.round(erstattetTotal),
       abgelehntVonKasse:   Math.round(abgelehntTotal),
@@ -317,7 +352,6 @@ export default async function AerztePage() {
       flagged,
     }
   }).sort((a, b) => {
-    // Flagged first, then by Gesamtbetrag desc
     if (a.flagged !== b.flagged) return a.flagged ? -1 : 1
     return b.gesamtBetrag - a.gesamtBetrag
   })
