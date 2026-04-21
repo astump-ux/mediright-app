@@ -291,7 +291,7 @@ export default function PricingPage() {
                 background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
                 fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6,
               }}>
-                💡 <strong style={{ color: 'white' }}>Bereits 1 erfolgreicher Widerspruch</strong> (meist €50–200) rechnet sich das Jahresabo mehrfach.
+                💡 <strong style={{ color: 'white' }}>Bereits ab 1 erfolgreichen Widerspruch</strong> (meist €50–200) rechnet sich das Jahresabo mehrfach.
               </div>
               {isPro ? (
                 <div style={{
