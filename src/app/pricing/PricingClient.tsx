@@ -223,7 +223,7 @@ export default function PricingPage() {
             🔍 Was passiert bei einer Analyse?
           </div>
           <p style={{ fontSize: 14, color: navy, margin: '0 0 16px', lineHeight: 1.65 }}>
-            Eine Analyse-Credit deckt die vollständige KI-Prüfung <em>eines</em> Dokuments ab — entweder eine Arztrechnung (GOÄ-Check) oder einen Kassenbescheid (Erstattungsprüfung). Das Ergebnis ist ein fertiger Briefentwurf, den du direkt absenden kannst.
+            Ein Credit wird <strong>nur für Kassenbescheid-Analysen</strong> verbraucht — das ist der Schritt, bei dem echtes Geld auf dem Spiel steht. Arztrechnungen werden automatisch und <strong>immer kostenlos</strong> auf GOÄ-Auffälligkeiten geprüft.
           </p>
           {/* Step-by-step example */}
           <div style={{
@@ -282,7 +282,9 @@ export default function PricingPage() {
               '✓ Unbegrenzt Dokumente hochladen & speichern',
               '✓ Automatische Klassifizierung (Arzt, Datum, Betrag)',
               '✓ Erstattungs-Tracker & Dashboard',
-              '✓ 2 vollständige KI-Analysen (Lifetime)',
+              '✓ Arztrechnung GOÄ-Check — immer kostenlos',
+              '✓ 2 Kassenbescheid-Analysen inkl. Widerspruchsbrief (Lifetime)',
+              '✓ Ärzteakte mit Benchmark-Vergleichen',
             ].map((f, i) => (
               <div key={i} style={{ fontSize: 12, color: '#334155', padding: '3px 0' }}>{f}</div>
             ))}

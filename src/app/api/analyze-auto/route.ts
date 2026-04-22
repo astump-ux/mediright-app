@@ -98,24 +98,30 @@ export async function POST(request: NextRequest) {
   console.log('[analyze-auto] docType:', docType)
 
   // ── 4b. Credit gate ────────────────────────────────────────────────────────
-  const creditReason = docType === 'kassenabrechnung' ? 'kasse_analyse' : 'rechnung_analyse'
-  const creditCheck  = await checkAndDeductAnalysisCredit(userId, creditReason, { vorgangId, docType })
-  if (!creditCheck.allowed) {
-    console.log('[analyze-auto] credit gate blocked:', creditCheck.error, '| userId:', userId)
-    if (phone) {
-      await sendWhatsApp(phone,
-        `⚠️ Keine Analyse-Credits verfügbar.\n\nBitte kaufe Credits unter: ${process.env.NEXT_PUBLIC_APP_URL ?? 'https://mediright.app'}/pricing\n\nDein Dokument wurde gespeichert und kann nach dem Kauf erneut analysiert werden.`
-      )
+  // Arztrechnung analysis is always free:
+  //   - Rule engine (rule-based GOÄ parser) has zero AI cost
+  //   - Haiku fallback costs ~€0.001 per invoice — absorbed as product cost
+  // Only Kassenbescheid analysis (legal reasoning, Widerspruchsbrief) consumes a credit.
+  if (docType === 'kassenabrechnung') {
+    const creditCheck = await checkAndDeductAnalysisCredit(userId, 'kasse_analyse', { vorgangId, docType })
+    if (!creditCheck.allowed) {
+      console.log('[analyze-auto] credit gate blocked:', creditCheck.error, '| userId:', userId)
+      if (phone) {
+        await sendWhatsApp(phone,
+          `⚠️ Keine Analyse-Credits verfügbar.\n\nBitte kaufe Credits unter: ${process.env.NEXT_PUBLIC_APP_URL ?? 'https://mediright.app'}/pricing\n\nDein Dokument wurde gespeichert und kann nach dem Kauf erneut analysiert werden.`
+        )
+      }
+      await supabaseAdmin
+        .from('vorgaenge')
+        .update({ analyse_status: 'pending_credits', updated_at: new Date().toISOString() })
+        .eq('id', vorgangId)
+      return NextResponse.json({ error: 'no_credits', message: 'No analysis credits remaining' }, { status: 402 })
     }
-    // Mark vorgang as pending-credit so it can be re-triggered later
-    await supabaseAdmin
-      .from('vorgaenge')
-      .update({ analyse_status: 'pending_credits', updated_at: new Date().toISOString() })
-      .eq('id', vorgangId)
-    return NextResponse.json({ error: 'no_credits', message: 'No analysis credits remaining' }, { status: 402 })
-  }
-  if (creditCheck.usedFree) {
-    console.log('[analyze-auto] used free analysis for userId:', userId)
+    if (creditCheck.usedFree) {
+      console.log('[analyze-auto] used free analysis for userId:', userId)
+    }
+  } else {
+    console.log('[analyze-auto] arztrechnung — no credit deducted (always free)')
   }
 
   // ── 5. Route ───────────────────────────────────────────────────────────────

@@ -228,23 +228,36 @@ async function fetchTariffContext(pkvName: string | null | undefined): Promise<s
 }
 
 export async function analyzeRechnungPdf(pdfBuffer: Buffer, pkvName?: string | null): Promise<AnalyseResult> {
-  const [baseSystemPrompt, userPrompt, model] = await Promise.all([
+  // ── Step 1: Try rule-based engine (free, no AI cost) ──────────────────────
+  const { analyzeRechnungRuleBased, CONFIDENCE_THRESHOLD } = await import('./goae-rule-engine')
+  const ruleResult = await analyzeRechnungRuleBased(pdfBuffer)
+
+  if (ruleResult && ruleResult.confidence >= CONFIDENCE_THRESHOLD) {
+    console.log(`[goae] rule engine: confidence=${ruleResult.confidence.toFixed(2)} — skipping AI`)
+    logKiUsage({ callType: 'goae_analyse', model: 'rule_engine', inputTokens: 0, outputTokens: 0 }).catch(() => {})
+    return ruleResult.result
+  }
+
+  // ── Step 2: Fallback to Haiku (fast, cheap — not Sonnet) ─────────────────
+  // Haiku is sufficient for structured extraction from German invoice PDFs.
+  // Sonnet is reserved for Kassenbescheid analysis (legal reasoning required).
+  const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
+  console.log(`[goae] rule engine confidence=${ruleResult?.confidence.toFixed(2) ?? 'n/a'} — falling back to ${HAIKU_MODEL}`)
+
+  const [baseSystemPrompt, userPrompt] = await Promise.all([
     getSetting('goae_system_prompt', DEFAULT_SYSTEM_PROMPT),
     getSetting('goae_user_prompt', DEFAULT_USER_PROMPT),
-    getSetting('goae_analyse_model', 'claude-sonnet-4-6'),
   ])
 
   const tariffContext = await fetchTariffContext(pkvName)
-  const systemPrompt = tariffContext
-    ? baseSystemPrompt + tariffContext
-    : baseSystemPrompt
+  const systemPrompt  = tariffContext ? baseSystemPrompt + tariffContext : baseSystemPrompt
 
   const { text, usage } = await callAiWithPdf({
-    model, systemPrompt, userPrompt,
+    model: HAIKU_MODEL, systemPrompt, userPrompt,
     pdfBase64: pdfBuffer.toString('base64'),
     maxTokens: 4096,
   })
-  logKiUsage({ callType: 'goae_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }).catch(() => {})
+  logKiUsage({ callType: 'goae_analyse', model: HAIKU_MODEL, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }).catch(() => {})
   return extractJson<AnalyseResult>(text)
 }
 
