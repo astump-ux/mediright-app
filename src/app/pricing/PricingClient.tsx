@@ -102,7 +102,7 @@ function CreditPackCard({ pack, isPro }: { pack: typeof CREDIT_PACKS[number]; is
           {fmt(pack.priceEur)}
         </div>
         <div style={{ fontSize: 11, color: slate, marginBottom: 16 }}>
-          {fmt(pack.perCredit)} pro Analyse · Credits verfallen nicht
+          {fmt(pack.perCredit)} pro Vorgang · Credits verfallen nicht
         </div>
 
         <BuyButton
@@ -169,8 +169,7 @@ export default function PricingPage() {
             Zahle nur, wenn du Geld zurückbekommst.
           </h1>
           <p style={{ fontSize: 15, color: slate, maxWidth: 560, margin: '0 auto' }}>
-            1 Analyse-Credit = 1 vollständige Rechnungsprüfung inkl. GOÄ-Check und Widerspruchsbrief.
-            Credits verfallen nie.
+            1 Credit = vollständige Kassenbescheid-Analyse, Erfolgswahrscheinlichkeit, Handlungsempfehlung und fertiger Widerspruchs- oder Korrekturbrief. Arztrechnungen werden immer kostenlos geprüft.
           </p>
         </div>
 
@@ -341,7 +340,7 @@ export default function PricingPage() {
                 background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
                 fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6,
               }}>
-                💡 <strong style={{ color: 'white' }}>Bereits ab 1 erfolgreichen Widerspruch</strong> (meist €50–200) rechnet sich das Jahresabo mehrfach.
+                💡 <strong style={{ color: 'white' }}>Break-even bei ~12 Vorgängen/Jahr</strong> — das entspricht einem typischen PKV-Jahr mit monatlichen Kassenbescheiden.
               </div>
               {isPro ? (
                 <div style={{
@@ -386,7 +385,7 @@ export default function PricingPage() {
         <div style={{ marginTop: 48, padding: '24px', borderRadius: 16, background: 'white', border: '1.5px solid #e2e8f0' }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: navy, margin: '0 0 16px' }}>Häufige Fragen</h3>
           {[
-            { q: 'Was ist ein Analyse-Credit?', a: '1 Credit = 1 vollständige KI-Prüfung eines Dokuments (Arztrechnung oder Kassenbescheid). Für Kassenbescheide: GOÄ-Check, Ablehnungsgrundprüfung, Analogziffern, Kumulationsverbote — plus dem fertig formulierten Widerspruchsbrief. Für Arztrechnungen: Faktorprüfung (z.B. 3,5× ohne Begründung), Plausibilitätscheck der Ziffernkombinationen, Korrekturschreiben an die Praxis.' },
+            { q: 'Was ist ein Credit?', a: '1 Credit schaltet die vollständige Kassenbescheid-Analyse frei: detaillierte Aufschlüsselung aller abgelehnten Positionen, Erfolgswahrscheinlichkeit für einen Widerspruch, rechtliche Begründung — und den fertig formulierten Brief zum direkten Versand. Arztrechnungen werden immer kostenlos auf GOÄ-Auffälligkeiten geprüft.' },
             { q: 'Verfallen Credits?', a: 'Nein. Einmal gekaufte Credits verfallen nicht und bleiben dauerhaft auf deinem Konto.' },
             { q: 'Was passiert wenn ich kein Credit mehr habe?', a: 'Dokumente werden weiterhin gespeichert und klassifiziert. Die KI-Analyse wird erst ausgeführt, sobald du neue Credits kaufst.' },
             { q: 'Kann ich PRO kündigen?', a: 'Ja, jederzeit. Das Abo läuft bis zum Ende des bezahlten Jahreszeitraums und verlängert sich nicht automatisch ohne erneute Bestätigung.' },

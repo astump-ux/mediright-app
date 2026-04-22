@@ -135,7 +135,7 @@ function CtaPanel({ credits, totalPot, kasseName }: {
             ✅ {freeRemaining} kostenlose {freeRemaining === 1 ? 'Analyse' : 'Analysen'} verbleibend
           </div>
           <div className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
-            Danach: Credits ab €7.99
+            Danach: ab €7.99 (3 Credits)
           </div>
         </div>
         <Link
