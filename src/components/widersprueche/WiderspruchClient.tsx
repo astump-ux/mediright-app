@@ -42,9 +42,27 @@ function fmt(n: number | null | undefined) {
 function useUserFullName(): string {
   const [name, setName] = useState('[Ihr vollständiger Name]')
   useEffect(() => {
-    getSupabaseClient()
-      .from('profiles').select('full_name').single()
-      .then(({ data }) => { if (data?.full_name) setName(data.full_name) })
+    const supabase = getSupabaseClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', user.id)
+        .single()
+        .then(({ data }) => {
+          if (data?.full_name) {
+            setName(data.full_name)
+          } else if (user.email) {
+            // Fallback: capitalize email local-part (e.g. "alex.stump" → "Alex Stump")
+            const local = user.email.split('@')[0]
+            const readable = local
+              .replace(/[._-]/g, ' ')
+              .replace(/\b\w/g, c => c.toUpperCase())
+            setName(readable)
+          }
+        })
+    })
   }, [])
   return name
 }

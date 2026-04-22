@@ -214,6 +214,54 @@ export default function PricingPage() {
           </div>
         )}
 
+        {/* ── Was ist eine Analyse? ── */}
+        <div style={{
+          marginBottom: 40, padding: '24px', borderRadius: 16,
+          background: blueL, border: `1.5px solid #bfdbfe`,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: blue, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+            🔍 Was passiert bei einer Analyse?
+          </div>
+          <p style={{ fontSize: 14, color: navy, margin: '0 0 16px', lineHeight: 1.65 }}>
+            Eine Analyse-Credit deckt die vollständige KI-Prüfung <em>eines</em> Dokuments ab — entweder eine Arztrechnung (GOÄ-Check) oder einen Kassenbescheid (Erstattungsprüfung). Das Ergebnis ist ein fertiger Briefentwurf, den du direkt absenden kannst.
+          </p>
+          {/* Step-by-step example */}
+          <div style={{
+            background: 'white', borderRadius: 12, padding: '16px 20px',
+            border: '1px solid #dbeafe',
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: blue, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
+              Beispiel: Kassenbescheid von AXA
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { step: '1', icon: '📄', text: 'Du lädst deinen AXA-Bescheid hoch (PDF oder Foto).' },
+                { step: '2', icon: '🤖', text: 'Die KI liest alle abgelehnten Positionen — z.B. GOÄ 31 analog (Homöopathie-Folgeanamnese, 44,01 €) und Ernährungsberatung (40,22 €) — und prüft die Ablehnungsgründe.' },
+                { step: '3', icon: '⚖️', text: 'MediRight bewertet: Analogziffer anfechtbar (Widerspruchs­wahrscheinlichkeit 68%), Ernährungsberatung bei ärztlicher Diagnose erstattungsfähig.' },
+                { step: '4', icon: '✉️', text: 'Du erhältst einen fertig formulierten Widerspruchsbrief an AXA — mit konkreter Begründung, direkt versandfertig.' },
+              ].map(({ step, icon, text }) => (
+                <div key={step} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                  <div style={{
+                    width: 24, height: 24, borderRadius: '50%', background: blue,
+                    color: 'white', fontSize: 11, fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  }}>{step}</div>
+                  <div style={{ fontSize: 12, color: '#334155', lineHeight: 1.6 }}>
+                    <span style={{ marginRight: 6 }}>{icon}</span>{text}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{
+              marginTop: 14, padding: '10px 14px', borderRadius: 8,
+              background: '#ecfdf5', border: '1px solid #6ee7b7',
+              fontSize: 12, color: '#065f46', fontWeight: 600,
+            }}>
+              💰 Ergebnis: 84,23 € Widerspruchspotenzial — für 1 Credit.
+            </div>
+          </div>
+        </div>
+
         {/* ── Free tier description ── */}
         <div style={{
           marginBottom: 40, padding: '20px 24px', borderRadius: 14,
@@ -336,7 +384,7 @@ export default function PricingPage() {
         <div style={{ marginTop: 48, padding: '24px', borderRadius: 16, background: 'white', border: '1.5px solid #e2e8f0' }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: navy, margin: '0 0 16px' }}>Häufige Fragen</h3>
           {[
-            { q: 'Was ist ein Analyse-Credit?', a: '1 Credit deckt eine vollständige Prüfung einer Arztrechnung oder eines Kassenbescheids ab — inkl. GOÄ-Check, Kumulationsverbote, Analogziffern und dem fertigen Widerspruchs- oder Korrekturbrief.' },
+            { q: 'Was ist ein Analyse-Credit?', a: '1 Credit = 1 vollständige KI-Prüfung eines Dokuments (Arztrechnung oder Kassenbescheid). Für Kassenbescheide: GOÄ-Check, Ablehnungsgrundprüfung, Analogziffern, Kumulationsverbote — plus dem fertig formulierten Widerspruchsbrief. Für Arztrechnungen: Faktorprüfung (z.B. 3,5× ohne Begründung), Plausibilitätscheck der Ziffernkombinationen, Korrekturschreiben an die Praxis.' },
             { q: 'Verfallen Credits?', a: 'Nein. Einmal gekaufte Credits verfallen nicht und bleiben dauerhaft auf deinem Konto.' },
             { q: 'Was passiert wenn ich kein Credit mehr habe?', a: 'Dokumente werden weiterhin gespeichert und klassifiziert. Die KI-Analyse wird erst ausgeführt, sobald du neue Credits kaufst.' },
             { q: 'Kann ich PRO kündigen?', a: 'Ja, jederzeit. Das Abo läuft bis zum Ende des bezahlten Jahreszeitraums und verlängert sich nicht automatisch ohne erneute Bestätigung.' },
