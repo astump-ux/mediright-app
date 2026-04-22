@@ -50,6 +50,38 @@ function normalizeZiffer(z: string): string {
     .toLowerCase()
 }
 
+/**
+ * Find best matching kasse position for a goae position.
+ * Step 1: normalized ziffer equality ("31 analog" → "31")
+ * Step 2: if pool has "diverse" entries, try bezeichnung keyword match
+ *         e.g. kasse "Ernährungsberatung" matches GOÄ 33 "Patientenschulung … Ernährungsberatung"
+ */
+function findKassePosition(
+  pool: KassePositionRaw[],
+  goaePos: { ziffer: string; bezeichnung?: string }
+): KassePositionRaw | undefined {
+  const normPos = normalizeZiffer(goaePos.ziffer)
+  // 1. Ziffer match (primary)
+  const byZiffer = pool.find(kp => kp.ziffer != null && normalizeZiffer(kp.ziffer) === normPos)
+  if (byZiffer) return byZiffer
+
+  // 2. Bezeichnung keyword match for "diverse" / "sonstige" entries
+  if (!goaePos.bezeichnung) return undefined
+  const diverseEntries = pool.filter(kp => {
+    const z = (kp.ziffer ?? '').toLowerCase()
+    return z === 'diverse' || z === 'sonstige' || z === 'weitere'
+  })
+  if (diverseEntries.length === 0) return undefined
+
+  // Extract keywords from goae bezeichnung (≥6 chars to avoid generic words like "kurze")
+  const keywords = goaePos.bezeichnung.toLowerCase().split(/\W+/).filter(w => w.length >= 6)
+  return diverseEntries.find(kp => {
+    if (!kp.bezeichnung) return false
+    const kassText = kp.bezeichnung.toLowerCase()
+    return keywords.some(w => kassText.includes(w))
+  })
+}
+
 function fmtMonYY(iso: string | null): string {
   if (!iso) return '–'
   const d = new Date(iso)
@@ -268,20 +300,15 @@ export default async function AerztePage() {
         if (pos.faktor) agg.faktoren.push(pos.faktor)
 
         if (kassSlice) {
-          // Merge both pools: gruppe.positionen (rechnung-specific) + ka.positionen (top-level flat)
-          // Must search both because some positions only appear in the top-level flat list,
-          // while others are only in the rechnung group. Using OR logic misses whichever pool
-          // the 2nd rejected position lives in.
-          const normPos = normalizeZiffer(pos.ziffer)
+          // Merge both pools: gruppe.positionen + ka.positionen (top-level flat, deduped)
           const merged = [...kassSlice.positionen]
           for (const p of kassSlice.positionenFallback) {
             const pNorm = normalizeZiffer(p.ziffer ?? '')
-            if (!merged.some(kp => normalizeZiffer(kp.ziffer ?? '') === pNorm)) {
-              merged.push(p)
-            }
+            if (!merged.some(kp => normalizeZiffer(kp.ziffer ?? '') === pNorm)) merged.push(p)
           }
           if (merged.length > 0) {
-            const kassPos = merged.find(kp => kp.ziffer != null && normalizeZiffer(kp.ziffer) === normPos)
+            // Uses ziffer match first, then bezeichnung keyword match for "diverse" entries
+            const kassPos = findKassePosition(merged, pos)
             if (kassPos) {
               agg.totalWithBescheid++
               if (kassPos.status === 'abgelehnt' || kassPos.status === 'gekuerzt') agg.rejectedCount++
