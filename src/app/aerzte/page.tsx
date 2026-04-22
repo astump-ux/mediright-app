@@ -93,7 +93,7 @@ export default async function AerztePage() {
   // ── 4. Benchmark reference data ───────────────────────────────────────────
   const { data: fachBenchmarks } = await admin
     .from('fachgruppen_benchmarks')
-    .select('fachgruppe, ablehnungsquote_avg, stichprobe_beschreibung')
+    .select('fachgruppe, ablehnungsquote_avg, avg_faktor, avg_kosten_pro_besuch, stichprobe_beschreibung')
 
   const { data: kasseBenchmarkRow } = await admin
     .from('kassen_benchmarks')
@@ -101,8 +101,15 @@ export default async function AerztePage() {
     .ilike('kassen_name', `%${kasseName.split(' ')[0]}%`)
     .single()
 
-  const fachBenchMap = new Map<string, { avg: number; quelle: string }>(
-    (fachBenchmarks ?? []).map(b => [b.fachgruppe, { avg: Number(b.ablehnungsquote_avg), quelle: b.stichprobe_beschreibung ?? '' }])
+  const fachBenchMap = new Map<string, {
+    avgAblehnung: number; avgFaktor: number | null; avgKosten: number | null; quelle: string
+  }>(
+    (fachBenchmarks ?? []).map(b => [b.fachgruppe, {
+      avgAblehnung: Number(b.ablehnungsquote_avg),
+      avgFaktor:    b.avg_faktor            != null ? Number(b.avg_faktor)            : null,
+      avgKosten:    b.avg_kosten_pro_besuch != null ? Number(b.avg_kosten_pro_besuch) : null,
+      quelle:       b.stichprobe_beschreibung ?? '',
+    }])
   )
   const kasseAvg    = kasseBenchmarkRow ? Number(kasseBenchmarkRow.ablehnungsquote_avg) : null
   const kasseQuelle = kasseBenchmarkRow?.stichprobe_beschreibung ?? ''
@@ -277,17 +284,43 @@ export default async function AerztePage() {
 
     // ── Benchmarks ──
     const fachBench = fachBenchMap.get(fach) ?? fachBenchMap.get('Sonstige') ?? null
-    const benchmarkFachgruppe = fachBench ? {
+
+    // Ø GOÄ-Faktor aus Vorgängen (max_faktor je Besuch)
+    const faktoren = avs.map(v => v.max_faktor).filter((f): f is number => f != null)
+    const avgFaktorArzt = faktoren.length > 0
+      ? Math.round((faktoren.reduce((s, f) => s + f, 0) / faktoren.length) * 10) / 10
+      : null
+
+    // Kosten je Besuch
+    const kostenProBesuchArzt = avs.length > 0 ? Math.round(gesamtBetrag / avs.length) : null
+
+    const benchmarkAblehnung = fachBench ? {
       thisArzt:       ablehnungsquote,
-      vergleichswert: fachBench.avg,
+      vergleichswert: fachBench.avgAblehnung,
       label:          `Ø ${fach} (PKV, kassenübergreifend)`,
       quelle:         fachBench.quelle,
+      unit:           '%' as const,
     } : null
     const benchmarkKasse = (kasseAvg !== null && hatKassenbescheid) ? {
       thisArzt:       ablehnungsquote,
       vergleichswert: kasseAvg,
       label:          `Ø alle Ärzte bei ${kasseName}`,
       quelle:         kasseQuelle,
+      unit:           '%' as const,
+    } : null
+    const benchmarkFaktor = (fachBench?.avgFaktor != null && avgFaktorArzt != null) ? {
+      thisArzt:       avgFaktorArzt,
+      vergleichswert: fachBench.avgFaktor,
+      label:          `Ø GOÄ-Faktor ${fach} (PKV)`,
+      quelle:         fachBench.quelle,
+      unit:           '×' as const,
+    } : null
+    const benchmarkKosten = (fachBench?.avgKosten != null && kostenProBesuchArzt != null) ? {
+      thisArzt:       kostenProBesuchArzt,
+      vergleichswert: fachBench.avgKosten,
+      label:          `Ø Kosten je Besuch ${fach} (PKV)`,
+      quelle:         fachBench.quelle,
+      unit:           '€' as const,
     } : null
 
     // ── Offene Aktionen ──
@@ -346,8 +379,10 @@ export default async function AerztePage() {
       hatKassenbescheid,
       verlauf,
       goaMuster,
-      benchmarkFachgruppe,
+      benchmarkAblehnung,
       benchmarkKasse,
+      benchmarkFaktor,
+      benchmarkKosten,
       offeneAktionen,
       flagged,
     }

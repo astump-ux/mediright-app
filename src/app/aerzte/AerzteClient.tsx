@@ -31,6 +31,7 @@ export interface BenchmarkData {
   vergleichswert: number
   label: string
   quelle: string
+  unit: '%' | '×' | '€'
 }
 export interface ArztAkteData {
   id: string
@@ -47,8 +48,10 @@ export interface ArztAkteData {
   hatKassenbescheid: boolean
   verlauf: VerlaufPunkt[]
   goaMuster: GoaMusterItem[]
-  benchmarkFachgruppe: BenchmarkData | null
+  benchmarkAblehnung: BenchmarkData | null
   benchmarkKasse: BenchmarkData | null
+  benchmarkFaktor: BenchmarkData | null
+  benchmarkKosten: BenchmarkData | null
   offeneAktionen: OffeneAktion[]
   flagged: boolean
 }
@@ -81,115 +84,86 @@ const FACH_ICON: Record<string, string> = {
   'Zahnarzt': '🦷', 'Gastroenterologie': '🔬',
 }
 
-// ── Verlauf Chart (SVG mini) ──────────────────────────────────────────────────
-function VerlaufChart({ verlauf }: { verlauf: VerlaufPunkt[] }) {
-  const withBescheid = verlauf.filter(v => v.hasBescheid && v.ablehnungsquote !== null)
-
-  if (withBescheid.length === 0) {
-    return (
-      <div
-        className="rounded-xl p-4 text-center text-xs"
-        style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#94a3b8' }}
-      >
-        Verlauf wird aktiv sobald Kassenbescheide vorliegen
-      </div>
-    )
-  }
-
-  const W = 400; const H = 80; const PAD = 20
-  const maxQ = Math.max(100, ...withBescheid.map(v => v.ablehnungsquote!))
-  const xs = withBescheid.map((_, i) =>
-    withBescheid.length === 1 ? W / 2 : PAD + (i / (withBescheid.length - 1)) * (W - PAD * 2)
-  )
-  const ys = withBescheid.map(v =>
-    H - PAD - ((v.ablehnungsquote! / maxQ) * (H - PAD * 2))
-  )
-
-  const pathD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'} ${x} ${ys[i]}`).join(' ')
+// ── Besuchshistorie Tabelle (replaces SVG Verlauf chart) ─────────────────────
+function BesuchshistorieTabelle({ verlauf }: { verlauf: VerlaufPunkt[] }) {
+  if (verlauf.length === 0) return null
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#64748b' }}>
-          Ablehnungsquote je Besuch
-        </span>
-        <span className="text-[10px]" style={{ color: '#94a3b8' }}>
-          {verlauf.filter(v => !v.hasBescheid).length > 0
-            ? `${verlauf.filter(v => !v.hasBescheid).length} ohne Bescheid`
-            : ''}
-        </span>
-      </div>
-      <div className="relative overflow-hidden rounded-xl" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-        {/* Gridlines */}
-        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 80 }} preserveAspectRatio="none">
-          {[20, 40, 60].map(pct => {
-            const y = H - PAD - ((pct / maxQ) * (H - PAD * 2))
+    <div className="overflow-hidden rounded-xl" style={{ border: '1px solid #e2e8f0' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+            {['Besuch', '€ Rechnung', '€ Erstattet', '€ Abgelehnt', 'Ablehnungsquote'].map(h => (
+              <th key={h} className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: '#64748b' }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {verlauf.map((v, i) => {
+            const q = v.ablehnungsquote
+            const qColor = q === null ? '#94a3b8' : q === 0 ? '#059669' : q <= 20 ? '#059669' : q <= 40 ? '#d97706' : '#b91c1c'
+            const qBg    = q === null ? '#f8fafc' : q === 0 ? '#d1fae5' : q <= 20 ? '#d1fae5' : q <= 40 ? '#fef3c7' : '#fee2e2'
             return (
-              <g key={pct}>
-                <line x1={PAD} y1={y} x2={W - PAD} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4 4" />
-              </g>
+              <tr key={i} style={{ borderBottom: i < verlauf.length - 1 ? '1px solid #f1f5f9' : undefined }}>
+                <td className="px-3 py-2.5 font-medium" style={{ color: '#374151' }}>{v.datum}</td>
+                <td className="px-3 py-2.5 font-semibold" style={{ color: '#0f172a' }}>€ {fmt(v.betrag)}</td>
+                <td className="px-3 py-2.5" style={{ color: v.erstattet != null ? '#059669' : '#94a3b8' }}>
+                  {v.erstattet != null ? `€ ${fmt(v.erstattet)}` : '—'}
+                </td>
+                <td className="px-3 py-2.5" style={{ color: v.abgelehnt != null && v.abgelehnt > 0 ? '#b91c1c' : '#94a3b8' }}>
+                  {v.abgelehnt != null && v.abgelehnt > 0 ? `€ ${fmt(v.abgelehnt)}` : '—'}
+                </td>
+                <td className="px-3 py-2.5">
+                  {q !== null ? (
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: qBg, color: qColor }}>
+                      {q}%
+                    </span>
+                  ) : (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: '#f1f5f9', color: '#94a3b8' }}>
+                      Kein Bescheid
+                    </span>
+                  )}
+                </td>
+              </tr>
             )
           })}
-          {/* Line */}
-          {withBescheid.length > 1 && (
-            <path d={pathD} fill="none" stroke="#cbd5e1" strokeWidth="1.5" />
-          )}
-          {/* Dots */}
-          {withBescheid.map((v, i) => {
-            const q = v.ablehnungsquote!
-            const col = q === 0 ? '#10b981' : q <= 20 ? '#10b981' : q <= 40 ? '#f59e0b' : '#ef4444'
-            return (
-              <g key={i}>
-                <circle cx={xs[i]} cy={ys[i]} r="5" fill={col} />
-                <circle cx={xs[i]} cy={ys[i]} r="8" fill={col} fillOpacity="0.15" />
-              </g>
-            )
-          })}
-        </svg>
-        {/* X-axis labels */}
-        <div className="flex px-4 pb-2" style={{ marginTop: -4 }}>
-          {withBescheid.map((v, i) => (
-            <div
-              key={i}
-              className="text-[10px] text-center"
-              style={{
-                flex: 1,
-                color: '#94a3b8',
-                textAlign: withBescheid.length === 1 ? 'center' : i === 0 ? 'left' : i === withBescheid.length - 1 ? 'right' : 'center'
-              }}
-            >
-              {v.datum}
-            </div>
-          ))}
-        </div>
-        {/* Single point annotation */}
-        {withBescheid.length === 1 && (
-          <div className="text-center pb-2 text-[10px]" style={{ color: '#94a3b8' }}>
-            Erster Bescheid · Verlauf entsteht nach weiteren Besuchen
-          </div>
-        )}
-      </div>
+        </tbody>
+      </table>
     </div>
   )
 }
 
 // ── Benchmark Bar ─────────────────────────────────────────────────────────────
-function BenchmarkBar({ label, thisArzt, vergleichswert, quelle, hatBescheid }: {
-  label: string; thisArzt: number; vergleichswert: number; quelle: string; hatBescheid: boolean
+function BenchmarkBar({ label, thisArzt, vergleichswert, quelle, unit, alwaysShow }: {
+  label: string; thisArzt: number; vergleichswert: number
+  quelle: string; unit: '%' | '×' | '€'; alwaysShow?: boolean
 }) {
-  const maxVal  = Math.max(thisArzt, vergleichswert, 30) * 1.3
+  const maxVal  = Math.max(thisArzt, vergleichswert, unit === '%' ? 30 : unit === '×' ? 3 : 100) * 1.3
   const thisW   = Math.round((thisArzt / maxVal) * 100)
   const benchW  = Math.round((vergleichswert / maxVal) * 100)
   const diff    = thisArzt - vergleichswert
-  const isHigh  = diff > 10
-  const isSlightly = diff > 0 && diff <= 10
+  // For %, high diff = bad. For × and €, high diff = potentially concerning too.
+  const relDiff = vergleichswert > 0 ? (diff / vergleichswert) * 100 : 0
+  const isHigh  = unit === '%' ? diff > 10 : relDiff > 20
+  const isSlightly = unit === '%' ? (diff > 0 && diff <= 10) : (relDiff > 0 && relDiff <= 20)
   const thisColor = isHigh ? '#ef4444' : isSlightly ? '#f59e0b' : '#10b981'
+
+  const fmtVal = (v: number) =>
+    unit === '%' ? `${v.toFixed(1)}%`
+    : unit === '×' ? `${v.toFixed(1)}×`
+    : `€ ${fmt(Math.round(v))}`
+
+  const diffLabel = unit === '%'
+    ? `${diff > 0 ? '+' : ''}${diff.toFixed(1)} pp ${diff > 0 ? '▲' : '▼'}`
+    : `${diff > 0 ? '+' : ''}${fmtVal(diff)} ${diff > 0 ? '▲' : '▼'}`
 
   return (
     <div className="mb-4">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[11px] font-semibold" style={{ color: '#475569' }}>{label}</span>
-        {hatBescheid && diff !== 0 && (
+        {diff !== 0 && (
           <span
             className="text-[10px] font-bold px-2 py-0.5 rounded-full"
             style={{
@@ -197,51 +171,35 @@ function BenchmarkBar({ label, thisArzt, vergleichswert, quelle, hatBescheid }: 
               color: isHigh ? '#b91c1c' : isSlightly ? '#92400e' : '#065f46',
             }}
           >
-            {diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)} pp {diff > 0 ? '▲' : '▼'}
+            {diffLabel}
           </span>
         )}
       </div>
-
-      {hatBescheid ? (
-        <div className="space-y-1.5">
-          {/* This doctor */}
-          <div className="flex items-center gap-2">
-            <div className="text-[10px] w-24 text-right flex-shrink-0" style={{ color: '#64748b' }}>Dieser Arzt</div>
-            <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ background: '#f1f5f9' }}>
-              <div
-                className="h-full rounded-full transition-all duration-700 flex items-center justify-end pr-1.5"
-                style={{ width: `${thisW}%`, background: thisColor }}
-              >
-                <span className="text-[9px] text-white font-bold">{thisArzt}%</span>
-              </div>
-            </div>
-          </div>
-          {/* Benchmark */}
-          <div className="flex items-center gap-2">
-            <div className="text-[10px] w-24 text-right flex-shrink-0" style={{ color: '#94a3b8' }}>Benchmark</div>
-            <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ background: '#f1f5f9' }}>
-              <div
-                className="h-full rounded-full flex items-center justify-end pr-1.5"
-                style={{ width: `${benchW}%`, background: '#94a3b8' }}
-              >
-                <span className="text-[9px] text-white font-bold">{vergleichswert.toFixed(1)}%</span>
-              </div>
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2">
+          <div className="text-[10px] w-24 text-right flex-shrink-0" style={{ color: '#64748b' }}>Dieser Arzt</div>
+          <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ background: '#f1f5f9' }}>
+            <div
+              className="h-full rounded-full transition-all duration-700 flex items-center justify-end pr-1.5"
+              style={{ width: `${Math.max(thisW, 8)}%`, background: thisColor }}
+            >
+              <span className="text-[9px] text-white font-bold whitespace-nowrap">{fmtVal(thisArzt)}</span>
             </div>
           </div>
         </div>
-      ) : (
-        <div
-          className="rounded-lg px-3 py-2 text-xs flex items-center gap-2"
-          style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', color: '#94a3b8' }}
-        >
-          <span>⏳</span>
-          <span>Benchmark wird aktiv sobald ein Kassenbescheid für diesen Arzt vorliegt</span>
+        <div className="flex items-center gap-2">
+          <div className="text-[10px] w-24 text-right flex-shrink-0" style={{ color: '#94a3b8' }}>Benchmark</div>
+          <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ background: '#f1f5f9' }}>
+            <div
+              className="h-full rounded-full flex items-center justify-end pr-1.5"
+              style={{ width: `${Math.max(benchW, 8)}%`, background: '#94a3b8' }}
+            >
+              <span className="text-[9px] text-white font-bold whitespace-nowrap">{fmtVal(vergleichswert)}</span>
+            </div>
+          </div>
         </div>
-      )}
-
-      {hatBescheid && (
-        <div className="text-[9px] mt-1" style={{ color: '#cbd5e1' }}>Quelle: {quelle}</div>
-      )}
+      </div>
+      <div className="text-[9px] mt-1" style={{ color: '#cbd5e1' }}>Quelle: {quelle}</div>
     </div>
   )
 }
@@ -354,7 +312,7 @@ function Aktionszentrum({ aktionen }: { aktionen: OffeneAktion[] }) {
 
 // ── Ärzteakte (expanded detail) ───────────────────────────────────────────────
 function ArztAkte({ arzt, kasseName }: { arzt: ArztAkteData; kasseName: string }) {
-  const benchAvg = arzt.benchmarkFachgruppe?.vergleichswert
+  const benchAvg = arzt.benchmarkAblehnung?.vergleichswert
 
   return (
     <div className="mt-4 space-y-5">
@@ -394,10 +352,10 @@ function ArztAkte({ arzt, kasseName }: { arzt: ArztAkteData; kasseName: string }
         ))}
       </div>
 
-      {/* ── Verlauf ── */}
+      {/* ── Besuchshistorie ── */}
       <div>
-        <SectionLabel>Verlauf</SectionLabel>
-        <VerlaufChart verlauf={arzt.verlauf} />
+        <SectionLabel>Besuchshistorie</SectionLabel>
+        <BesuchshistorieTabelle verlauf={arzt.verlauf} />
       </div>
 
       {/* ── GOÄ Muster ── */}
@@ -414,33 +372,71 @@ function ArztAkte({ arzt, kasseName }: { arzt: ArztAkteData; kasseName: string }
       )}
 
       {/* ── Benchmarks ── */}
-      {(arzt.benchmarkFachgruppe || arzt.benchmarkKasse) && (
+      {(arzt.benchmarkAblehnung || arzt.benchmarkKasse || arzt.benchmarkFaktor || arzt.benchmarkKosten) && (
         <div>
-          <SectionLabel>Ablehnungsquote Vergleich</SectionLabel>
-          <div className="rounded-xl p-4 space-y-2" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-            {arzt.benchmarkFachgruppe && (
-              <BenchmarkBar
-                label={`Fachgruppe: ${arzt.fachrichtung}`}
-                thisArzt={arzt.benchmarkFachgruppe.thisArzt}
-                vergleichswert={arzt.benchmarkFachgruppe.vergleichswert}
-                quelle={arzt.benchmarkFachgruppe.quelle}
-                hatBescheid={arzt.hatKassenbescheid}
-              />
+          <SectionLabel>Benchmark-Vergleich</SectionLabel>
+          <div className="rounded-xl p-4" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+
+            {/* Ablehnungsquoten */}
+            {(arzt.benchmarkAblehnung || arzt.benchmarkKasse) && (
+              <>
+                <div className="text-[10px] font-bold uppercase tracking-widest mb-3" style={{ color: '#94a3b8' }}>
+                  Ablehnungsquote
+                </div>
+                {arzt.benchmarkAblehnung && (
+                  <BenchmarkBar
+                    label={`Fachgruppe: ${arzt.fachrichtung}`}
+                    thisArzt={arzt.benchmarkAblehnung.thisArzt}
+                    vergleichswert={arzt.benchmarkAblehnung.vergleichswert}
+                    quelle={arzt.benchmarkAblehnung.quelle}
+                    unit="%"
+                  />
+                )}
+                {arzt.benchmarkKasse && (
+                  <BenchmarkBar
+                    label={`${kasseName} gesamt`}
+                    thisArzt={arzt.benchmarkKasse.thisArzt}
+                    vergleichswert={arzt.benchmarkKasse.vergleichswert}
+                    quelle={arzt.benchmarkKasse.quelle}
+                    unit="%"
+                  />
+                )}
+                <p className="text-[10px] mb-4" style={{ color: '#94a3b8' }}>
+                  Abweichungen über +10 pp bei gleichzeitig unauffälligem GOÄ-Faktor deuten auf systematische Ablehnung hin — ein starkes Widerspruchsargument.
+                </p>
+              </>
             )}
-            {arzt.benchmarkKasse && (
-              <BenchmarkBar
-                label={`${kasseName} gesamt`}
-                thisArzt={arzt.benchmarkKasse.thisArzt}
-                vergleichswert={arzt.benchmarkKasse.vergleichswert}
-                quelle={arzt.benchmarkKasse.quelle}
-                hatBescheid={arzt.hatKassenbescheid}
-              />
+
+            {/* Abrechnungsverhalten */}
+            {(arzt.benchmarkFaktor || arzt.benchmarkKosten) && (
+              <>
+                <div className="text-[10px] font-bold uppercase tracking-widest mb-3 mt-1" style={{ color: '#94a3b8' }}>
+                  Abrechnungsverhalten
+                </div>
+                {arzt.benchmarkFaktor && (
+                  <BenchmarkBar
+                    label={arzt.benchmarkFaktor.label}
+                    thisArzt={arzt.benchmarkFaktor.thisArzt}
+                    vergleichswert={arzt.benchmarkFaktor.vergleichswert}
+                    quelle={arzt.benchmarkFaktor.quelle}
+                    unit="×"
+                  />
+                )}
+                {arzt.benchmarkKosten && (
+                  <BenchmarkBar
+                    label={arzt.benchmarkKosten.label}
+                    thisArzt={arzt.benchmarkKosten.thisArzt}
+                    vergleichswert={arzt.benchmarkKosten.vergleichswert}
+                    quelle={arzt.benchmarkKosten.quelle}
+                    unit="€"
+                  />
+                )}
+                <p className="text-[10px]" style={{ color: '#94a3b8' }}>
+                  Hoher Faktor + hohe Kosten je Besuch erhöhen das Ablehnungsrisiko, können aber durch schriftliche §12-GOÄ-Begründung gerechtfertigt sein.
+                </p>
+              </>
             )}
-            <p className="text-[10px] pt-1" style={{ color: '#94a3b8' }}>
-              Abweichungen über +10 pp sind ein Hinweis auf systematische Ablehnung,
-              die unabhängig vom Abrechnungsverhalten des Arztes sein kann — und damit
-              ein starkes Widerspruchsargument.
-            </p>
+
           </div>
         </div>
       )}
@@ -468,7 +464,7 @@ function ArztCard({ arzt, defaultOpen, kasseName }: {
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const icon  = FACH_ICON[arzt.fachrichtung] ?? '💊'
-  const benchAvg = arzt.benchmarkFachgruppe?.vergleichswert
+  const benchAvg = arzt.benchmarkAblehnung?.vergleichswert
   const qColor = ablehnungsColor(arzt.ablehnungsquote, benchAvg)
   const qBg    = ablehnungsBg(arzt.ablehnungsquote, benchAvg)
 
