@@ -73,12 +73,14 @@ function findKassePosition(
   })
   if (diverseEntries.length === 0) return undefined
 
-  // Extract keywords from goae bezeichnung (≥6 chars to avoid generic words like "kurze")
-  const keywords = goaePos.bezeichnung.toLowerCase().split(/\W+/).filter(w => w.length >= 6)
+  // Extract keywords from the KASSE bezeichnung (≥6 chars), check against GOÄ bezeichnung.
+  // Direction matters: "Ernährungsberatung" (kasse) must match GOÄ 33's bezeichnung,
+  // NOT the other way round ("beratung" from GOÄ 1 would falsely hit "Ernährungs-beratung").
+  const goaeText = goaePos.bezeichnung.toLowerCase()
   return diverseEntries.find(kp => {
     if (!kp.bezeichnung) return false
-    const kassText = kp.bezeichnung.toLowerCase()
-    return keywords.some(w => kassText.includes(w))
+    const kassKeywords = kp.bezeichnung.toLowerCase().split(/\W+/).filter(w => w.length >= 6)
+    return kassKeywords.some(w => goaeText.includes(w))
   })
 }
 
