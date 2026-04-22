@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import type { KasseBescheid, UnmatchedVorgang } from "@/app/kassenabrechnung/page";
+import type { KasseBescheid, UnmatchedVorgang, PendingVorgang } from "@/app/kassenabrechnung/page";
 import type { KasseRechnungGruppe, KasseAnalyseResult, KassePosition } from "@/lib/goae-analyzer";
 import { getSupabaseClient } from "@/lib/supabase";
 import { WIDERSPRUCH_STATUS_CFG, WIDERSPRUCH_ACTIVE_STATUSES, KassenwiderspruchBadge, ArztreklamationBadge } from "@/components/ui/WiderspruchStatus";
@@ -686,6 +686,87 @@ function AblehnungsPanel({ kasse }: { kasse: KasseBescheid }) {
   );
 }
 
+// ── Pending-credits cards ─────────────────────────────────────────────────────
+
+function PendingAnalyseCard({ vorgang }: { vorgang: PendingVorgang }) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error" | "no_credits">("idle");
+
+  async function handleAnalysieren() {
+    setState("loading");
+    try {
+      const res = await fetch(`/api/vorgaenge/${vorgang.id}/analysieren`, { method: "POST" });
+      if (res.status === 402) { setState("no_credits"); return; }
+      if (!res.ok) { setState("error"); return; }
+      setState("done");
+      // Reload after a short delay so the new kassenabrechnungen card appears
+      setTimeout(() => window.location.reload(), 1200);
+    } catch {
+      setState("error");
+    }
+  }
+
+  return (
+    <div className="rounded-2xl mb-4 overflow-hidden" style={{ background: "var(--card)", border: "1.5px solid #fde68a" }}>
+      <div className="px-6 py-4 flex items-center justify-between gap-4 flex-wrap" style={{ background: "#fffbeb" }}>
+        <div className="flex items-center gap-3">
+          <span className="text-xl">📄</span>
+          <div>
+            <p className="font-semibold text-sm" style={{ color: "#92400e" }}>
+              Kassenbescheid empfangen — Analyse ausstehend
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: "#a16207" }}>
+              {vorgang.rechnungsdatum
+                ? `Eingegangen: ${new Date(vorgang.rechnungsdatum).toLocaleDateString("de-DE")}`
+                : "KI-Analyse noch nicht durchgeführt"}
+              {" "}· Widerspruchsprüfung erst nach Analyse möglich
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {state === "done" && (
+            <span className="text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ background: "#dcfce7", color: "#166534" }}>
+              ✓ Analyse gestartet — lädt…
+            </span>
+          )}
+          {state === "error" && (
+            <span className="text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ background: "#fee2e2", color: "#991b1b" }}>
+              Fehler — bitte erneut versuchen
+            </span>
+          )}
+          {state === "no_credits" && (
+            <a
+              href="/pricing"
+              className="text-xs font-bold px-4 py-2 rounded-lg no-underline"
+              style={{ background: "#0f172a", color: "white" }}
+            >
+              Credits kaufen →
+            </a>
+          )}
+          {state !== "done" && state !== "no_credits" && (
+            <button
+              onClick={handleAnalysieren}
+              disabled={state === "loading"}
+              className="text-sm font-bold px-4 py-2 rounded-lg border-none cursor-pointer flex-shrink-0"
+              style={{ background: "#b45309", color: "white", opacity: state === "loading" ? 0.7 : 1 }}
+            >
+              {state === "loading" ? "Analyse läuft…" : "⚡ Jetzt analysieren (1 Credit)"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PendingAnalyseSection({ vorgaenge }: { vorgaenge: PendingVorgang[] }) {
+  if (vorgaenge.length === 0) return null;
+  return (
+    <div className="mb-2">
+      {vorgaenge.map(v => <PendingAnalyseCard key={v.id} vorgang={v} />)}
+    </div>
+  );
+}
+
 // ── Single Kassenbescheid card ─────────────────────────────────────────────────
 
 function KasseBescheidCard({ kasse }: { kasse: KasseBescheid }) {
@@ -898,11 +979,13 @@ function UnmatchedSection({ vorgaenge }: { vorgaenge: UnmatchedVorgang[] }) {
 export default function KasseUebersicht({
   kasseBescheide,
   unmatchedVorgaenge,
+  pendingVorgaenge = [],
 }: {
   kasseBescheide: KasseBescheid[];
   unmatchedVorgaenge: UnmatchedVorgang[];
+  pendingVorgaenge?: PendingVorgang[];
 }) {
-  if (kasseBescheide.length === 0 && unmatchedVorgaenge.length === 0) {
+  if (kasseBescheide.length === 0 && unmatchedVorgaenge.length === 0 && pendingVorgaenge.length === 0) {
     return (
       <div className="rounded-2xl px-8 py-16 text-center" style={{ background: "var(--card)", border: "1.5px solid var(--border)" }}>
         <p className="text-4xl mb-4">🏥</p>
@@ -918,6 +1001,7 @@ export default function KasseUebersicht({
   return (
     <div>
       <KPIBar kasseBescheide={kasseBescheide} unmatched={unmatchedVorgaenge} />
+      <PendingAnalyseSection vorgaenge={pendingVorgaenge} />
       {kasseBescheide.map((k) => <KasseBescheidCard key={k.id} kasse={k} />)}
       <UnmatchedSection vorgaenge={unmatchedVorgaenge} />
     </div>

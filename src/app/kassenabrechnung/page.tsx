@@ -45,6 +45,13 @@ export interface UnmatchedVorgang {
   status: string | null
 }
 
+export interface PendingVorgang {
+  id: string
+  arzt_name: string | null
+  rechnungsdatum: string | null
+  pdf_storage_path: string
+}
+
 export default async function KassenPage() {
   const cookieStore = await cookies()
   const supabase = createServerClient(
@@ -65,7 +72,7 @@ export default async function KassenPage() {
 
   const { data: vorgaengeRaw } = await admin
     .from('vorgaenge')
-    .select('id, arzt_name, rechnungsdatum, rechnungsnummer, betrag_gesamt, kasse_match_status, kassenabrechnung_id, pdf_storage_path, status')
+    .select('id, arzt_name, rechnungsdatum, rechnungsnummer, betrag_gesamt, kasse_match_status, kassenabrechnung_id, pdf_storage_path, status, analyse_status')
     .eq('user_id', user.id)
     .not('pdf_storage_path', 'is', null)
     .order('rechnungsdatum', { ascending: false })
@@ -73,8 +80,19 @@ export default async function KassenPage() {
   const vorgaenge = vorgaengeRaw ?? []
   const vorgangByKasse = new Map<string, typeof vorgaenge>()
   const unmatchedVorgaenge: UnmatchedVorgang[] = []
+  const pendingVorgaenge: PendingVorgang[] = []
 
   for (const v of vorgaenge) {
+    // Kassenbescheid PDFs blocked by missing credits — show separate CTA card
+    if (v.analyse_status === 'pending_credits' && !v.kassenabrechnung_id) {
+      pendingVorgaenge.push({
+        id: v.id,
+        arzt_name: v.arzt_name,
+        rechnungsdatum: v.rechnungsdatum,
+        pdf_storage_path: v.pdf_storage_path!,
+      })
+      continue
+    }
     if (v.kassenabrechnung_id) {
       const list = vorgangByKasse.get(v.kassenabrechnung_id) ?? []
       list.push(v)
@@ -133,7 +151,7 @@ export default async function KassenPage() {
           </div>
           <UploadButton type="kassenbescheid" />
         </div>
-        <KasseUebersicht kasseBescheide={kasseBescheide} unmatchedVorgaenge={unmatchedVorgaenge} />
+        <KasseUebersicht kasseBescheide={kasseBescheide} unmatchedVorgaenge={unmatchedVorgaenge} pendingVorgaenge={pendingVorgaenge} />
       </main>
     </>
   )

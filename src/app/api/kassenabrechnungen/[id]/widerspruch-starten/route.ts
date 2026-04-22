@@ -20,15 +20,24 @@ export async function PATCH(
   const { id } = await params
   const admin = getSupabaseAdmin()
 
-  // Verify ownership and read current status
+  // Verify ownership and read current status + kasse_analyse
   const { data: kasse } = await admin
     .from('kassenabrechnungen')
-    .select('id, widerspruch_status')
+    .select('id, widerspruch_status, kasse_analyse')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
 
   if (!kasse) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Guard: KI-Analyse must exist before a Widerspruch can be opened.
+  // If kasse_analyse is null the user has no credits and the analysis never ran.
+  if (!kasse.kasse_analyse) {
+    return NextResponse.json(
+      { error: 'no_analyse', message: 'Bitte erst Analyse durchführen (1 Credit erforderlich).' },
+      { status: 402 }
+    )
+  }
 
   // Only transition from 'keiner' → 'erstellt'
   if (kasse.widerspruch_status === 'keiner') {
