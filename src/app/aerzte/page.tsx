@@ -268,13 +268,20 @@ export default async function AerztePage() {
         if (pos.faktor) agg.faktoren.push(pos.faktor)
 
         if (kassSlice) {
-          // Prefer per-rechnung positionen; fall back to top-level ka.positionen
-          const pool = kassSlice.positionen.length > 0
-            ? kassSlice.positionen
-            : kassSlice.positionenFallback
-          if (pool.length > 0) {
-            const normPos = normalizeZiffer(pos.ziffer)
-            const kassPos = pool.find(kp => kp.ziffer != null && normalizeZiffer(kp.ziffer) === normPos)
+          // Merge both pools: gruppe.positionen (rechnung-specific) + ka.positionen (top-level flat)
+          // Must search both because some positions only appear in the top-level flat list,
+          // while others are only in the rechnung group. Using OR logic misses whichever pool
+          // the 2nd rejected position lives in.
+          const normPos = normalizeZiffer(pos.ziffer)
+          const merged = [...kassSlice.positionen]
+          for (const p of kassSlice.positionenFallback) {
+            const pNorm = normalizeZiffer(p.ziffer ?? '')
+            if (!merged.some(kp => normalizeZiffer(kp.ziffer ?? '') === pNorm)) {
+              merged.push(p)
+            }
+          }
+          if (merged.length > 0) {
+            const kassPos = merged.find(kp => kp.ziffer != null && normalizeZiffer(kp.ziffer) === normPos)
             if (kassPos) {
               agg.totalWithBescheid++
               if (kassPos.status === 'abgelehnt' || kassPos.status === 'gekuerzt') agg.rejectedCount++
