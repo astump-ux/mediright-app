@@ -22,7 +22,7 @@ type KasseRechnungRaw = {
   betragEingereicht?: number; betragErstattet?: number; betragAbgelehnt?: number
   positionen?: KassePositionRaw[]
 }
-type KasseAnalyseRaw = { rechnungen?: KasseRechnungRaw[] }
+type KasseAnalyseRaw = { rechnungen?: KasseRechnungRaw[]; positionen?: KassePositionRaw[] }
 type KassenabrechRow = {
   id: string; bescheiddatum: string | null
   betrag_eingereicht: number | null; betrag_erstattet: number | null; betrag_abgelehnt: number | null
@@ -39,6 +39,15 @@ type VorgangRow = {
   kassenabrechnung_id: string | null
   // kassenabrechnungen joined only for widerspruch_status / arzt_reklamation_status
   kassenabrechnungen: unknown
+}
+
+/** Strip suffix variants like "31 analog", "GOÄ 31", "§ 31" → "31" for matching */
+function normalizeZiffer(z: string): string {
+  return z
+    .replace(/^(GOÄ|GOA|§)\s*/i, '')
+    .replace(/\s+(analog|a|entsprechend).*$/i, '')
+    .trim()
+    .toLowerCase()
 }
 
 function fmtMonYY(iso: string | null): string {
@@ -129,6 +138,7 @@ export default async function AerztePage() {
   const vorgangKasseMap = new Map<string, KasseAgg & {  // vorgangId → this-visit slice
     bescheiddatum: string | null
     positionen: KassePositionRaw[]
+    positionenFallback: KassePositionRaw[]  // top-level ka.positionen if gruppe.positionen empty
   }>()
 
   for (const k of rawKasse ?? []) {
@@ -176,8 +186,9 @@ export default async function AerztePage() {
       if (resolvedVorgangId) {
         vorgangKasseMap.set(resolvedVorgangId, {
           ...amounts,
-          bescheiddatum: k.bescheiddatum,
-          positionen:    gruppe.positionen ?? [],
+          bescheiddatum:      k.bescheiddatum,
+          positionen:         gruppe.positionen ?? [],
+          positionenFallback: ka.positionen    ?? [],  // top-level fallback
         })
       }
     }
@@ -256,11 +267,18 @@ export default async function AerztePage() {
         agg.haeufigkeit++
         if (pos.faktor) agg.faktoren.push(pos.faktor)
 
-        if (kassSlice?.positionen) {
-          const kassPos = kassSlice.positionen.find(kp => kp.ziffer === pos.ziffer)
-          if (kassPos) {
-            agg.totalWithBescheid++
-            if (kassPos.status === 'abgelehnt' || kassPos.status === 'gekuerzt') agg.rejectedCount++
+        if (kassSlice) {
+          // Prefer per-rechnung positionen; fall back to top-level ka.positionen
+          const pool = kassSlice.positionen.length > 0
+            ? kassSlice.positionen
+            : kassSlice.positionenFallback
+          if (pool.length > 0) {
+            const normPos = normalizeZiffer(pos.ziffer)
+            const kassPos = pool.find(kp => kp.ziffer != null && normalizeZiffer(kp.ziffer) === normPos)
+            if (kassPos) {
+              agg.totalWithBescheid++
+              if (kassPos.status === 'abgelehnt' || kassPos.status === 'gekuerzt') agg.rejectedCount++
+            }
           }
         }
       }
