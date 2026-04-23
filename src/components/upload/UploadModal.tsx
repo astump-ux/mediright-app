@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 
 type UploadType = 'arztrechnung' | 'kassenbescheid'
 
-type Phase = 'idle' | 'uploading' | 'analysing' | 'success' | 'error'
+type Phase = 'idle' | 'uploading' | 'analysing' | 'success' | 'error' | 'no_credits'
 
 interface ArztResult {
   arztName?: string
@@ -100,7 +100,9 @@ export default function UploadModal({ type, onClose }: Props) {
 
       const data: AnalysisResult = await res.json()
 
-      if (!res.ok || data.error) {
+      if (res.status === 402 || data.error === 'no_credits') {
+        setPhase('no_credits')
+      } else if (!res.ok || data.error) {
         setResult(data)
         setPhase('error')
       } else {
@@ -123,6 +125,7 @@ export default function UploadModal({ type, onClose }: Props) {
   }
 
   const isLoading = phase === 'uploading' || phase === 'analysing'
+  const isDone    = phase === 'success' || phase === 'error' || phase === 'no_credits'
 
   return (
     <div
@@ -206,6 +209,35 @@ export default function UploadModal({ type, onClose }: Props) {
                   style={{ padding: '11px 18px', borderRadius: 10, border: '1.5px solid #e2e8f0', background: 'white', color: slate, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
                 >
                   Weiteres hochladen
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── No credits state ─────────────────────────────────────────── */}
+          {phase === 'no_credits' && (
+            <>
+              <div style={{ background: '#fffbeb', borderRadius: 12, padding: 20, borderLeft: `4px solid ${amber}`, marginBottom: 20 }}>
+                <div style={{ fontWeight: 700, color: '#92400e', fontSize: 15, marginBottom: 8 }}>
+                  ⚡ Analyse-Credit erforderlich
+                </div>
+                <p style={{ fontSize: 13, color: '#78350f', margin: 0, lineHeight: 1.6 }}>
+                  Die KI-Analyse eines Kassenbescheids (Erstattungsprüfung + Widerspruchsbrief) benötigt 1 Credit.
+                  Dein Dokument wurde noch nicht hochgeladen — kauf einfach Credits und versuche es erneut.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <a
+                  href="/pricing"
+                  style={{ flex: 1, padding: '12px 0', borderRadius: 10, border: 'none', background: navy, color: 'white', fontWeight: 700, fontSize: 14, cursor: 'pointer', textAlign: 'center', textDecoration: 'none', display: 'block' }}
+                >
+                  Credits kaufen →
+                </a>
+                <button
+                  onClick={reset}
+                  style={{ padding: '12px 18px', borderRadius: 10, border: '1.5px solid #e2e8f0', background: 'white', color: slate, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+                >
+                  Abbrechen
                 </button>
               </div>
             </>

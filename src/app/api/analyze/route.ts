@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { analyzeRechnungPdf } from '@/lib/goae-analyzer'
+import { matchVorgangToKasse } from '@/lib/matching'
 import twilio from 'twilio'
 
 // Validate internal secret to prevent unauthorized calls
@@ -129,18 +130,18 @@ export async function POST(request: NextRequest) {
     const { error: updateError } = await supabaseAdmin
       .from('vorgaenge')
       .update({
-        arzt_id: null, // TODO: match/create Arzt record
-        rechnungsdatum: analyse.rechnungsdatum,
-        rechnungsnummer: analyse.rechnungsnummer,
-        betrag_gesamt: analyse.betragGesamt,
-        goae_positionen: analyse.goaePositionen,
-        max_faktor: analyse.maxFaktor,
-        flag_faktor_ueber_schwellenwert: analyse.flagFaktorUeberSchwellenwert,
-        flag_fehlende_begruendung: analyse.flagFehlendeBegrundung,
-        einsparpotenzial: analyse.einsparpotenzial,
-        claude_analyse: analyse,
-        status: 'pruefen',
-        updated_at: new Date().toISOString(),
+        arzt_name:                        analyse.arztName ?? null,
+        rechnungsdatum:                   analyse.rechnungsdatum,
+        rechnungsnummer:                  analyse.rechnungsnummer,
+        betrag_gesamt:                    analyse.betragGesamt,
+        goae_positionen:                  analyse.goaePositionen,
+        max_faktor:                       analyse.maxFaktor,
+        flag_faktor_ueber_schwellenwert:  analyse.flagFaktorUeberSchwellenwert,
+        flag_fehlende_begruendung:        analyse.flagFehlendeBegrundung,
+        einsparpotenzial:                 analyse.einsparpotenzial,
+        claude_analyse:                   analyse,
+        status:                           'pruefen',
+        updated_at:                       new Date().toISOString(),
       })
       .eq('id', vorgangId)
 
@@ -148,7 +149,7 @@ export async function POST(request: NextRequest) {
       throw new Error(`DB update failed: ${updateError.message}`)
     }
 
-    // ── 5. Upsert Arzt record (if name known) ─────────────────────────────
+    // ── 5. Upsert Arzt record + link arzt_id ─────────────────────────────
     if (analyse.arztName) {
       const { data: arzt } = await supabaseAdmin
         .from('aerzte')
@@ -166,6 +167,9 @@ export async function POST(request: NextRequest) {
           .update({ arzt_id: arzt.id })
           .eq('id', vorgangId)
       }
+
+      // ── 5b. Try to match to an open Kassenbescheid ─────────────────────
+      await matchVorgangToKasse(vorgangId, userId, analyse.arztName, analyse.rechnungsdatum, analyse.betragGesamt)
     }
 
     // ── 6. Send WhatsApp reply ────────────────────────────────────────────

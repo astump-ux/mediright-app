@@ -9,6 +9,7 @@ import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { analyzeKassePdf } from '@/lib/goae-analyzer'
 import { matchKasseToVorgaenge } from '@/lib/matching'
+import { checkAndDeductAnalysisCredit } from '@/lib/credits'
 import { randomUUID } from 'crypto'
 
 export const maxDuration = 60
@@ -42,6 +43,27 @@ export async function POST(request: NextRequest) {
 
   const admin = getSupabaseAdmin()
 
+  // ── Credit gate — check BEFORE uploading to storage ────────────────────────
+  // Kassenbescheid KI-Analyse (legal reasoning + Widerspruchsbrief) costs 1 credit.
+  const creditCheck = await checkAndDeductAnalysisCredit(user.id, 'kasse_analyse', { source: 'in_app_upload' })
+  if (!creditCheck.allowed) {
+    console.log('[upload/kassenbescheid] credit gate blocked for user:', user.id)
+    return NextResponse.json(
+      {
+        error: 'no_credits',
+        message: 'Keine Analyse-Credits verfügbar. Bitte kaufe Credits, um Kassenbescheide analysieren zu lassen.',
+      },
+      { status: 402 }
+    )
+  }
+
+  // ── Fetch user PKV name for context injection ──────────────────────────────
+  let pkvName: string | null = null
+  try {
+    const { data: p } = await admin.from('profiles').select('pkv_name').eq('id', user.id).single()
+    pkvName = (p as { pkv_name?: string | null } | null)?.pkv_name ?? null
+  } catch { /* profiles table may not have pkv_name yet */ }
+
   // ── Upload PDF to Supabase Storage ─────────────────────────────────────────
   const fileName = `${user.id}/kasse_${Date.now()}_${randomUUID().slice(0, 8)}.pdf`
   const { error: uploadError } = await admin.storage
@@ -55,7 +77,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // ── Analyze with Claude ──────────────────────────────────────────────────
-    const analyse = await analyzeKassePdf(pdfBuffer)
+    const analyse = await analyzeKassePdf(pdfBuffer, pkvName)
 
     // ── Compute Einsparpotenzial split ───────────────────────────────────────
     let betragWiderspruchKasse = 0
