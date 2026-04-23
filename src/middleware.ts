@@ -14,14 +14,14 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 // Routes that are accessible without authentication
-const PUBLIC_ROUTES = ['/login', '/auth', '/pricing']
+const PUBLIC_ROUTES = ['/', '/login', '/auth', '/pricing', '/demos', '/impressum', '/datenschutz', '/agb', '/kontakt']
 
 // Routes that are always public (static assets, API routes handled separately)
 function isPublic(pathname: string): boolean {
   if (pathname.startsWith('/api/')) return true          // API routes handle auth internally
   if (pathname.startsWith('/_next/')) return true        // Next.js internals
   if (pathname.startsWith('/favicon')) return true
-  return PUBLIC_ROUTES.some(p => pathname.startsWith(p))
+  return PUBLIC_ROUTES.some(p => p === '/' ? pathname === '/' : pathname.startsWith(p))
 }
 
 export async function middleware(request: NextRequest) {
