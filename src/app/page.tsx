@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'MediRight – Widerspruch gegen PKV & Beihilfe-Kürzungen',
-  description: 'Arztrechnung per WhatsApp weiterleiten, GOÄ-Analyse in 60 Sekunden, Widerspruchsbrief auf Knopfdruck.',
+  title: 'MediRight – GOÄ-Analyse & Widerspruch für Privatversicherte',
+  description: 'Arztrechnung hochladen, GOÄ-Ziffern prüfen, Kassenbescheid analysieren und Widerspruchsbrief generieren – automatisch in 60 Sekunden.',
 }
 
 export default function LandingPage() {
@@ -799,6 +799,307 @@ const LANDING_CSS = String.raw`
       .trust-item { font-size: .72rem; }
       .steps-section .section-title { margin-bottom: 44px; }
     }
+
+    /* ── WIDERSPRUCH SECTION ──────────────────────────────────── */
+    .widerspruch-section {
+      padding: 100px 0;
+      background: var(--white);
+    }
+
+    .widerspruch-inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 72px;
+      align-items: center;
+    }
+
+    .widerspruch-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .flow-step:hover {
+      border-color: var(--mint-light);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .flow-step-num {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--navy);
+      color: var(--mint);
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .flow-step-body h4 {
+      font-size: .95rem;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 4px;
+    }
+    .flow-step-body p {
+      font-size: .83rem;
+      color: var(--gray-600);
+      line-height: 1.55;
+    }
+
+    .widerspruch-result {
+      background: var(--navy);
+      border-radius: var(--radius-xl);
+      padding: 40px 36px;
+      position: relative;
+      overflow: hidden;
+    }
+    .widerspruch-result::before {
+      content: '';
+      position: absolute;
+      top: -40px; right: -40px;
+      width: 180px; height: 180px;
+      border-radius: 50%;
+      background: rgba(16,185,129,.08);
+    }
+
+    .result-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(16,185,129,.12);
+      border: 1px solid rgba(16,185,129,.3);
+      color: var(--mint);
+      font-size: .73rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 100px;
+      margin-bottom: 20px;
+    }
+
+    .result-letter {
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: var(--radius);
+      padding: 20px;
+      font-size: .82rem;
+      color: rgba(255,255,255,.75);
+      line-height: 1.7;
+      margin: 20px 0;
+      font-family: Georgia, serif;
+    }
+    .result-letter strong {
+      color: white;
+      font-weight: 600;
+    }
+
+    .result-meta {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .result-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(16,185,129,.1);
+      border: 1px solid rgba(16,185,129,.2);
+      color: var(--mint);
+      font-size: .75rem;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 100px;
+    }
+
+    /* ── PRICING SECTION ──────────────────────────────────────── */
+    .pricing-section {
+      padding: 100px 0;
+      background: var(--gray-100);
+    }
+
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-top: 56px;
+    }
+
+    .pricing-card {
+      background: var(--white);
+      border: 1.5px solid var(--gray-200);
+      border-radius: var(--radius-lg);
+      padding: 36px 30px;
+      position: relative;
+      transition: transform .2s, box-shadow .2s;
+    }
+    .pricing-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-lg);
+    }
+    .pricing-card.featured {
+      border-color: var(--mint);
+      box-shadow: 0 0 0 1px var(--mint), var(--shadow-md);
+    }
+
+    .pricing-badge {
+      position: absolute;
+      top: -13px; left: 50%; transform: translateX(-50%);
+      background: var(--mint);
+      color: white;
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 4px 14px;
+      border-radius: 100px;
+      white-space: nowrap;
+    }
+
+    .pricing-name {
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--mint-dark);
+      margin-bottom: 12px;
+    }
+
+    .pricing-price {
+      font-family: var(--font-serif);
+      font-size: 2.6rem;
+      font-weight: 400;
+      color: var(--navy);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .pricing-price span {
+      font-size: 1.1rem;
+      font-family: var(--font-sans);
+      font-weight: 600;
+    }
+
+    .pricing-sub {
+      font-size: .82rem;
+      color: var(--gray-600);
+      margin-bottom: 24px;
+    }
+
+    .pricing-divider {
+      height: 1px;
+      background: var(--gray-200);
+      margin: 20px 0;
+    }
+
+    .pricing-features {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+    .pricing-features li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: .88rem;
+      color: var(--gray-600);
+      line-height: 1.4;
+    }
+    .pricing-features li i {
+      color: var(--mint);
+      font-size: .78rem;
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+
+    .pricing-cta {
+      display: block;
+      width: 100%;
+      padding: 13px 0;
+      border-radius: 100px;
+      border: none;
+      text-align: center;
+      font-family: var(--font-sans);
+      font-weight: 700;
+      font-size: .92rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all .18s;
+    }
+    .pricing-cta.primary {
+      background: var(--mint);
+      color: white;
+      box-shadow: 0 4px 16px rgba(16,185,129,.3);
+    }
+    .pricing-cta.primary:hover {
+      background: var(--mint-dark);
+      box-shadow: 0 6px 22px rgba(16,185,129,.4);
+    }
+    .pricing-cta.outline {
+      background: transparent;
+      color: var(--navy);
+      border: 1.5px solid var(--gray-200);
+    }
+    .pricing-cta.outline:hover {
+      border-color: var(--mint);
+      color: var(--mint-dark);
+    }
+
+    .pro-card {
+      background: var(--navy);
+      border-radius: var(--radius-lg);
+      padding: 36px 40px;
+      margin-top: 20px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 32px;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .pro-card::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 220px; height: 220px;
+      border-radius: 50%;
+      background: rgba(16,185,129,.07);
+    }
+
+    .pro-features {
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 24px;
+      margin-top: 16px;
+    }
+    .pro-features li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: .85rem;
+      color: rgba(255,255,255,.7);
+    }
+    .pro-features li i { color: var(--mint); font-size: .78rem; }
+
+    @media (max-width: 900px) {
+      .widerspruch-inner { grid-template-columns: 1fr; gap: 48px; }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 420px; margin-left: auto; margin-right: auto; }
+      .pro-card { grid-template-columns: 1fr; }
+    }
+
 `
 
 const LANDING_HTML = String.raw`
@@ -808,12 +1109,14 @@ const LANDING_HTML = String.raw`
   <header>
     <div class="container">
       <div class="header-inner">
-        <a href="/">MediRight<span class="logo-dot"></span></a>
+        <a href="/login" class="logo">MediRight<span class="logo-dot"></span></a>
         <div style="display:flex;gap:12px;align-items:center;">
-          <a href="/demos" class="btn btn-outline" style="font-size:.82rem;">
+          <a href="demos.html" class="btn btn-outline" style="font-size:.82rem;">
             <i class="fa-solid fa-play"></i> Demo ansehen
           </a>
-          <a href="/login" class="btn btn-outline"><i class="fa-solid fa-arrow-right"></i> Anmelden / Registrieren</a>
+          <a href="#cta" class="btn btn-outline">
+            <i class="fa-solid fa-arrow-right"></i> Jetzt testen
+          </a>
         </div>
       </div>
     </div>
@@ -862,7 +1165,7 @@ const LANDING_HTML = String.raw`
             </div>
             <h3>Ihr erster Check — in 60 Sekunden.</h3>
             <p>Speichern Sie die Nummer, leiten Sie Ihre nächste Arztrechnung weiter. Keine App, keine Registrierung — nur Ihre Telefonnummer.</p>
-            <a href="/login" class="btn btn-hero">
+            <a href="#cta" class="btn btn-hero">
               <i class="fa-brands fa-whatsapp"></i>
               WhatsApp-Nummer anfordern
             </a>
@@ -967,7 +1270,7 @@ const LANDING_HTML = String.raw`
 
       <!-- Demo Link -->
       <div style="text-align:center; margin-top:44px;">
-        <a href="/demos" class="btn btn-outline" style="font-size:.92rem; padding:14px 28px;">
+        <a href="demos.html" class="btn btn-outline" style="font-size:.92rem; padding:14px 28px;">
           <i class="fa-solid fa-play"></i> Interaktive Demo ansehen — so sieht Ihr Dashboard aus
         </a>
       </div>
@@ -988,9 +1291,9 @@ const LANDING_HTML = String.raw`
         <div class="step-item">
           <div class="step-num">1</div>
           <div class="step-tag">Einmalig</div>
-          <h3>WhatsApp-Nummer speichern</h3>
-          <p>Kein App-Download, keine Registrierung. Ihre Telefonnummer ist Ihre ID — das war's.</p>
-          <div class="step-pill"><i class="fa-brands fa-whatsapp"></i> 30 Sekunden Setup</div>
+          <h3>Konto anlegen — kostenlos</h3>
+          <p>E-Mail oder Google. PDF dann per Browser hochladen oder per WhatsApp weiterleiten — beides funktioniert.</p>
+          <div class="step-pill"><i class="fa-solid fa-bolt"></i> 30 Sekunden Setup</div>
         </div>
 
         <div class="step-item">
@@ -1094,6 +1397,162 @@ const LANDING_HTML = String.raw`
   </section>
 
 
+
+
+  <!-- ── WIDERSPRUCH FEATURE ──────────────────────────────────── -->
+  <section class="widerspruch-section">
+    <div class="container">
+      <div class="widerspruch-inner">
+
+        <!-- Left: Flow -->
+        <div>
+          <div class="section-eyebrow">Widerspruch leicht gemacht</div>
+          <h2 class="section-title">Vom Kassenbescheid zum fertigen Widerspruchsbrief — in 2 Minuten.</h2>
+          <p style="font-size:1rem; color:var(--gray-600); line-height:1.75; margin-bottom:36px;">
+            Die Kasse kürzt — meist ohne Erklärung. MediRight analysiert jeden Bescheid automatisch,
+            identifiziert anfechtbare Positionen und generiert einen rechtssicheren Widerspruchsbrief,
+            den Sie nur noch absenden müssen.
+          </p>
+
+          <div class="widerspruch-flow">
+            <div class="flow-step">
+              <div class="flow-step-num">1</div>
+              <div class="flow-step-body">
+                <h4>Kassenbescheid hochladen (1 Credit)</h4>
+                <p>PDF aus dem Kassenportal — per Browser oder WhatsApp. Die KI liest Einreichung, Erstattung und alle Ablehnungsposten.</p>
+              </div>
+            </div>
+            <div class="flow-step">
+              <div class="flow-step-num">2</div>
+              <div class="flow-step-body">
+                <h4>KI analysiert Ablehnungsgründe</h4>
+                <p>Jede Kürzung wird gegen GOÄ-Recht, Ihre Versicherungsbedingungen und unsere Präzedenzfälle geprüft. Erfolgswahrscheinlichkeit inklusive.</p>
+              </div>
+            </div>
+            <div class="flow-step">
+              <div class="flow-step-num">3</div>
+              <div class="flow-step-body">
+                <h4>Widerspruchsbrief — fertig zum Versand</h4>
+                <p>Personalisiert, rechtssicher, mit konkreten §-Bezügen. Kopieren, ausdrucken, absenden. Fertig.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Mock letter -->
+        <div class="widerspruch-result">
+          <div class="result-badge">
+            <i class="fa-solid fa-file-lines"></i>
+            KI-generierter Widerspruch
+          </div>
+          <div style="color:rgba(255,255,255,.5); font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; margin-bottom:6px;">Widerspruch generiert in 48 Sek.</div>
+
+          <div class="result-letter">
+            <strong>Betreff: Widerspruch gegen Ihren Bescheid vom 12.03.2025,<br>Ref. AXA-2025-0391847</strong><br><br>
+            Sehr geehrte Damen und Herren,<br><br>
+            hiermit lege ich fristgerecht Widerspruch gegen die teilweise Ablehnung meiner Leistungsabrechnung ein.
+            Die Ablehnung der <strong>GOÄ-Ziffer 3 (Faktor 3,5×)</strong> entbehrt einer rechtlichen Grundlage:
+            Gemäß <strong>§ 12 Abs. 3 GOÄ</strong> ist eine Überschreitung des Schwellenwerts zulässig,
+            sofern eine schriftliche Begründung vorliegt — diese wurde dem Bescheid beigefügt und
+            wurde von Ihrer Seite nicht berücksichtigt…
+          </div>
+
+          <div class="result-meta">
+            <div class="result-tag"><i class="fa-solid fa-scale-balanced"></i> §12 GOÄ referenziert</div>
+            <div class="result-tag"><i class="fa-solid fa-chart-line"></i> 87% Erfolgsquote</div>
+            <div class="result-tag"><i class="fa-solid fa-euro-sign"></i> 63,80 € zurückgefordert</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ── PRICING ───────────────────────────────────────────────── -->
+  <section class="pricing-section">
+    <div class="container">
+      <div style="max-width:540px;">
+        <div class="section-eyebrow">Transparent & fair</div>
+        <h2 class="section-title">Arztrechnung immer kostenlos. Kassenbescheid ab 2,41&nbsp;€.</h2>
+      </div>
+
+      <div class="pricing-grid">
+
+        <!-- Starter -->
+        <div class="pricing-card">
+          <div class="pricing-name">Starter</div>
+          <div class="pricing-price"><span>€</span>7,99</div>
+          <div class="pricing-sub">3 Analyse-Credits</div>
+          <div class="pricing-divider"></div>
+          <ul class="pricing-features">
+            <li><i class="fa-solid fa-check"></i> Kassenbescheid-Analyse (3×)</li>
+            <li><i class="fa-solid fa-check"></i> Widerspruchsbrief-Entwurf</li>
+            <li><i class="fa-solid fa-check"></i> Arztrechnung-Analyse unbegrenzt</li>
+            <li><i class="fa-solid fa-check"></i> Dashboard & Ärzte-Übersicht</li>
+          </ul>
+          <a href="/login" class="pricing-cta outline">Starten</a>
+        </div>
+
+        <!-- Standard -->
+        <div class="pricing-card featured">
+          <div class="pricing-badge">Beliebteste Wahl</div>
+          <div class="pricing-name">Standard</div>
+          <div class="pricing-price"><span>€</span>24,99</div>
+          <div class="pricing-sub">10 Analyse-Credits · 2,50&thinsp;€/Credit</div>
+          <div class="pricing-divider"></div>
+          <ul class="pricing-features">
+            <li><i class="fa-solid fa-check"></i> Kassenbescheid-Analyse (10×)</li>
+            <li><i class="fa-solid fa-check"></i> Widerspruchsbrief-Entwurf</li>
+            <li><i class="fa-solid fa-check"></i> Arztrechnung-Analyse unbegrenzt</li>
+            <li><i class="fa-solid fa-check"></i> Ärzte-Benchmarking</li>
+            <li><i class="fa-solid fa-check"></i> Widerspruchs-Tracker</li>
+          </ul>
+          <a href="/login" class="pricing-cta primary">Jetzt starten</a>
+        </div>
+
+        <!-- Profi -->
+        <div class="pricing-card">
+          <div class="pricing-name">Profi</div>
+          <div class="pricing-price"><span>€</span>54,99</div>
+          <div class="pricing-sub">25 Analyse-Credits · 2,20&thinsp;€/Credit</div>
+          <div class="pricing-divider"></div>
+          <ul class="pricing-features">
+            <li><i class="fa-solid fa-check"></i> Kassenbescheid-Analyse (25×)</li>
+            <li><i class="fa-solid fa-check"></i> Widerspruchsbrief-Entwurf</li>
+            <li><i class="fa-solid fa-check"></i> Arztrechnung-Analyse unbegrenzt</li>
+            <li><i class="fa-solid fa-check"></i> Ärzte-Benchmarking & Verlauf</li>
+            <li><i class="fa-solid fa-check"></i> KI-Chat-Assistent</li>
+          </ul>
+          <a href="/login" class="pricing-cta outline">Starten</a>
+        </div>
+
+      </div>
+
+      <!-- PRO Annual -->
+      <div class="pro-card">
+        <div style="position:relative;z-index:1;">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+            <div style="background:var(--mint);color:white;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:5px 14px;border-radius:100px;">PRO Jahresabo</div>
+            <div style="color:rgba(255,255,255,.5);font-size:.83rem;">Für regelmäßige Nutzer</div>
+          </div>
+          <div style="font-family:var(--font-serif);font-size:1.6rem;color:white;margin-bottom:8px;">Unlimitiert — für <span style="color:var(--mint);">€&thinsp;29/Jahr</span> <span style="font-family:var(--font-sans);font-size:1rem;color:rgba(255,255,255,.5);">= €&thinsp;2,41/Monat</span></div>
+          <ul class="pro-features">
+            <li><i class="fa-solid fa-check"></i> Unbegrenzte Kassenbescheid-Analysen</li>
+            <li><i class="fa-solid fa-check"></i> Alle Widerspruchsbriefe inklusive</li>
+            <li><i class="fa-solid fa-check"></i> KI-Chat-Assistent</li>
+            <li><i class="fa-solid fa-check"></i> PDF-Export</li>
+            <li><i class="fa-solid fa-check"></i> Früher Zugang zu neuen Features</li>
+          </ul>
+        </div>
+        <div style="position:relative;z-index:1;flex-shrink:0;">
+          <a href="/login" class="btn btn-primary" style="white-space:nowrap;padding:16px 32px;">PRO jetzt aktivieren</a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
   <!-- ── CTA ───────────────────────────────────────────────── -->
   <section class="cta-section" id="cta">
     <div class="container">
@@ -1125,17 +1584,17 @@ const LANDING_HTML = String.raw`
             <i class="fa-brands fa-whatsapp"></i>
             Jetzt Beta-Zugang sichern
           </a>
-          <a href="/demos" class="btn" style="background:rgba(255,255,255,.08); color:rgba(255,255,255,.8); padding:20px 32px; font-size:1rem; border-radius:100px; border:1.5px solid rgba(255,255,255,.15);">
+          <a href="demos.html" class="btn" style="background:rgba(255,255,255,.08); color:rgba(255,255,255,.8); padding:20px 32px; font-size:1rem; border-radius:100px; border:1.5px solid rgba(255,255,255,.15);">
             <i class="fa-solid fa-play"></i>
             Demo ansehen
           </a>
         </div>
 
         <div class="footer-links">
-          <a href="/impressum">Impressum</a>
-          <a href="/datenschutz">Datenschutz</a>
-          <a href="/agb">AGB</a>
-          <a href="/kontakt">Kontakt</a>
+          <a href="/login">Impressum</a>
+          <a href="/login">Datenschutz</a>
+          <a href="/login">AGB</a>
+          <a href="/login">Kontakt</a>
         </div>
 
         <div class="footer-copy">
