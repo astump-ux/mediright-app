@@ -931,7 +931,7 @@ const LANDING_CSS = String.raw`
 
     .pricing-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 20px;
       margin-top: 56px;
     }
@@ -1096,7 +1096,8 @@ const LANDING_CSS = String.raw`
 
     @media (max-width: 900px) {
       .widerspruch-inner { grid-template-columns: 1fr; gap: 48px; }
-      .pricing-grid { grid-template-columns: 1fr; max-width: 420px; margin-left: auto; margin-right: auto; }
+      .pricing-grid { grid-template-columns: 1fr 1fr; }
+      .pricing-grid .pricing-card:nth-child(odd):last-child { grid-column: span 2; max-width: 420px; margin: 0 auto; width: 100%; }
       .pro-card { grid-template-columns: 1fr; }
     }
 
@@ -1474,10 +1475,27 @@ const LANDING_HTML = String.raw`
     <div class="container">
       <div style="max-width:540px;">
         <div class="section-eyebrow">Transparent & fair</div>
-        <h2 class="section-title">Arztrechnung immer kostenlos. Kassenbescheid ab 2,41&nbsp;€.</h2>
+        <h2 class="section-title">Kostenlos starten. Nur zahlen, wenn Sie mehr brauchen.</h2>
       </div>
 
       <div class="pricing-grid">
+
+        <!-- Free -->
+        <div class="pricing-card">
+          <div class="pricing-name" style="color:var(--gray-600);">Kostenlos</div>
+          <div class="pricing-price">€<span style="font-size:1.6rem;">0</span></div>
+          <div class="pricing-sub">Für immer gratis</div>
+          <div class="pricing-divider"></div>
+          <ul class="pricing-features">
+            <li><i class="fa-solid fa-check"></i> Arztrechnung-Analyse unbegrenzt</li>
+            <li><i class="fa-solid fa-check"></i> GOÄ-Ziffern, Faktoren, §12-Prüfung</li>
+            <li><i class="fa-solid fa-check"></i> Dashboard & Ärzte-Übersicht</li>
+            <li><i class="fa-solid fa-check"></i> Ärzte-Benchmarking</li>
+            <li style="color:var(--gray-400);"><i class="fa-solid fa-minus" style="color:var(--gray-400);"></i> Kein Kassenbescheid-Check</li>
+            <li style="color:var(--gray-400);"><i class="fa-solid fa-minus" style="color:var(--gray-400);"></i> Kein Widerspruchsbrief</li>
+          </ul>
+          <a href="/login" class="pricing-cta outline">Kostenlos starten</a>
+        </div>
 
         <!-- Starter -->
         <div class="pricing-card">
