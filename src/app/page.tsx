@@ -1577,42 +1577,30 @@ const LANDING_HTML = String.raw`
       <div class="cta-inner">
 
         <div class="cta-badge">
-          <i class="fa-brands fa-whatsapp"></i>
-          Geschlossener Beta-Test
+          <i class="fa-solid fa-circle-check"></i>
+          Jetzt verfügbar
         </div>
 
         <h2>Ihre nächste Rechnung prüft sich von selbst.</h2>
 
-        <div class="cta-spots">
-          <span>Noch verfügbare Plätze:</span>
-          <div class="spot-indicator">
-            <div class="spot"></div>
-            <div class="spot"></div>
-            <div class="spot"></div>
-            <div class="spot taken"></div>
-            <div class="spot taken"></div>
-          </div>
-          <span><strong style="color:var(--mint)">61 von 100</strong> belegt</span>
-        </div>
-
-        <p>Tragen Sie Ihre E-Mail ein — wir schicken Ihnen die WhatsApp-Nummer und eine kurze Einführung. Erste Analyse kostenlos, kein Abo, kein Risiko.</p>
+        <p>Konto anlegen dauert 30 Sekunden. Die erste Arztrechnung-Analyse ist kostenlos. Kein Abo, kein Risiko.</p>
 
         <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-bottom:20px;">
           <a href="/login" class="btn btn-footer">
-            <i class="fa-brands fa-whatsapp"></i>
-            Jetzt Beta-Zugang sichern
+            <i class="fa-solid fa-arrow-right"></i>
+            Kostenlos starten
           </a>
-          <a href="demos.html" class="btn" style="background:rgba(255,255,255,.08); color:rgba(255,255,255,.8); padding:20px 32px; font-size:1rem; border-radius:100px; border:1.5px solid rgba(255,255,255,.15);">
+          <a href="/demos" class="btn" style="background:rgba(255,255,255,.08); color:rgba(255,255,255,.8); padding:20px 32px; font-size:1rem; border-radius:100px; border:1.5px solid rgba(255,255,255,.15);">
             <i class="fa-solid fa-play"></i>
             Demo ansehen
           </a>
         </div>
 
         <div class="footer-links">
-          <a href="/login">Impressum</a>
-          <a href="/login">Datenschutz</a>
-          <a href="/login">AGB</a>
-          <a href="/login">Kontakt</a>
+          <a href="/impressum">Impressum</a>
+          <a href="/datenschutz">Datenschutz</a>
+          <a href="/agb">AGB</a>
+          <a href="/kontakt">Kontakt</a>
         </div>
 
         <div class="footer-copy">
