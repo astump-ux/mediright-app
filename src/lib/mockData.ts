@@ -803,13 +803,8 @@ export const mockWiderspruchFaelle: WiderspruchFall[] = [
         "Fristenkontrolle: Widerspruchsfrist endet am 20.05.2025 — spätestens bis 15.05.2025 absenden, damit der Poststempel passt.",
       ],
       ablehnungsgruende: [
-        {
-          ziffer: "A3695a",
-          bezeichnung: "Erweitertes Hormonpanel (Analogziffer)",
-          betrag: 74.00,
-          grund: "Analogziffern werden im Tarif ActiveMe-U nicht pauschal übernommen.",
-          einschaetzung: "Angreifbar — §6 Abs. 2 GOÄ erlaubt Analogabrechnung, pauschaler Ausschluss ist unwirksam.",
-        },
+        "GOÄ A3695a: Analogziffer — pauschale Ablehnung gemäß Tarifbedingungen (§4 AVB ActiveMe-U)",
+        "KI-Einschätzung: Ablehnung angreifbar — §6 Abs. 2 GOÄ erlaubt Analogabrechnung, pauschaler Ausschluss ist nach BGH-Rechtsprechung (IV ZR 201/10) unwirksam",
       ],
       rechnungen: [
         {
