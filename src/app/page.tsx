@@ -1120,9 +1120,6 @@ const LANDING_HTML = String.raw`
       <div class="header-inner">
         <a href="/" class="logo">MediRight<span class="logo-dot"></span></a>
         <div style="display:flex;gap:12px;align-items:center;">
-          <a href="/demos" class="btn btn-outline" style="font-size:.82rem;">
-            <i class="fa-solid fa-play"></i> Demo ansehen
-          </a>
           <a href="/login" class="btn btn-primary" style="padding:10px 22px;font-size:.88rem;">Kostenlos starten</a>
         </div>
       </div>
@@ -1275,12 +1272,6 @@ const LANDING_HTML = String.raw`
 
       </div>
 
-      <!-- Demo Link -->
-      <div style="text-align:center; margin-top:44px;">
-        <a href="demos.html" class="btn btn-outline" style="font-size:.92rem; padding:14px 28px;">
-          <i class="fa-solid fa-play"></i> Interaktive Demo ansehen — so sieht Ihr Dashboard aus
-        </a>
-      </div>
 
     </div>
   </section>
@@ -1552,9 +1543,6 @@ const LANDING_HTML = String.raw`
             <li><i class="fa-solid fa-check"></i> Ärzte-Benchmarking</li>
           </ul>
         </div>
-        <div style="position:relative;z-index:1;flex-shrink:0;">
-          <a href="/login" class="btn" style="white-space:nowrap;padding:16px 32px;background:rgba(255,255,255,.12);color:white;border:1.5px solid rgba(255,255,255,.25);border-radius:100px;font-weight:700;font-size:.95rem;text-decoration:none;display:inline-block;transition:all .18s;" onmouseover="this.style.background='rgba(255,255,255,.2)'" onmouseout="this.style.background='rgba(255,255,255,.12)'">Kostenlos starten</a>
-        </div>
       </div>
 
     </div>
@@ -1578,10 +1566,6 @@ const LANDING_HTML = String.raw`
           <a href="/login" class="btn btn-footer">
             <i class="fa-solid fa-arrow-right"></i>
             Kostenlos starten
-          </a>
-          <a href="/demos" class="btn" style="background:rgba(255,255,255,.08); color:rgba(255,255,255,.8); padding:20px 32px; font-size:1rem; border-radius:100px; border:1.5px solid rgba(255,255,255,.15);">
-            <i class="fa-solid fa-play"></i>
-            Demo ansehen
           </a>
         </div>
 
