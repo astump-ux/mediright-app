@@ -340,7 +340,7 @@ export default function PricingPage() {
                 background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
                 fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6,
               }}>
-                💡 <strong style={{ color: 'white' }}>Break-even bei ~12 Vorgängen/Jahr</strong> — das entspricht einem typischen PKV-Jahr mit monatlichen Kassenbescheiden.
+                💡 <strong style={{ color: 'white' }}>Break-even bei ~14 Vorgängen/Jahr</strong> — günstiger als 2 Plus-Pakete zusammen.
               </div>
               {isPro ? (
                 <div style={{
@@ -388,7 +388,7 @@ export default function PricingPage() {
             { q: 'Was ist ein Credit?', a: '1 Credit schaltet die vollständige Kassenbescheid-Analyse frei: detaillierte Aufschlüsselung aller abgelehnten Positionen, Erfolgswahrscheinlichkeit für einen Widerspruch, rechtliche Begründung — und den fertig formulierten Brief zum direkten Versand. Arztrechnungen werden immer kostenlos auf GOÄ-Auffälligkeiten geprüft.' },
             { q: 'Verfallen Credits?', a: 'Nein. Einmal gekaufte Credits verfallen nicht und bleiben dauerhaft auf deinem Konto.' },
             { q: 'Was passiert wenn ich kein Credit mehr habe?', a: 'Dokumente werden weiterhin gespeichert und klassifiziert. Die KI-Analyse wird erst ausgeführt, sobald du neue Credits kaufst.' },
-            { q: 'Kann ich PRO kündigen?', a: 'Ja, jederzeit. Das Abo läuft bis zum Ende des bezahlten Jahreszeitraums und verlängert sich nicht automatisch ohne erneute Bestätigung.' },
+            { q: 'Kann ich PRO kündigen?', a: 'Ja, jederzeit über die Kontoeinstellungen oder per E-Mail. Das Abo läuft bis zum Ende des bezahlten Jahreszeitraums. Kündigung muss spätestens 30 Tage vor Verlängerung erfolgen.' },
           ].map(({ q, a }, i) => (
             <div key={i} style={{ marginBottom: i < 3 ? 14 : 0 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: navy, marginBottom: 3 }}>{q}</div>
