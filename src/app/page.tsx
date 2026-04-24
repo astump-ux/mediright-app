@@ -1110,14 +1110,12 @@ const LANDING_HTML = String.raw`
   <header>
     <div class="container">
       <div class="header-inner">
-        <a href="/login" class="logo">MediRight<span class="logo-dot"></span></a>
+        <a href="/" class="logo">MediRight<span class="logo-dot"></span></a>
         <div style="display:flex;gap:12px;align-items:center;">
-          <a href="demos.html" class="btn btn-outline" style="font-size:.82rem;">
+          <a href="/demos" class="btn btn-outline" style="font-size:.82rem;">
             <i class="fa-solid fa-play"></i> Demo ansehen
           </a>
-          <a href="#cta" class="btn btn-outline">
-            <i class="fa-solid fa-arrow-right"></i> Jetzt testen
-          </a>
+          <a href="/login" class="btn btn-primary" style="padding:10px 22px;font-size:.88rem;">Kostenlos starten</a>
         </div>
       </div>
     </div>
@@ -1162,26 +1160,26 @@ const LANDING_HTML = String.raw`
           <div class="hero-card">
             <div class="hero-card-badge">
               <i class="fa-solid fa-circle-check"></i>
-              Kostenlos &amp; unverbindlich
+              Erste Arztrechnung kostenlos
             </div>
-            <h3>Ihr erster Check — in 60 Sekunden.</h3>
-            <p>Speichern Sie die Nummer, leiten Sie Ihre nächste Arztrechnung weiter. Keine App, keine Registrierung — nur Ihre Telefonnummer.</p>
-            <a href="#cta" class="btn btn-hero">
-              <i class="fa-brands fa-whatsapp"></i>
-              WhatsApp-Nummer anfordern
+            <h3>Jetzt starten — Ergebnis in 60&nbsp;Sekunden.</h3>
+            <p>Konto anlegen, PDF hochladen oder per WhatsApp weiterleiten — die KI prüft GOÄ-Ziffern, Faktoren und Erstattungen automatisch.</p>
+            <a href="/login" class="btn btn-hero">
+              <i class="fa-solid fa-arrow-right"></i>
+              Kostenlos starten
             </a>
             <div class="trust-row">
               <div class="trust-item">
                 <i class="fa-solid fa-lock" style="color:var(--mint)"></i>
-                100 % DSGVO-konform
+                DSGVO-konform
               </div>
               <div class="trust-item">
                 <span>🇩🇪</span>
                 Server in Deutschland
               </div>
               <div class="trust-item">
-                <i class="fa-solid fa-scale-balanced" style="color:var(--mint)"></i>
-                Juristisch geprüft
+                <i class="fa-solid fa-file-invoice" style="color:var(--mint)"></i>
+                Arztrechnung gratis
               </div>
             </div>
           </div>
