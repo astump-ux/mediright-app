@@ -943,6 +943,8 @@ const LANDING_CSS = String.raw`
       padding: 36px 30px;
       position: relative;
       transition: transform .2s, box-shadow .2s;
+      display: flex;
+      flex-direction: column;
     }
     .pricing-card:hover {
       transform: translateY(-4px);
@@ -1008,6 +1010,7 @@ const LANDING_CSS = String.raw`
       flex-direction: column;
       gap: 10px;
       margin-bottom: 28px;
+      flex: 1;
     }
     .pricing-features li {
       display: flex;
@@ -1096,9 +1099,14 @@ const LANDING_CSS = String.raw`
 
     @media (max-width: 900px) {
       .widerspruch-inner { grid-template-columns: 1fr; gap: 48px; }
-      .pricing-grid { grid-template-columns: 1fr; }
-      .free-card { grid-template-columns: 1fr; }
-      .pro-card { grid-template-columns: 1fr; }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 420px; margin-left: auto; margin-right: auto; }
+      .pro-card { grid-template-columns: 1fr; text-align: center; }
+      .pro-card > div:last-child { display: flex; justify-content: center; }
+      .pro-features { justify-content: center; }
+    }
+    @media (min-width: 601px) and (max-width: 900px) {
+      .pricing-grid { grid-template-columns: 1fr 1fr; max-width: 100%; }
+      .pricing-grid .pricing-card:last-child { grid-column: span 2; max-width: 420px; margin: 0 auto; width: 100%; }
     }
 
 `
@@ -1490,7 +1498,7 @@ const LANDING_HTML = String.raw`
             <li><i class="fa-solid fa-check"></i> Arztrechnung-Analyse unbegrenzt</li>
             <li><i class="fa-solid fa-check"></i> Dashboard & Ärzte-Übersicht</li>
           </ul>
-          <a href="/login" class="pricing-cta outline">Starten</a>
+          <a href="/login" class="pricing-cta outline">Starter wählen</a>
         </div>
 
         <!-- Plus -->
@@ -1506,7 +1514,7 @@ const LANDING_HTML = String.raw`
             <li><i class="fa-solid fa-check"></i> Ärzte-Benchmarking</li>
             <li><i class="fa-solid fa-check"></i> Widerspruchs-Tracker</li>
           </ul>
-          <a href="/login" class="pricing-cta outline">Starten</a>
+          <a href="/login" class="pricing-cta outline">Plus wählen</a>
         </div>
 
         <!-- Pro Jahresabo -->
@@ -1524,7 +1532,7 @@ const LANDING_HTML = String.raw`
             <li><i class="fa-solid fa-check"></i> PDF-Export & Widerspruchs-Tracker</li>
             <li><i class="fa-solid fa-check"></i> Früher Zugang zu neuen Features</li>
           </ul>
-          <a href="/login" class="pricing-cta primary">Jetzt aktivieren</a>
+          <a href="/login" class="pricing-cta primary">Pro freischalten</a>
         </div>
 
       </div>
