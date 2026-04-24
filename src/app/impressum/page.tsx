@@ -43,7 +43,7 @@ export default function ImpressumPage() {
           </Section>
 
           <Section title="Kontakt">
-            <p>E-Mail: <a href="mailto:astump@mediright.com" style={{ color: '#10b981', textDecoration: 'none' }}>astump@mediright.com</a></p>
+            <p>E-Mail: <a href="mailto:info@mediright.com" style={{ color: '#10b981', textDecoration: 'none' }}>info@mediright.com</a></p>
           </Section>
 
           <Section title="Handelsregister">
