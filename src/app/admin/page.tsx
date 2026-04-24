@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Header from '@/components/layout/Header'
+import UserManagementSection from '@/components/admin/UserManagementSection'
 
 interface SelectOption { value: string; label: string }
 interface Setting {
@@ -320,6 +321,9 @@ export default function AdminPage() {
             {error}
           </div>
         )}
+
+        {/* User management */}
+        <UserManagementSection />
 
         {/* Token usage */}
         <TokenUsageSection />
