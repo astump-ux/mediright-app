@@ -931,7 +931,7 @@ const LANDING_CSS = String.raw`
 
     .pricing-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(3, 1fr);
       gap: 20px;
       margin-top: 56px;
     }
@@ -1096,8 +1096,8 @@ const LANDING_CSS = String.raw`
 
     @media (max-width: 900px) {
       .widerspruch-inner { grid-template-columns: 1fr; gap: 48px; }
-      .pricing-grid { grid-template-columns: 1fr 1fr; }
-      .pricing-grid .pricing-card:nth-child(odd):last-child { grid-column: span 2; max-width: 420px; margin: 0 auto; width: 100%; }
+      .pricing-grid { grid-template-columns: 1fr; }
+      .free-card { grid-template-columns: 1fr; }
       .pro-card { grid-template-columns: 1fr; }
     }
 
@@ -1478,23 +1478,6 @@ const LANDING_HTML = String.raw`
 
       <div class="pricing-grid">
 
-        <!-- Free -->
-        <div class="pricing-card">
-          <div class="pricing-name" style="color:var(--gray-600);">Kostenlos</div>
-          <div class="pricing-price">€<span style="font-size:1.6rem;">0</span></div>
-          <div class="pricing-sub">Für immer gratis</div>
-          <div class="pricing-divider"></div>
-          <ul class="pricing-features">
-            <li><i class="fa-solid fa-check"></i> Arztrechnung-Analyse unbegrenzt</li>
-            <li><i class="fa-solid fa-check"></i> GOÄ-Ziffern, Faktoren, §12-Prüfung</li>
-            <li><i class="fa-solid fa-check"></i> Dashboard & Ärzte-Übersicht</li>
-            <li><i class="fa-solid fa-check"></i> Ärzte-Benchmarking</li>
-            <li style="color:var(--gray-400);"><i class="fa-solid fa-minus" style="color:var(--gray-400);"></i> Kein Kassenbescheid-Check</li>
-            <li style="color:var(--gray-400);"><i class="fa-solid fa-minus" style="color:var(--gray-400);"></i> Kein Widerspruchsbrief</li>
-          </ul>
-          <a href="/login" class="pricing-cta outline">Kostenlos starten</a>
-        </div>
-
         <!-- Starter -->
         <div class="pricing-card">
           <div class="pricing-name">Starter</div>
@@ -1510,10 +1493,9 @@ const LANDING_HTML = String.raw`
           <a href="/login" class="pricing-cta outline">Starten</a>
         </div>
 
-        <!-- Standard -->
-        <div class="pricing-card featured">
-          <div class="pricing-badge">Beliebteste Wahl</div>
-          <div class="pricing-name">Standard</div>
+        <!-- Plus -->
+        <div class="pricing-card">
+          <div class="pricing-name">Plus</div>
           <div class="pricing-price"><span>€</span>24,99</div>
           <div class="pricing-sub">10 Analyse-Credits · 2,50&thinsp;€/Credit</div>
           <div class="pricing-divider"></div>
@@ -1524,45 +1506,46 @@ const LANDING_HTML = String.raw`
             <li><i class="fa-solid fa-check"></i> Ärzte-Benchmarking</li>
             <li><i class="fa-solid fa-check"></i> Widerspruchs-Tracker</li>
           </ul>
-          <a href="/login" class="pricing-cta primary">Jetzt starten</a>
+          <a href="/login" class="pricing-cta outline">Starten</a>
         </div>
 
-        <!-- Profi -->
-        <div class="pricing-card">
-          <div class="pricing-name">Profi</div>
-          <div class="pricing-price"><span>€</span>54,99</div>
-          <div class="pricing-sub">25 Analyse-Credits · 2,20&thinsp;€/Credit</div>
+        <!-- Pro Jahresabo -->
+        <div class="pricing-card featured">
+          <div class="pricing-badge">Beliebteste Wahl</div>
+          <div class="pricing-name">Pro</div>
+          <div class="pricing-price"><span>€</span>34,99<span style="font-size:.95rem;font-family:var(--font-sans);font-weight:500;color:var(--gray-600);">/Jahr</span></div>
+          <div class="pricing-sub">= €&thinsp;2,92/Monat · Jahresabo</div>
           <div class="pricing-divider"></div>
           <ul class="pricing-features">
-            <li><i class="fa-solid fa-check"></i> Kassenbescheid-Analyse (25×)</li>
-            <li><i class="fa-solid fa-check"></i> Widerspruchsbrief-Entwurf</li>
+            <li><i class="fa-solid fa-check"></i> Kassenbescheid-Analysen unbegrenzt</li>
+            <li><i class="fa-solid fa-check"></i> Alle Widerspruchsbriefe inklusive</li>
             <li><i class="fa-solid fa-check"></i> Arztrechnung-Analyse unbegrenzt</li>
-            <li><i class="fa-solid fa-check"></i> Ärzte-Benchmarking & Verlauf</li>
             <li><i class="fa-solid fa-check"></i> KI-Chat-Assistent</li>
+            <li><i class="fa-solid fa-check"></i> PDF-Export & Widerspruchs-Tracker</li>
+            <li><i class="fa-solid fa-check"></i> Früher Zugang zu neuen Features</li>
           </ul>
-          <a href="/login" class="pricing-cta outline">Starten</a>
+          <a href="/login" class="pricing-cta primary">Jetzt aktivieren</a>
         </div>
 
       </div>
 
-      <!-- PRO Annual -->
+      <!-- Kostenlos Teaser -->
       <div class="pro-card">
         <div style="position:relative;z-index:1;">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
-            <div style="background:var(--mint);color:white;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:5px 14px;border-radius:100px;">PRO Jahresabo</div>
-            <div style="color:rgba(255,255,255,.5);font-size:.83rem;">Für regelmäßige Nutzer</div>
+            <div style="background:rgba(255,255,255,.15);color:white;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:5px 14px;border-radius:100px;">Kostenlos</div>
+            <div style="color:rgba(255,255,255,.5);font-size:.83rem;">Für immer gratis — kein Kreditkarte nötig</div>
           </div>
-          <div style="font-family:var(--font-serif);font-size:1.6rem;color:white;margin-bottom:8px;">Unlimitiert — für <span style="color:var(--mint);">€&thinsp;29/Jahr</span> <span style="font-family:var(--font-sans);font-size:1rem;color:rgba(255,255,255,.5);">= €&thinsp;2,41/Monat</span></div>
+          <div style="font-family:var(--font-serif);font-size:1.6rem;color:white;margin-bottom:8px;">Arztrechnung-Analyse — <span style="color:var(--mint);">immer kostenlos</span></div>
           <ul class="pro-features">
-            <li><i class="fa-solid fa-check"></i> Unbegrenzte Kassenbescheid-Analysen</li>
-            <li><i class="fa-solid fa-check"></i> Alle Widerspruchsbriefe inklusive</li>
-            <li><i class="fa-solid fa-check"></i> KI-Chat-Assistent</li>
-            <li><i class="fa-solid fa-check"></i> PDF-Export</li>
-            <li><i class="fa-solid fa-check"></i> Früher Zugang zu neuen Features</li>
+            <li><i class="fa-solid fa-check"></i> GOÄ-Ziffern & Faktoren prüfen</li>
+            <li><i class="fa-solid fa-check"></i> §12-Prüfung inklusive</li>
+            <li><i class="fa-solid fa-check"></i> Dashboard & Ärzte-Übersicht</li>
+            <li><i class="fa-solid fa-check"></i> Ärzte-Benchmarking</li>
           </ul>
         </div>
         <div style="position:relative;z-index:1;flex-shrink:0;">
-          <a href="/login" class="btn btn-primary" style="white-space:nowrap;padding:16px 32px;">PRO jetzt aktivieren</a>
+          <a href="/login" class="btn" style="white-space:nowrap;padding:16px 32px;background:rgba(255,255,255,.12);color:white;border:1.5px solid rgba(255,255,255,.25);border-radius:100px;font-weight:700;font-size:.95rem;text-decoration:none;display:inline-block;transition:all .18s;" onmouseover="this.style.background='rgba(255,255,255,.2)'" onmouseout="this.style.background='rgba(255,255,255,.12)'">Kostenlos starten</a>
         </div>
       </div>
 
