@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import type { CreditStatus } from "@/lib/credits";
+import { getSupabaseClient } from "@/lib/supabase";
 
 const navItems = [
   { href: "/dashboard",        label: "Dashboard" },
@@ -14,10 +15,17 @@ const navItems = [
 
 export default function Header() {
   const pathname  = usePathname();
+  const router    = useRouter();
   const [open, setOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [credits, setCredits] = useState<CreditStatus | null>(null);
   const menuRef   = useRef<HTMLDivElement>(null);
+
+  async function handleLogout() {
+    const supabase = getSupabaseClient();
+    await supabase.auth.signOut();
+    router.push('/login');
+  }
 
   // Fetch user role once on mount
   useEffect(() => {
@@ -202,6 +210,20 @@ export default function Header() {
                   }}>Admin</span>
                 </div>
               )}
+
+              {/* Logout */}
+              <div style={{ borderTop: "1px solid #f1f5f9" }}>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-3 px-4 py-3 text-sm font-semibold w-full transition-colors"
+                  style={{ color: "#ef4444", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#fff1f1"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                >
+                  <span>↩</span>
+                  <span>Abmelden</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
