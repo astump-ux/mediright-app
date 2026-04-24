@@ -1137,9 +1137,23 @@ function WiderspruchCard({ fall }: { fall: WiderspruchFall }) {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export default function WiderspruchClient({ faelle }: { faelle: WiderspruchFall[] }) {
+export default function WiderspruchClient({ faelle, isDemo = false }: { faelle: WiderspruchFall[]; isDemo?: boolean }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Demo banner */}
+      {isDemo && (
+        <div style={{
+          background: 'linear-gradient(90deg, #fef3c7, #fde68a)',
+          borderRadius: 10, padding: '10px 16px',
+          display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#92400e',
+        }}>
+          <span>👀</span>
+          <span>
+            <strong>Demo-Modus</strong> — Diese Ansicht zeigt Beispieldaten.
+            Widersprüche entstehen automatisch sobald AXA eine Position ablehnt.
+          </span>
+        </div>
+      )}
       {faelle.map(f => (
         <WiderspruchCard key={f.id} fall={f} />
       ))}

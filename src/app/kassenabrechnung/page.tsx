@@ -6,6 +6,7 @@ import Header from '@/components/layout/Header'
 import KasseUebersicht from '@/components/kassenabrechnung/KasseUebersicht'
 import UploadButton from '@/components/upload/UploadButton'
 import type { KasseRechnungGruppe } from '@/lib/goae-analyzer'
+import { mockKasseBescheide } from '@/lib/mockData'
 
 export const dynamic = 'force-dynamic'
 
@@ -136,6 +137,9 @@ export default async function KassenPage() {
     })),
   }))
 
+  const isDemo = kasseBescheide.length === 0 && unmatchedVorgaenge.length === 0 && pendingVorgaenge.length === 0
+  const displayBescheide = isDemo ? mockKasseBescheide : kasseBescheide
+
   return (
     <>
       <Header />
@@ -146,12 +150,12 @@ export default async function KassenPage() {
               Kassenabrechnungen
             </h1>
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              Erstattungsbescheide & zugeordnete Arztrechnungen
+              {isDemo ? 'Beispielansicht · Laden Sie Ihren ersten Kassenbescheid hoch' : 'Erstattungsbescheide & zugeordnete Arztrechnungen'}
             </p>
           </div>
           <UploadButton type="kassenbescheid" />
         </div>
-        <KasseUebersicht kasseBescheide={kasseBescheide} unmatchedVorgaenge={unmatchedVorgaenge} pendingVorgaenge={pendingVorgaenge} />
+        <KasseUebersicht kasseBescheide={displayBescheide} unmatchedVorgaenge={unmatchedVorgaenge} pendingVorgaenge={pendingVorgaenge} isDemo={isDemo} />
       </main>
     </>
   )

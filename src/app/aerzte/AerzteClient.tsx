@@ -678,12 +678,28 @@ function PrioritaetsBanner({ aerzte }: { aerzte: ArztAkteData[] }) {
 }
 
 // ── Main Export ───────────────────────────────────────────────────────────────
-export default function AerzteClient({ aerzte, kasseName }: {
+export default function AerzteClient({ aerzte, kasseName, isDemo = false }: {
   aerzte: ArztAkteData[]
   kasseName: string
+  isDemo?: boolean
 }) {
   return (
     <>
+      {/* Demo banner */}
+      {isDemo && (
+        <div style={{
+          background: 'linear-gradient(90deg, #fef3c7, #fde68a)',
+          borderRadius: 10, padding: '10px 16px', marginBottom: 16,
+          display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#92400e',
+        }}>
+          <span>👀</span>
+          <span>
+            <strong>Demo-Modus</strong> — Diese Ansicht zeigt Beispieldaten.
+            Ärzte werden automatisch aus Ihren hochgeladenen Rechnungen erkannt.
+          </span>
+        </div>
+      )}
+
       {/* Page header */}
       <div className="flex items-start justify-between mb-5 gap-4 flex-wrap">
         <div>
@@ -693,7 +709,7 @@ export default function AerzteClient({ aerzte, kasseName }: {
             Ärzteakte
           </h1>
           <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
-            GOÄ-Muster · Abrechnungsverlauf · Benchmark-Vergleich je Arzt
+            {isDemo ? 'Beispielansicht · GOÄ-Muster · Abrechnungsverlauf · Benchmark-Vergleich je Arzt' : 'GOÄ-Muster · Abrechnungsverlauf · Benchmark-Vergleich je Arzt'}
           </p>
         </div>
         <Link

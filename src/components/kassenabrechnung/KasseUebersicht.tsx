@@ -980,12 +980,14 @@ export default function KasseUebersicht({
   kasseBescheide,
   unmatchedVorgaenge,
   pendingVorgaenge = [],
+  isDemo = false,
 }: {
   kasseBescheide: KasseBescheid[];
   unmatchedVorgaenge: UnmatchedVorgang[];
   pendingVorgaenge?: PendingVorgang[];
+  isDemo?: boolean;
 }) {
-  if (kasseBescheide.length === 0 && unmatchedVorgaenge.length === 0 && pendingVorgaenge.length === 0) {
+  if (!isDemo && kasseBescheide.length === 0 && unmatchedVorgaenge.length === 0 && pendingVorgaenge.length === 0) {
     return (
       <div className="rounded-2xl px-8 py-16 text-center" style={{ background: "var(--card)", border: "1.5px solid var(--border)" }}>
         <p className="text-4xl mb-4">🏥</p>
@@ -1000,6 +1002,20 @@ export default function KasseUebersicht({
 
   return (
     <div>
+      {/* Demo banner */}
+      {isDemo && (
+        <div style={{
+          background: 'linear-gradient(90deg, #fef3c7, #fde68a)',
+          borderRadius: 10, padding: '10px 16px', marginBottom: 16,
+          display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#92400e',
+        }}>
+          <span>👀</span>
+          <span>
+            <strong>Demo-Modus</strong> — Diese Ansicht zeigt Beispieldaten.
+            Laden Sie Ihren ersten Kassenbescheid hoch, um echte Daten zu sehen.
+          </span>
+        </div>
+      )}
       <KPIBar kasseBescheide={kasseBescheide} unmatched={unmatchedVorgaenge} />
       <PendingAnalyseSection vorgaenge={pendingVorgaenge} />
       {kasseBescheide.map((k) => <KasseBescheidCard key={k.id} kasse={k} />)}

@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import WiderspruchClient from '@/components/widersprueche/WiderspruchClient'
+import { mockWiderspruchFaelle } from '@/lib/mockData'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,20 +67,22 @@ export default async function WiderspruchPage() {
     .in('widerspruch_status', ['erstellt', 'gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'])
     .order('created_at', { ascending: false })
 
-  // Empty state
-  if (!kassenabrechnungen?.length) {
+  // Demo mode when no real data
+  const isDemo = !kassenabrechnungen?.length
+  if (isDemo) {
     return (
-      <div style={{ padding: 24 }}>
-        <h1 style={{ fontFamily: "'DM Serif Display', Georgia, serif", fontSize: 26, color: '#0f172a', fontWeight: 400, margin: '0 0 8px' }}>
-          Widerspruchsverfahren
-        </h1>
-        <p style={{ color: '#64748b', fontSize: 13, marginTop: 4, marginBottom: 32 }}>
-          KI-gestützte Kommunikationsbegleitung
-        </p>
-        <div style={{ textAlign: 'center', padding: '60px 24px', color: '#94a3b8', fontSize: 14 }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
-          Keine aktiven Widerspruchsverfahren
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h1 style={{ fontFamily: "'DM Serif Display', Georgia, serif", fontSize: 26, color: '#0f172a', fontWeight: 400, margin: 0 }}>
+              Widerspruchsverfahren
+            </h1>
+            <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
+              Beispielansicht · Widersprüche entstehen automatisch aus abgelehnten Kassenbescheiden
+            </p>
+          </div>
         </div>
+        <WiderspruchClient faelle={mockWiderspruchFaelle} isDemo={true} />
       </div>
     )
   }

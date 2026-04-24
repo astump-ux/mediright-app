@@ -163,7 +163,7 @@ function KassenbescheidBadge({ v }: { v: VorgangRow }) {
   )
 }
 
-export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[] }) {
+export default function RechnungenClient({ vorgaenge, isDemo = false }: { vorgaenge: VorgangRow[]; isDemo?: boolean }) {
   const [modal, setModal] = useState<{
     type: 'rechnung' | 'kasse'
     data: Record<string, unknown>
@@ -184,16 +184,23 @@ export default function RechnungenClient({ vorgaenge }: { vorgaenge: VorgangRow[
     }
   }
 
-  if (vorgaenge.length === 0) return (
-    <div style={{ textAlign: 'center', padding: '60px 20px', background: 'white', borderRadius: 16, color: slate }}>
-      <div style={{ fontSize: 40, marginBottom: 16 }}>📄</div>
-      <p style={{ fontSize: 16, marginBottom: 8 }}>Noch keine Rechnungen vorhanden.</p>
-      <p style={{ fontSize: 14 }}>Leiten Sie Ihre erste Rechnung per WhatsApp an <strong>+1 415 523 8886</strong> weiter.</p>
-    </div>
-  )
-
   return (
     <>
+      {/* Demo banner */}
+      {isDemo && (
+        <div style={{
+          background: 'linear-gradient(90deg, #fef3c7, #fde68a)',
+          borderRadius: 10, padding: '10px 16px', marginBottom: 16,
+          display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#92400e',
+        }}>
+          <span>👀</span>
+          <span>
+            <strong>Demo-Modus</strong> — Diese Ansicht zeigt Beispieldaten.
+            Laden Sie Ihre erste Rechnung hoch, um echte Daten zu sehen.
+          </span>
+        </div>
+      )}
+
       {modal && (
         <AnalyseModal
           type={modal.type}

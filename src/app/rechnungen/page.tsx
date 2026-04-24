@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import RechnungenClient from '@/components/rechnungen/RechnungenClient'
 import UploadButton from '@/components/upload/UploadButton'
 import type { KasseRechnungGruppe, KasseAnalyseResult } from '@/lib/goae-analyzer'
+import { mockRechnungen } from '@/lib/mockData'
 
 export const dynamic = 'force-dynamic'
 
@@ -99,6 +100,9 @@ export default async function RechnungenPage() {
     }
   }
 
+  const isDemo = vorgaenge.length === 0
+  const displayVorgaenge = isDemo ? (mockRechnungen as unknown as typeof vorgaenge) : vorgaenge
+
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
@@ -107,7 +111,7 @@ export default async function RechnungenPage() {
             Rechnungen & Vorgänge
           </h1>
           <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
-            {vorgaenge.length} Vorgang{vorgaenge.length !== 1 ? '‍e' : ''} · PDF-Download & KI-Analyse verfügbar
+            {isDemo ? 'Beispielansicht · Laden Sie Ihre erste Rechnung hoch' : `${vorgaenge.length} Vorgang${vorgaenge.length !== 1 ? '‍e' : ''} · PDF-Download & KI-Analyse verfügbar`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -127,7 +131,7 @@ export default async function RechnungenPage() {
         </div>
       </div>
 
-      <RechnungenClient vorgaenge={vorgaenge} />
+      <RechnungenClient vorgaenge={displayVorgaenge} isDemo={isDemo} />
     </>
   )
 }

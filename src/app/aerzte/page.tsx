@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import AerzteClient from './AerzteClient'
 import type { ArztAkteData, GoaMusterItem, VerlaufPunkt, OffeneAktion } from './AerzteClient'
+import { mockAerzteDemoData } from '@/lib/mockData'
 
 export const dynamic = 'force-dynamic'
 
@@ -445,10 +446,14 @@ export default async function AerztePage() {
     return b.gesamtBetrag - a.gesamtBetrag
   })
 
+  const isDemo = aerzte.length === 0
+  const displayAerzte = isDemo ? mockAerzteDemoData : aerzte
+
   return (
     <AerzteClient
-      aerzte={aerzte}
+      aerzte={displayAerzte}
       kasseName={kasseName}
+      isDemo={isDemo}
     />
   )
 }
