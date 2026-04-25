@@ -130,10 +130,12 @@ async function fetchPdf(url: string): Promise<Buffer> {
 }
 
 /**
- * Bereinigt JSON-Strings von unescapten Steuerzeichen innerhalb von String-Werten.
- * Claude gibt manchmal echte Newlines in JSON-Strings zurück, was JSON.parse() bricht.
+ * Bereinigt Claude-JSON für JSON.parse():
+ * 1. Unescapte Steuerzeichen in String-Werten escapen (Newlines, Tabs, etc.)
+ * 2. Trailing Commas vor } und ] entfernen
  */
 function sanitizeJsonString(raw: string): string {
+  // Pass 1: Zeichen-für-Zeichen — Steuerzeichen in Strings escapen
   let result = ''
   let inString = false
   let escaped = false
@@ -164,12 +166,14 @@ function sanitizeJsonString(raw: string): string {
       if (char === '\n') { result += '\\n'; continue }
       if (char === '\r') { result += '\\r'; continue }
       if (char === '\t') { result += '\\t'; continue }
-      // Andere Steuerzeichen entfernen
-      if (char.charCodeAt(0) < 0x20) continue
+      if (char.charCodeAt(0) < 0x20) continue // andere Steuerzeichen entfernen
     }
 
     result += char
   }
+
+  // Pass 2: Trailing Commas entfernen (,  } oder ,  ])
+  result = result.replace(/,(\s*[}\]])/g, '$1')
 
   return result
 }
@@ -219,8 +223,13 @@ async function analyzePdf(
   try {
     parsed = JSON.parse(sanitized) as Record<string, unknown>
   } catch (e) {
-    // Last resort: log first 500 chars for debugging
-    console.error('  JSON-Parse-Fehler. Rohtext (erste 500 Zeichen):', sanitized.slice(0, 500))
+    // Zeige JSON-Kontext rund um die Fehlerposition
+    const posMatch = e instanceof Error ? e.message.match(/position (\d+)/) : null
+    const pos = posMatch ? parseInt(posMatch[1]) : 0
+    const start = Math.max(0, pos - 120)
+    const end = Math.min(sanitized.length, pos + 120)
+    console.error(`  JSON-Parse-Fehler bei Position ${pos}:`)
+    console.error('  ...', sanitized.slice(start, end), '...')
     throw new Error(`JSON-Parse fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`)
   }
   console.log(`  ✓ Analyse abgeschlossen (${response.usage.input_tokens} → ${response.usage.output_tokens} Tokens)`)
