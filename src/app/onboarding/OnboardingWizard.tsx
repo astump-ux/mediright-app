@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -8,7 +8,6 @@ const slate = '#64748b'
 const mint  = '#10b981'
 const mintL = '#ecfdf5'
 const blue  = '#3b82f6'
-const blueL = '#eff6ff'
 const amber = '#f59e0b'
 const red   = '#ef4444'
 
@@ -19,7 +18,7 @@ interface Props {
 
 export default function OnboardingWizard({ credits, existingName }: Props) {
   const router = useRouter()
-  const [step, setStep]     = useState<1 | 2 | 3>(1)
+  const [step, setStep]     = useState<1 | 2 | 3 | 4>(1)
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
 
@@ -28,6 +27,13 @@ export default function OnboardingWizard({ credits, existingName }: Props) {
   const [pkvName,       setPkvName]       = useState('')
   const [pkvTarif,      setPkvTarif]      = useState('')
   const [phoneWhatsapp, setPhoneWhatsapp] = useState('')
+
+  // Step 3 AVB upload state
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [selectedFile,   setSelectedFile]   = useState<File | null>(null)
+  const [uploadStatus,   setUploadStatus]   = useState<'idle' | 'uploading' | 'analyzing' | 'completed' | 'failed'>('idle')
+  const [analyseMessage, setAnalyseMessage] = useState('')
+  const [pollingTimer,   setPollingTimer]   = useState<ReturnType<typeof setInterval> | null>(null)
 
   async function handleSaveProfile() {
     if (!fullName.trim()) { setError('Bitte gib deinen Namen ein.'); return }
@@ -57,6 +63,74 @@ export default function OnboardingWizard({ credits, existingName }: Props) {
     }
   }
 
+  async function handleAvbUpload() {
+    if (!selectedFile) return
+    setUploadStatus('uploading')
+    setAnalyseMessage('')
+
+    try {
+      const form = new FormData()
+      form.append('file', selectedFile)
+      form.append('dateityp', 'avb')
+
+      const res = await fetch('/api/upload/avb', { method: 'POST', body: form })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error ?? 'Upload fehlgeschlagen')
+      }
+
+      setUploadStatus('analyzing')
+      setAnalyseMessage('Dokument wird von KI analysiert…')
+
+      // Poll tarif-profile until completed or failed (max 3 min)
+      let attempts = 0
+      const MAX_ATTEMPTS = 36 // 36 × 5s = 3 min
+      const timer = setInterval(async () => {
+        attempts++
+        try {
+          const poll = await fetch('/api/tarif-profile')
+          const data = await poll.json()
+          const status = data?.profile?.analyse_status
+
+          if (status === 'completed') {
+            clearInterval(timer)
+            setPollingTimer(null)
+            setUploadStatus('completed')
+            const versicherung = data?.profile?.versicherung || ''
+            const tarif = data?.profile?.tarif_name || ''
+            setAnalyseMessage(
+              versicherung
+                ? `Tarif erkannt: ${versicherung}${tarif ? ' · ' + tarif : ''}`
+                : 'Analyse abgeschlossen'
+            )
+          } else if (status === 'failed') {
+            clearInterval(timer)
+            setPollingTimer(null)
+            setUploadStatus('failed')
+            setAnalyseMessage(data?.profile?.fehler_meldung ?? 'Analyse fehlgeschlagen')
+          } else if (attempts >= MAX_ATTEMPTS) {
+            clearInterval(timer)
+            setPollingTimer(null)
+            setUploadStatus('failed')
+            setAnalyseMessage('Zeitüberschreitung — bitte später erneut versuchen')
+          }
+        } catch {
+          // network blip — keep polling
+        }
+      }, 5000)
+      setPollingTimer(timer)
+
+    } catch (e) {
+      setUploadStatus('failed')
+      setAnalyseMessage(String(e))
+    }
+  }
+
+  function handleSkipAvb() {
+    if (pollingTimer) clearInterval(pollingTimer)
+    setStep(4)
+  }
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -69,9 +143,9 @@ export default function OnboardingWizard({ credits, existingName }: Props) {
     }}>
       <div style={{ width: '100%', maxWidth: 520 }}>
 
-        {/* Progress dots */}
+        {/* Progress dots — 4 steps */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 32 }}>
-          {([1, 2, 3] as const).map(s => (
+          {([1, 2, 3, 4] as const).map(s => (
             <div key={s} style={{
               width: s === step ? 28 : 10,
               height: 10,
@@ -145,7 +219,7 @@ export default function OnboardingWizard({ credits, existingName }: Props) {
                     letterSpacing: '0.02em',
                   }}
                 >
-                  Los geht's →
+                  Los geht&apos;s →
                 </button>
               </div>
             </>
@@ -156,13 +230,13 @@ export default function OnboardingWizard({ credits, existingName }: Props) {
             <>
               <div style={{ background: navy, padding: '28px 32px 24px' }}>
                 <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-                  Schritt 2 von 3
+                  Schritt 2 von 4
                 </div>
                 <h2 style={{ color: 'white', fontSize: 20, fontWeight: 700, margin: '0 0 4px' }}>
                   Dein Profil einrichten
                 </h2>
                 <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>
-                  Damit wir Rechnungen & Bescheide korrekt zuordnen können.
+                  Damit wir Rechnungen &amp; Bescheide korrekt zuordnen können.
                 </p>
               </div>
 
@@ -242,8 +316,234 @@ export default function OnboardingWizard({ credits, existingName }: Props) {
             </>
           )}
 
-          {/* ── Step 3: Bereit! ────────────────────────────────────────── */}
+          {/* ── Step 3: AVB-Upload ─────────────────────────────────────── */}
           {step === 3 && (
+            <>
+              <div style={{ background: navy, padding: '28px 32px 24px' }}>
+                <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                  Schritt 3 von 4
+                </div>
+                <h2 style={{ color: 'white', fontSize: 20, fontWeight: 700, margin: '0 0 4px' }}>
+                  Versicherungsvertrag hochladen
+                </h2>
+                <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>
+                  Wir lesen deine AVB automatisch aus — für präzisere Analysen &amp; Widersprüche.
+                </p>
+              </div>
+
+              <div style={{ padding: '28px 32px' }}>
+
+                {/* Info box */}
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1.5px solid #e2e8f0',
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                  marginBottom: 20,
+                  display: 'flex',
+                  gap: 12,
+                  alignItems: 'flex-start',
+                }}>
+                  <div style={{ fontSize: 22, flexShrink: 0 }}>💡</div>
+                  <div style={{ fontSize: 12, color: slate, lineHeight: 1.6 }}>
+                    Lade deine <strong>Allgemeinen Versicherungsbedingungen (AVB)</strong> oder deinen{' '}
+                    <strong>Versicherungsschein</strong> als PDF hoch. MediRight extrahiert automatisch
+                    Selbstbehalt, Erstattungssätze und Sonderklauseln — und nutzt diese Daten bei
+                    jeder Kassenbescheid-Analyse.
+                  </div>
+                </div>
+
+                {/* Upload area */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  style={{ display: 'none' }}
+                  onChange={e => {
+                    const f = e.target.files?.[0] ?? null
+                    setSelectedFile(f)
+                    setUploadStatus('idle')
+                    setAnalyseMessage('')
+                  }}
+                />
+
+                {uploadStatus === 'idle' && (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      border: `2px dashed ${selectedFile ? mint : '#cbd5e1'}`,
+                      borderRadius: 14,
+                      padding: '32px 20px',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      background: selectedFile ? mintL : '#f8fafc',
+                      transition: 'all 0.2s',
+                      marginBottom: 16,
+                    }}
+                    onMouseEnter={e => { if (!selectedFile) (e.currentTarget as HTMLDivElement).style.borderColor = mint }}
+                    onMouseLeave={e => { if (!selectedFile) (e.currentTarget as HTMLDivElement).style.borderColor = '#cbd5e1' }}
+                  >
+                    <div style={{ fontSize: 36, marginBottom: 8 }}>📄</div>
+                    {selectedFile ? (
+                      <>
+                        <div style={{ fontWeight: 700, color: navy, fontSize: 14, marginBottom: 4 }}>
+                          {selectedFile.name}
+                        </div>
+                        <div style={{ fontSize: 12, color: slate }}>
+                          {(selectedFile.size / 1024 / 1024).toFixed(1)} MB · PDF
+                        </div>
+                        <div style={{ fontSize: 11, color: mint, marginTop: 6 }}>Andere Datei wählen</div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontWeight: 600, color: navy, fontSize: 14, marginBottom: 4 }}>
+                          PDF hier ablegen oder klicken
+                        </div>
+                        <div style={{ fontSize: 12, color: slate }}>AVB oder Versicherungsschein · max. 50 MB</div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Uploading / Analyzing states */}
+                {(uploadStatus === 'uploading' || uploadStatus === 'analyzing') && (
+                  <div style={{
+                    border: `1.5px solid ${blue}`,
+                    borderRadius: 14,
+                    padding: '24px 20px',
+                    textAlign: 'center',
+                    background: '#eff6ff',
+                    marginBottom: 16,
+                  }}>
+                    <ProgressSpinner />
+                    <div style={{ fontWeight: 700, color: navy, fontSize: 14, marginTop: 12, marginBottom: 4 }}>
+                      {uploadStatus === 'uploading' ? 'Dokument wird hochgeladen…' : 'KI analysiert dein Dokument'}
+                    </div>
+                    <div style={{ fontSize: 12, color: slate }}>
+                      {uploadStatus === 'uploading'
+                        ? 'Einen Moment…'
+                        : 'Das dauert ca. 30–60 Sekunden'}
+                    </div>
+                    {analyseMessage && (
+                      <div style={{ fontSize: 12, color: blue, marginTop: 8 }}>{analyseMessage}</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Completed */}
+                {uploadStatus === 'completed' && (
+                  <div style={{
+                    border: `1.5px solid ${mint}`,
+                    borderRadius: 14,
+                    padding: '20px',
+                    background: mintL,
+                    display: 'flex',
+                    gap: 14,
+                    alignItems: 'center',
+                    marginBottom: 16,
+                  }}>
+                    <div style={{ fontSize: 32, flexShrink: 0 }}>✅</div>
+                    <div>
+                      <div style={{ fontWeight: 700, color: navy, fontSize: 14, marginBottom: 2 }}>
+                        Analyse abgeschlossen!
+                      </div>
+                      <div style={{ fontSize: 12, color: slate }}>{analyseMessage}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Failed */}
+                {uploadStatus === 'failed' && (
+                  <div style={{
+                    border: `1.5px solid ${red}`,
+                    borderRadius: 14,
+                    padding: '16px',
+                    background: '#fef2f2',
+                    marginBottom: 16,
+                  }}>
+                    <div style={{ fontWeight: 700, color: '#991b1b', fontSize: 13, marginBottom: 4 }}>
+                      Upload fehlgeschlagen
+                    </div>
+                    <div style={{ fontSize: 12, color: '#b91c1c' }}>{analyseMessage}</div>
+                    <button
+                      onClick={() => { setUploadStatus('idle'); setSelectedFile(null); setAnalyseMessage('') }}
+                      style={{
+                        marginTop: 10, padding: '8px 14px', borderRadius: 8,
+                        border: 'none', background: red, color: 'white',
+                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      }}
+                    >
+                      Erneut versuchen
+                    </button>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {uploadStatus === 'idle' && selectedFile && (
+                    <button
+                      onClick={handleAvbUpload}
+                      style={{
+                        width: '100%',
+                        padding: '14px 0',
+                        borderRadius: 12,
+                        border: 'none',
+                        background: `linear-gradient(135deg, ${mint} 0%, #059669 100%)`,
+                        color: 'white',
+                        fontWeight: 700,
+                        fontSize: 15,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Jetzt analysieren →
+                    </button>
+                  )}
+
+                  {uploadStatus === 'completed' && (
+                    <button
+                      onClick={() => setStep(4)}
+                      style={{
+                        width: '100%',
+                        padding: '14px 0',
+                        borderRadius: 12,
+                        border: 'none',
+                        background: `linear-gradient(135deg, ${mint} 0%, #059669 100%)`,
+                        color: 'white',
+                        fontWeight: 700,
+                        fontSize: 15,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Weiter →
+                    </button>
+                  )}
+
+                  {/* Skip — always shown except while uploading/analyzing */}
+                  {uploadStatus !== 'uploading' && uploadStatus !== 'analyzing' && (
+                    <button
+                      onClick={handleSkipAvb}
+                      style={{
+                        width: '100%',
+                        padding: '12px 0',
+                        borderRadius: 12,
+                        border: '1.5px solid #e2e8f0',
+                        background: 'white',
+                        color: slate,
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {uploadStatus === 'completed' ? 'Überspringen' : 'Jetzt überspringen — später hochladen'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ── Step 4: Bereit! ────────────────────────────────────────── */}
+          {step === 4 && (
             <>
               <div style={{ background: navy, padding: '36px 32px 28px', textAlign: 'center' }}>
                 <div style={{ fontSize: 52, marginBottom: 12 }}>🎉</div>
@@ -331,6 +631,22 @@ export default function OnboardingWizard({ credits, existingName }: Props) {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function ProgressSpinner() {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <div style={{
+        width: 36,
+        height: 36,
+        border: `3px solid ${blue}33`,
+        borderTop: `3px solid ${blue}`,
+        borderRadius: '50%',
+        animation: 'spin 0.9s linear infinite',
+      }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+}
 
 function Feature({ icon, title, desc }: { icon: string; title: string; desc: string }) {
   return (
