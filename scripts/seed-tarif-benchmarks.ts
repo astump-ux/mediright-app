@@ -129,6 +129,51 @@ async function fetchPdf(url: string): Promise<Buffer> {
   return buf
 }
 
+/**
+ * Bereinigt JSON-Strings von unescapten Steuerzeichen innerhalb von String-Werten.
+ * Claude gibt manchmal echte Newlines in JSON-Strings zurück, was JSON.parse() bricht.
+ */
+function sanitizeJsonString(raw: string): string {
+  let result = ''
+  let inString = false
+  let escaped = false
+
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw[i]
+
+    if (escaped) {
+      result += char
+      escaped = false
+      continue
+    }
+
+    if (char === '\\' && inString) {
+      result += char
+      escaped = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      result += char
+      continue
+    }
+
+    // Innerhalb von Strings: Steuerzeichen escapen
+    if (inString) {
+      if (char === '\n') { result += '\\n'; continue }
+      if (char === '\r') { result += '\\r'; continue }
+      if (char === '\t') { result += '\\t'; continue }
+      // Andere Steuerzeichen entfernen
+      if (char.charCodeAt(0) < 0x20) continue
+    }
+
+    result += char
+  }
+
+  return result
+}
+
 async function analyzePdf(
   pdfBuffer: Buffer,
   versicherer: string,
@@ -167,7 +212,17 @@ async function analyzePdf(
 
   if (!jsonMatch) throw new Error('Kein JSON in Claude-Antwort')
 
-  const parsed = JSON.parse(jsonMatch[1] ?? jsonMatch[0]) as Record<string, unknown>
+  const rawJson = jsonMatch[1] ?? jsonMatch[0]
+  const sanitized = sanitizeJsonString(rawJson)
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(sanitized) as Record<string, unknown>
+  } catch (e) {
+    // Last resort: log first 500 chars for debugging
+    console.error('  JSON-Parse-Fehler. Rohtext (erste 500 Zeichen):', sanitized.slice(0, 500))
+    throw new Error(`JSON-Parse fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`)
+  }
   console.log(`  ✓ Analyse abgeschlossen (${response.usage.input_tokens} → ${response.usage.output_tokens} Tokens)`)
   return parsed
 }
