@@ -9,6 +9,8 @@
  * The returned string is injected as {{fallkontext}} into every downstream AI prompt.
  */
 import { getSupabaseAdmin } from './supabase-admin'
+import { buildBenchmarkContext } from './benchmark-context'
+import { searchPkvPrecedents } from './legal-search'
 
 export async function buildFallContext(kassenabrechnungenId: string): Promise<string> {
   const admin = getSupabaseAdmin()
@@ -195,6 +197,24 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
         lines.push('')
       }
     }
+  }
+
+  // ── Section 5: Marktvergleich (tarif_benchmarks) ───────────────────────────
+  try {
+    const benchmarkBlock = await buildBenchmarkContext(ablehnungsgruende)
+    if (benchmarkBlock) {
+      lines.push(benchmarkBlock)
+    }
+  } catch { /* Benchmark-Tabelle noch nicht verfügbar */ }
+
+  // ── Section 6: Relevante Rechtsprechung (OpenLegalData) ────────────────────
+  if (ablehnungsgruende.length > 0) {
+    try {
+      const legalBlock = await searchPkvPrecedents(ablehnungsgruende)
+      if (legalBlock) {
+        lines.push(legalBlock)
+      }
+    } catch { /* API nicht erreichbar — kein Fehler */ }
   }
 
   lines.push('═══════════════════════════════════════════════════════')
