@@ -15,6 +15,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages'
 import { createClient } from '@supabase/supabase-js'
+import { jsonrepair } from 'jsonrepair'
 
 // Load .env.local manually (no dotenv dependency needed)
 import { readFileSync } from 'fs'
@@ -32,7 +33,7 @@ const SUPABASE_URL    = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SERVICE_ROLE    = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY!
 const MAX_PAGES       = 50   // Claude PDF-Limit
-const MODEL           = 'claude-opus-4-6'
+const MODEL           = 'claude-sonnet-4-6'
 
 if (!SUPABASE_URL || !SERVICE_ROLE || !ANTHROPIC_KEY) {
   console.error('❌  Fehlende Env-Variablen: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY')
@@ -222,15 +223,15 @@ async function analyzePdf(
   let parsed: Record<string, unknown>
   try {
     parsed = JSON.parse(sanitized) as Record<string, unknown>
-  } catch (e) {
-    // Zeige JSON-Kontext rund um die Fehlerposition
-    const posMatch = e instanceof Error ? e.message.match(/position (\d+)/) : null
-    const pos = posMatch ? parseInt(posMatch[1]) : 0
-    const start = Math.max(0, pos - 120)
-    const end = Math.min(sanitized.length, pos + 120)
-    console.error(`  JSON-Parse-Fehler bei Position ${pos}:`)
-    console.error('  ...', sanitized.slice(start, end), '...')
-    throw new Error(`JSON-Parse fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`)
+  } catch {
+    // Fallback: jsonrepair behebt häufige Claude-JSON-Fehler (trailing commas, unescaped quotes, etc.)
+    try {
+      console.log('  ⚠️  JSON-Parse fehlgeschlagen — versuche jsonrepair…')
+      parsed = JSON.parse(jsonrepair(rawJson)) as Record<string, unknown>
+      console.log('  ✓ jsonrepair hat JSON erfolgreich repariert')
+    } catch (e2) {
+      throw new Error(`JSON-Parse fehlgeschlagen (auch nach jsonrepair): ${e2 instanceof Error ? e2.message : String(e2)}`)
+    }
   }
   console.log(`  ✓ Analyse abgeschlossen (${response.usage.input_tokens} → ${response.usage.output_tokens} Tokens)`)
   return parsed
