@@ -24,13 +24,18 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 // ── Status-Abruf (GET) ────────────────────────────────────────────────────────
 
 export async function GET() {
-  const admin = getSupabaseAdmin()
-  const { data } = await admin
-    .from('tarif_benchmarks')
-    .select('versicherer, tarif_name, analyse_status, analysiert_am')
-    .order('versicherer')
+  try {
+    const admin = getSupabaseAdmin()
+    const { data, error } = await admin
+      .from('tarif_benchmarks')
+      .select('versicherer, tarif_name, analyse_status, analysiert_am')
+      .order('versicherer')
 
-  return NextResponse.json({ benchmarks: data ?? [] })
+    if (error) return NextResponse.json({ error: error.message, hint: 'Migration noch nicht ausgeführt?' }, { status: 500 })
+    return NextResponse.json({ benchmarks: data ?? [] })
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
 }
 
 // ── Seed: einen Eintrag verarbeiten (POST) ────────────────────────────────────
