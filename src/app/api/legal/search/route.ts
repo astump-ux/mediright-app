@@ -1,8 +1,8 @@
 /**
  * GET /api/legal/search?q=<suchbegriff>&limit=<anzahl>
  *
- * Proxy für OpenLegalData-Suche — ermöglicht Rechtsprechungs-Recherche
- * direkt aus der MediRight-App heraus (zukünftige UI-Integration).
+ * Suche in der pkv_urteile-Tabelle — gibt verifizierte BGH-Entscheidungen
+ * zu PKV-Streitfragen zurück.
  *
  * Nur für eingeloggte Nutzer zugänglich.
  */
@@ -22,17 +22,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Suchbegriff fehlt (?q=...)' }, { status: 400 })
   }
 
-  const result = await searchLegalCases(`PKV Krankenversicherung ${q}`, limit)
+  const result = await searchLegalCases(q, limit)
 
   return NextResponse.json({
     query: q,
     count: result.count,
-    cases: result.cases.map(c => ({
-      id:          c.id,
-      date:        c.date,
-      court:       c.court?.name ?? '–',
-      file_number: c.file_number ?? '–',
-      url:         `https://de.openlegaldata.io/case/${c.slug ?? c.id}/`,
+    urteile: result.cases.map(u => ({
+      aktenzeichen: u.aktenzeichen,
+      datum:        u.datum,
+      kategorie:    u.kategorie,
+      leitsatz:     u.leitsatz,
+      relevanz_pkv: u.relevanz_pkv,
+      quelle_url:   u.quelle_url,
     })),
   })
 }

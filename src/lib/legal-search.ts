@@ -1,44 +1,69 @@
 /**
  * legal-search.ts
  *
- * Anbindung an die OpenLegalData API (https://de.openlegaldata.io/api/)
- * für die Suche nach relevanten BGH/OLG-Urteilen zu PKV-Streitfällen.
+ * Suche nach relevanten BGH-Urteilen zu PKV-Streitfällen.
  *
- * Die Urteile werden als Kontext-Block in den Fallkontext eingefügt,
- * damit das KI-Modell konkrete Rechtsprechung in Widerspruchsbriefen zitieren kann.
+ * Quelle: Supabase-Tabelle `pkv_urteile` — kuratierte, verifizierte Entscheidungen
+ * des BGH IV. Zivilsenats (Stand: April 2026).
  *
- * API-Dokumentation: https://de.openlegaldata.io/pages/api/
- * Keine Authentifizierung erforderlich für Lesezugriff.
+ * Hintergrund: OpenLegalData (de.openlegaldata.io) enthält keine BGH IV ZR-Urteile
+ * und sortiert Suchergebnisse nach Datum statt Relevanz → unbrauchbar für PKV-Zwecke.
+ * Die Supabase-Tabelle bietet verifizierte Urteile mit PKV-spezifischer Aufbereitung.
+ *
+ * Kategorie-Mapping:
+ *   beitragsanpassung      → § 203 VVG Prämienerhöhungs-Streitigkeiten
+ *   medizinische_notwendigkeit → Erstattungsstreitigkeiten wegen Notwendigkeitszweifeln
+ *   goae                   → GOÄ-Abrechnungs- und Faktor-Streitigkeiten
+ *   ausschlussklausel      → Klauselauslegung, Vorerkrankungsausschlüsse
+ *   allgemein              → übergreifende PKV-Grundsatzurteile
  */
 
-const API_BASE = 'https://de.openlegaldata.io/api'
-const USER_AGENT = 'MediRight-PKV-Agent/1.0 (stump23@gmail.com)'
-const DEFAULT_TIMEOUT_MS = 8_000
+import { getSupabaseAdmin } from './supabase-admin'
 
-interface OldpCourt {
-  name: string
-  jurisdiction?: string
-  level_of_appeal?: string
-}
-
-interface OldpCase {
-  id: number
-  slug: string
-  date: string
-  court: OldpCourt
-  file_number: string
-  type?: string
-  ecli?: string
-}
-
-interface OldpSearchResponse {
-  count: number
-  results: OldpCase[]
+interface PkvUrteil {
+  aktenzeichen:   string
+  datum:          string
+  kategorie:      string
+  schlagwoerter:  string[]
+  leitsatz:       string
+  relevanz_pkv:   string
+  quelle_url:     string | null
 }
 
 /**
- * Sucht nach PKV-relevanten Urteilen für einen gegebenen Ablehnungsgrund.
- * Gibt leeren String zurück wenn die API nicht erreichbar ist (fail-silent).
+ * Ordnet Ablehnungsgründe den pkv_urteile-Kategorien zu.
+ * Gibt alle relevanten Kategorien zurück (ohne Duplikate).
+ */
+function mapAblehnungsgruendeToKategorien(ablehnungsgruende: string[]): string[] {
+  const text = ablehnungsgruende.join(' ').toLowerCase()
+  const kategorien = new Set<string>()
+
+  if (/beitrag|prämie|erhöhung|anpassung|beitragsanpassung|prämienanpassung/.test(text)) {
+    kategorien.add('beitragsanpassung')
+  }
+  if (/notwendig|heilbehandlung|behandlung|therapie|medizinisch|indiziert|alternativ/.test(text)) {
+    kategorien.add('medizinische_notwendigkeit')
+  }
+  if (/goä|goa|faktor|analogziffer|analog|ziffer|schwellenwert|abrechnung|abrechnungs/.test(text)) {
+    kategorien.add('goae')
+  }
+  if (/ausschluss|klausel|vorerkrankung|ausgeschlossen|nicht versichert|nicht erstattet/.test(text)) {
+    kategorien.add('ausschlussklausel')
+  }
+
+  // Wenn kein spezifischer Treffer → allgemein + medizinische_notwendigkeit (häufigster Streitpunkt)
+  if (kategorien.size === 0) {
+    kategorien.add('medizinische_notwendigkeit')
+    kategorien.add('allgemein')
+  }
+
+  return Array.from(kategorien)
+}
+
+/**
+ * Sucht nach PKV-relevanten Urteilen für gegebene Ablehnungsgründe.
+ * Gibt einen formatierten Block für den Fallkontext zurück.
+ * Gibt leeren String zurück wenn keine Treffer (fail-silent).
  */
 export async function searchPkvPrecedents(
   ablehnungsgruende: string[],
@@ -46,133 +71,94 @@ export async function searchPkvPrecedents(
 ): Promise<string> {
   if (!ablehnungsgruende.length) return ''
 
-  // Wichtigsten Ablehnungsgrund als Suchanker verwenden
-  const hauptgrund = ablehnungsgruende[0].slice(0, 100)
-  const queries = buildSearchQueries(hauptgrund)
+  try {
+    const admin = getSupabaseAdmin()
+    const kategorien = mapAblehnungsgruendeToKategorien(ablehnungsgruende)
 
-  const allResults: OldpCase[] = []
+    const { data: urteile, error } = await admin
+      .from('pkv_urteile')
+      .select('aktenzeichen, datum, kategorie, leitsatz, relevanz_pkv, quelle_url')
+      .in('kategorie', kategorien)
+      .eq('verified', true)
+      .order('datum', { ascending: false })
+      .limit(limit)
 
-  for (const query of queries) {
-    const found = await fetchCases(query, Math.ceil(limit / queries.length))
-    allResults.push(...found)
-    if (allResults.length >= limit) break
+    if (error || !urteile?.length) return ''
+
+    return formatUrteilBlock(urteile as PkvUrteil[])
+  } catch {
+    return ''
   }
-
-  if (!allResults.length) return ''
-
-  // Deduplizieren (nach ID)
-  const seen = new Set<number>()
-  const unique = allResults.filter(c => {
-    if (seen.has(c.id)) return false
-    seen.add(c.id)
-    return true
-  }).slice(0, limit)
-
-  return formatCasesBlock(unique)
 }
 
 /**
- * Baut mehrere Such-Queries für einen Ablehnungsgrund auf.
- * Zuerst sehr spezifisch (PKV + Kernbegriff), dann breiter.
+ * Direktsuche für /api/legal/search Route.
+ * Sucht über Schlagwörter, Aktenzeichen oder Kategorie.
  */
-function buildSearchQueries(ablehnungsgrund: string): string[] {
-  // Extrahiere die wichtigsten Schlüsselwörter
-  const keywords = ablehnungsgrund
-    .replace(/[^a-zA-ZäöüÄÖÜß\s]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 4)
-    .slice(0, 3)
-    .join(' ')
-
-  return [
-    `private Krankenversicherung Erstattung ${keywords}`,
-    `PKV medizinische Notwendigkeit ${keywords}`,
-    `private Krankenversicherung ${keywords}`,
-  ].filter(q => q.trim().length > 10)
-}
-
-async function fetchCases(query: string, limit: number): Promise<OldpCase[]> {
+export async function searchLegalCases(
+  query: string,
+  pageSize = 10
+): Promise<{ count: number; cases: PkvUrteil[] }> {
   try {
-    const url = new URL(`${API_BASE}/cases/`)
-    url.searchParams.set('search', query)
-    url.searchParams.set('page_size', String(Math.min(limit, 5)))
-    // Nur BGH — court__slug=bgh funktioniert; court__level_of_appeal wird ignoriert
-    // ACHTUNG: API sortiert nach Datum, nicht Relevanz → Ergebnisse immer manuell prüfen
-    url.searchParams.set('court__slug', 'bgh')
+    const admin = getSupabaseAdmin()
+    const q = query.toLowerCase().trim()
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+    // Versuche erst Aktenzeichen-Match (z.B. "IV ZR 255/17")
+    const azPattern = /iv\s+zr\s+[\d/]+/i.test(q)
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': USER_AGENT,
-      },
-      signal: controller.signal,
-    })
-    clearTimeout(timeoutId)
+    let dbQuery = admin
+      .from('pkv_urteile')
+      .select('aktenzeichen, datum, kategorie, schlagwoerter, leitsatz, relevanz_pkv, quelle_url', { count: 'exact' })
 
-    if (!res.ok) return []
+    if (azPattern) {
+      dbQuery = dbQuery.ilike('aktenzeichen', `%${q}%`)
+    } else {
+      // Kategorie-Mapping nutzen
+      const kategorien = mapAblehnungsgruendeToKategorien([query])
+      dbQuery = dbQuery.in('kategorie', kategorien)
+    }
 
-    const data = await res.json() as OldpSearchResponse
-    return data.results ?? []
+    const { data, count, error } = await dbQuery
+      .order('datum', { ascending: false })
+      .limit(pageSize)
+
+    if (error) return { count: 0, cases: [] }
+
+    return {
+      count: count ?? 0,
+      cases: (data ?? []) as PkvUrteil[],
+    }
   } catch {
-    // Netzwerkfehler, Timeout etc. → still silently
-    return []
+    return { count: 0, cases: [] }
   }
 }
 
 /**
  * Formatiert Urteile als lesbaren Block für den Fallkontext.
  */
-function formatCasesBlock(cases: OldpCase[]): string {
-  if (!cases.length) return ''
+function formatUrteilBlock(urteile: PkvUrteil[]): string {
+  if (!urteile.length) return ''
 
   const lines: string[] = [
     '──────────────────────────────────────────────────────',
-    'RECHTSPRECHUNGS-HINWEISE (OpenLegalData — BGH, Stand: automatische Suche)',
+    'RELEVANTE BGH-RECHTSPRECHUNG (verifizierte Urteile, IV. Zivilsenat)',
     '──────────────────────────────────────────────────────',
-    '⚠️  WICHTIG: Diese Urteile wurden automatisch gefunden und sind NICHT nach Relevanz',
-    '   sortiert. Bitte NUR zitieren wenn du den Inhalt des Urteils geprüft hast.',
-    '   Die Suchergebnisse enthalten möglicherweise thematisch unpassende Entscheidungen.',
-    '   Zitierformat wenn passend: "[Gericht], Az. [Aktenzeichen], [Datum]"',
+    '⚡ Diese Urteile sind geprüft und PKV-relevant. Bitte im Widerspruchsbrief',
+    '   mit vollem Aktenzeichen + Datum zitieren:',
+    '   Format: "BGH, Urt. v. [Datum], Az. [Aktenzeichen]"',
     '',
   ]
 
-  for (const c of cases) {
-    const court = c.court?.name ?? 'Gericht unbekannt'
-    const az = c.file_number ?? '–'
-    const date = c.date ?? '–'
-    const url = `https://de.openlegaldata.io/case/${c.slug ?? c.id}/`
-    lines.push(`  • [${date}] ${court} — Az. ${az}`)
-    lines.push(`    ${url}`)
-  }
-
-  lines.push('')
-  return lines.join('\n')
-}
-
-/**
- * Direkte Suche nach Aktenzeichen oder freiem Begriff (für /api/legal/search Route).
- */
-export async function searchLegalCases(
-  query: string,
-  pageSize = 10
-): Promise<{ count: number; cases: OldpCase[] }> {
-  try {
-    const url = new URL(`${API_BASE}/cases/`)
-    url.searchParams.set('search', query)
-    url.searchParams.set('page_size', String(pageSize))
-
-    const res = await fetch(url.toString(), {
-      headers: { 'Accept': 'application/json', 'User-Agent': USER_AGENT },
+  for (const u of urteile) {
+    const datumFormatiert = new Date(u.datum).toLocaleDateString('de-DE', {
+      day: '2-digit', month: '2-digit', year: 'numeric'
     })
-
-    if (!res.ok) return { count: 0, cases: [] }
-
-    const data = await res.json() as OldpSearchResponse
-    return { count: data.count ?? 0, cases: data.results ?? [] }
-  } catch {
-    return { count: 0, cases: [] }
+    lines.push(`  ▸ BGH, ${datumFormatiert} — Az. ${u.aktenzeichen}`)
+    lines.push(`    Kernaussage: ${u.leitsatz.slice(0, 200)}${u.leitsatz.length > 200 ? '…' : ''}`)
+    lines.push(`    PKV-Relevanz: ${u.relevanz_pkv.slice(0, 200)}${u.relevanz_pkv.length > 200 ? '…' : ''}`)
+    if (u.quelle_url) lines.push(`    Quelle: ${u.quelle_url}`)
+    lines.push('')
   }
+
+  return lines.join('\n')
 }
