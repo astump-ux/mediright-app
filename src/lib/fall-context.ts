@@ -11,6 +11,7 @@
 import { getSupabaseAdmin } from './supabase-admin'
 import { buildBenchmarkContext } from './benchmark-context'
 import { searchPkvPrecedents } from './legal-search'
+import { getOmbudsmannContext } from './ombudsmann-context'
 
 export async function buildFallContext(kassenabrechnungenId: string): Promise<string> {
   const admin = getSupabaseAdmin()
@@ -207,14 +208,34 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
     }
   } catch { /* Benchmark-Tabelle noch nicht verfügbar */ }
 
-  // ── Section 6: Relevante Rechtsprechung (OpenLegalData) ────────────────────
+  // ── Section 6: Relevante Rechtsprechung (BGH pkv_urteile) ─────────────────
   if (ablehnungsgruende.length > 0) {
     try {
       const legalBlock = await searchPkvPrecedents(ablehnungsgruende)
       if (legalBlock) {
         lines.push(legalBlock)
       }
-    } catch { /* API nicht erreichbar — kein Fehler */ }
+    } catch { /* Tabelle noch nicht verfügbar — kein Fehler */ }
+  }
+
+  // ── Section 7: Ombudsmann-Kalibrierung (Erfolgsquoten 2025) ────────────────
+  // Gibt der KI empirische Daten darüber, wie häufig welche Beschwerdekategorien
+  // beim Ombudsmann eingehen und wie die Einigungsquote liegt (33,1 %).
+  // Erlaubt präzisere Erfolgschancen-Einschätzungen im Widerspruchsbrief.
+  if (ablehnungsgruende.length > 0) {
+    try {
+      // Einfaches Kategorie-Mapping analog zu legal-search.ts
+      const text = ablehnungsgruende.join(' ').toLowerCase()
+      const kategorien: string[] = []
+      if (/beitrag|prämie|erhöhung|anpassung/.test(text))           kategorien.push('beitragsanpassung')
+      if (/notwendig|heilbehandlung|therapie|medizinisch|alternativ/.test(text)) kategorien.push('medizinische_notwendigkeit')
+      if (/goä|goa|faktor|analog|ziffer|schwellenwert|abrechnung/.test(text))    kategorien.push('goae')
+      if (/ausschluss|klausel|vorerkrankung|nicht versichert/.test(text))        kategorien.push('ausschlussklausel')
+      if (kategorien.length === 0) kategorien.push('medizinische_notwendigkeit')
+
+      const ombBlock = await getOmbudsmannContext(kategorien)
+      if (ombBlock) lines.push(ombBlock)
+    } catch { /* Tabelle noch nicht verfügbar — kein Fehler */ }
   }
 
   lines.push('═══════════════════════════════════════════════════════')
