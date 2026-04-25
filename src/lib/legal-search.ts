@@ -96,8 +96,9 @@ async function fetchCases(query: string, limit: number): Promise<OldpCase[]> {
     const url = new URL(`${API_BASE}/cases/`)
     url.searchParams.set('search', query)
     url.searchParams.set('page_size', String(Math.min(limit, 5)))
-    // Fokus auf höhere Instanzen (BGH, OLG) — relevantere Präzedenzfälle
-    url.searchParams.set('court__level_of_appeal', 'supreme,revision')
+    // Nur BGH — court__slug=bgh funktioniert; court__level_of_appeal wird ignoriert
+    // ACHTUNG: API sortiert nach Datum, nicht Relevanz → Ergebnisse immer manuell prüfen
+    url.searchParams.set('court__slug', 'bgh')
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
@@ -129,11 +130,12 @@ function formatCasesBlock(cases: OldpCase[]): string {
 
   const lines: string[] = [
     '──────────────────────────────────────────────────────',
-    'RELEVANTE RECHTSPRECHUNG (OpenLegalData — BGH/OLG)',
+    'RECHTSPRECHUNGS-HINWEISE (OpenLegalData — BGH, Stand: automatische Suche)',
     '──────────────────────────────────────────────────────',
-    '⚡ ANWEISUNG: Nutze diese Urteile im Widerspruchsbrief wenn thematisch passend.',
-    '   Format: "Vgl. [Gericht], Az. [Aktenzeichen], [Datum]"',
-    '   Prüfe Relevanz vor dem Zitieren — nicht blind übernehmen.',
+    '⚠️  WICHTIG: Diese Urteile wurden automatisch gefunden und sind NICHT nach Relevanz',
+    '   sortiert. Bitte NUR zitieren wenn du den Inhalt des Urteils geprüft hast.',
+    '   Die Suchergebnisse enthalten möglicherweise thematisch unpassende Entscheidungen.',
+    '   Zitierformat wenn passend: "[Gericht], Az. [Aktenzeichen], [Datum]"',
     '',
   ]
 
