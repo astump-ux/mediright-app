@@ -44,11 +44,15 @@ function mapAblehnungsgruendeToKategorien(ablehnungsgruende: string[]): string[]
   if (/notwendig|heilbehandlung|behandlung|therapie|medizinisch|indiziert|alternativ/.test(text)) {
     kategorien.add('medizinische_notwendigkeit')
   }
-  if (/goä|goa|faktor|analogziffer|analog|ziffer|schwellenwert|abrechnung|abrechnungs/.test(text)) {
+  if (/goä|goa|faktor|analogziffer|analog|ziffer|schwellenwert|abrechnung|abrechnungs|femtosekundenlaser|implantat|übermaß/.test(text)) {
     kategorien.add('goae')
   }
   if (/ausschluss|klausel|vorerkrankung|ausgeschlossen|nicht versichert|nicht erstattet/.test(text)) {
     kategorien.add('ausschlussklausel')
+  }
+  // Spezifische Behandlungsthemen → immer medizinische_notwendigkeit
+  if (/ivf|icsi|befruchtung|fertilit|hilfsmittel|hörgerät|prothese|orthese|rollstuhl|implantat|laser|operation|\bop\b/.test(text)) {
+    kategorien.add('medizinische_notwendigkeit')
   }
 
   // Wenn kein spezifischer Treffer → allgemein + medizinische_notwendigkeit (häufigster Streitpunkt)
