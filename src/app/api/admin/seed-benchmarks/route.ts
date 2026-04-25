@@ -16,8 +16,10 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages'
 
+export const maxDuration = 300 // Vercel Pro: bis 300s erlaubt
+
 const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET || ''
-const MODEL           = 'claude-opus-4-6'
+const MODEL           = 'claude-sonnet-4-6'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
