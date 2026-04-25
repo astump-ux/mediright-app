@@ -554,19 +554,141 @@ Schreibe AUSSCHLIESSLICH in der Ich-Form als würde der Versicherte direkt an AX
 Starte den Text IMMER mit "Ich beantrage" oder "Gegen Ihre Ablehnung" oder "Hiermit widerspreche ich".
 Verwende NIEMALS: "Fordern Sie", "legen Sie vor", "sollte", "empfehle", "aussichtsreich", "könnte".`
 
-export async function analyzeKassePdf(pdfBuffer: Buffer, pkvName?: string | null): Promise<KasseAnalyseResult> {
+// ── Tarif-Profil Context Builder ──────────────────────────────────────────────
+
+/**
+ * Builds a detailed prompt block from the user's extracted tarif_profil JSON.
+ * This gives Claude precise contract knowledge instead of having to guess
+ * from general PKV know-how — dramatically improves Selbstbehalt + Erstattungssatz accuracy.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function buildTarifProfilContext(profilJson: Record<string, any> | null | undefined): string {
+  if (!profilJson) return ''
+
+  const lines: string[] = [
+    '\n\n═══════════════════════════════════════════════════════',
+    'VERTRAGSDETAILS DES VERSICHERTEN (aus AVB-Analyse — verbindlich)',
+    'Diese Daten haben höchste Priorität gegenüber allgemeinen PKV-Annahmen.',
+    '═══════════════════════════════════════════════════════',
+  ]
+
+  // Selbstbehalt
+  const sb = profilJson.selbstbehalt
+  if (sb) {
+    lines.push('\n📋 SELBSTBEHALT:')
+    if (sb.prozent != null)          lines.push(`  • Selbstbehalt-Prozentsatz: ${sb.prozent}%`)
+    if (sb.jahresmaximum_eur != null) lines.push(`  • Jahres-Maximum: ${sb.jahresmaximum_eur} EUR`)
+    if (Array.isArray(sb.ausnahmen_kein_selbstbehalt) && sb.ausnahmen_kein_selbstbehalt.length > 0) {
+      lines.push(`  • AUSNAHMEN (kein Selbstbehalt bei):`)
+      sb.ausnahmen_kein_selbstbehalt.forEach((a: string) => lines.push(`    - ${a}`))
+      lines.push(`  ⚠️ WICHTIG: Prüfe ob AXA auf diese Ausnahmen korrekt keinen Selbstbehalt angewendet hat!`)
+    }
+    if (sb.quelle) lines.push(`  Quelle: ${sb.quelle}`)
+  }
+
+  // Gesundheitslotse
+  const gl = profilJson.gesundheitslotse
+  if (gl) {
+    lines.push('\n📋 GESUNDHEITSLOTSE:')
+    if (gl.mit_lotse_pct != null)    lines.push(`  • Mit Lotse: ${gl.mit_lotse_pct}% Erstattung`)
+    if (gl.ohne_lotse_pct != null)   lines.push(`  • Ohne Lotse: ${gl.ohne_lotse_pct}% Erstattung`)
+    if (Array.isArray(gl.lotsen_definition) && gl.lotsen_definition.length > 0)
+      lines.push(`  • Als Lotse anerkannt: ${gl.lotsen_definition.join(', ')}`)
+  }
+
+  // Erstattungssätze
+  const es = profilJson.erstattungssaetze
+  if (es) {
+    lines.push('\n📋 ERSTATTUNGSSÄTZE (laut Vertrag):')
+    const felder: [string, string][] = [
+      ['arzt_mit_lotse_pct',            'Arzt (mit Lotse)'],
+      ['arzt_ohne_lotse_pct',           'Arzt (ohne Lotse)'],
+      ['arzneimittel_generikum_pct',    'Arzneimittel Generikum'],
+      ['arzneimittel_original_pct',     'Arzneimittel Original'],
+      ['heilmittel_bis_grenze_pct',     'Heilmittel (bis Jahresgrenze)'],
+      ['heilmittel_jahresgrenze_eur',   'Heilmittel Jahresgrenze (EUR)'],
+      ['heilmittel_ueber_grenze_pct',   'Heilmittel (über Jahresgrenze)'],
+      ['heilpraktiker_pct',             'Heilpraktiker'],
+      ['heilpraktiker_jahresmax_eur',   'Heilpraktiker Jahresmax (EUR)'],
+      ['psychotherapie_pct',            'Psychotherapie'],
+      ['vorsorge_impfungen_pct',        'Vorsorge & Impfungen'],
+      ['praevention_pct',               'Prävention'],
+      ['praevention_max_eur',           'Prävention Max (EUR)'],
+      ['sehhilfen_pct',                 'Sehhilfen'],
+      ['sehhilfen_limit_eur_2jahre',    'Sehhilfen Limit 2 Jahre (EUR)'],
+      ['lasik_pct',                     'LASIK'],
+      ['lasik_limit_eur_pro_auge',      'LASIK Limit pro Auge (EUR)'],
+      ['stationaer_vollstationaer_pct', 'Stationär (vollstationär)'],
+      ['rehabilitation_pct',            'Rehabilitation'],
+    ]
+    for (const [key, label] of felder) {
+      if (es[key] != null) lines.push(`  • ${label}: ${es[key]}`)
+    }
+  }
+
+  // GOÄ-Regelung
+  const goae = profilJson.goae_regelung
+  if (goae) {
+    lines.push('\n📋 GOÄ-REGELUNG laut Vertrag:')
+    if (goae.regelsteigerungssatz_arzt != null)
+      lines.push(`  • Regelsteigerungssatz Arzt: ${goae.regelsteigerungssatz_arzt}`)
+    if (goae.regelsteigerungssatz_labor != null)
+      lines.push(`  • Regelsteigerungssatz Labor: ${goae.regelsteigerungssatz_labor}`)
+    if (goae.kommentar) lines.push(`  • Hinweis: ${goae.kommentar}`)
+  }
+
+  // Sonderklauseln — nur KRITISCH/HOCH
+  const klauseln = profilJson.sonderklauseln
+  if (Array.isArray(klauseln) && klauseln.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const kritisch = klauseln.filter((k: any) => k.risiko === 'KRITISCH' || k.risiko === 'HOCH')
+    if (kritisch.length > 0) {
+      lines.push('\n📋 SONDERKLAUSELN (KRITISCH/HOCH — besonders prüfen):')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      kritisch.forEach((k: any) => {
+        lines.push(`  • [${k.risiko}] ${k.id ?? ''} — ${k.bezeichnung ?? ''}`)
+        if (k.wortlaut) lines.push(`    Vertragstext: "${k.wortlaut.slice(0, 200)}"`)
+        if (k.rechtliche_angreifbarkeit) lines.push(`    Rechtlich: ${k.rechtliche_angreifbarkeit}`)
+      })
+    }
+  }
+
+  // Wichtige Hinweise
+  const hinweise = profilJson.wichtige_hinweise
+  if (Array.isArray(hinweise) && hinweise.length > 0) {
+    lines.push('\n📋 WICHTIGE VERTRAGSHINWEISE:')
+    hinweise.forEach((h: string) => lines.push(`  • ${h}`))
+  }
+
+  lines.push('\n⚡ Nutze diese Vertragsdaten zur präzisen Bewertung aller Positionen im Bescheid.')
+  lines.push('   Wenn AXA eine Leistung abgelehnt hat, die laut obigen Erstattungssätzen erstattungsfähig ist,')
+  lines.push('   erhöhe widerspruchWahrscheinlichkeit entsprechend und begründe dies explizit.')
+  lines.push('═══════════════════════════════════════════════════════')
+
+  return lines.join('\n')
+}
+
+export async function analyzeKassePdf(
+  pdfBuffer: Buffer,
+  pkvName?: string | null,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tarifProfil?: Record<string, any> | null
+): Promise<KasseAnalyseResult> {
   const [baseSystemPrompt, userPrompt, model] = await Promise.all([
     getSetting('kasse_analyse_prompt', DEFAULT_KASSE_SYSTEM_PROMPT),
     getSetting('kasse_analyse_user_prompt', DEFAULT_KASSE_USER_PROMPT),
     getSetting('kasse_analyse_model', 'claude-sonnet-4-6'),
   ])
 
-  const tariffContext = await fetchTariffContext(pkvName)
+  const [tariffContext, tarifProfilContext] = await Promise.all([
+    fetchTariffContext(pkvName),
+    Promise.resolve(buildTarifProfilContext(tarifProfil)),
+  ])
 
   // Always enforce 1st-person format for widerspruchBegruendung,
   // even if an older DB-stored prompt overrides the default.
-  // Tariff context is injected between base prompt and widerspruch enforcement.
-  const systemPrompt = baseSystemPrompt + tariffContext + WIDERSPRUCH_FORMAT_ENFORCEMENT
+  // tarifProfil context (highest priority) comes AFTER tariffExclusions context.
+  const systemPrompt = baseSystemPrompt + tariffContext + tarifProfilContext + WIDERSPRUCH_FORMAT_ENFORCEMENT
 
   const { text, usage } = await callAiWithPdf({
     model, systemPrompt, userPrompt,

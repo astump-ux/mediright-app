@@ -86,12 +86,27 @@ export async function POST(request: NextRequest) {
   const pdfBuffer = Buffer.from(await fileData.arrayBuffer())
   console.log('[analyze-auto] PDF size:', pdfBuffer.length, 'bytes')
 
-  // ── 3. Load user PKV name ──────────────────────────────────────────────────
+  // ── 3. Load user PKV name + tarif_profile ─────────────────────────────────
   let pkvName: string | null = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let tarifProfilJson: Record<string, any> | null = null
   try {
-    const { data: p } = await supabaseAdmin.from('profiles').select('pkv_name').eq('id', userId).single()
-    pkvName = p?.pkv_name ?? null
-  } catch { /* migration 005 not applied yet */ }
+    const [profileRes, tarifRes] = await Promise.all([
+      supabaseAdmin.from('profiles').select('pkv_name').eq('id', userId).single(),
+      supabaseAdmin
+        .from('tarif_profile')
+        .select('profil_json, versicherung, tarif_name')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .eq('analyse_status', 'completed')
+        .maybeSingle(),
+    ])
+    pkvName = profileRes.data?.pkv_name ?? null
+    tarifProfilJson = (tarifRes.data?.profil_json as Record<string, any>) ?? null
+    if (tarifProfilJson) {
+      console.log('[analyze-auto] tarif_profile found:', tarifRes.data?.versicherung, tarifRes.data?.tarif_name)
+    }
+  } catch { /* migration not applied yet */ }
 
   // ── 4. Classify ────────────────────────────────────────────────────────────
   const docType = await classifyPdf(pdfBuffer, pkvName)
@@ -127,7 +142,7 @@ export async function POST(request: NextRequest) {
   // ── 5. Route ───────────────────────────────────────────────────────────────
   try {
     if (docType === 'kassenabrechnung') {
-      await runKassePipeline(vorgangId, userId, phone, pdfBuffer, vorgang.pdf_storage_path, pkvName)
+      await runKassePipeline(vorgangId, userId, phone, pdfBuffer, vorgang.pdf_storage_path, pkvName, tarifProfilJson)
     } else {
       await runArztPipeline(vorgangId, userId, phone, pdfBuffer, pkvName)
     }
@@ -253,9 +268,11 @@ async function runKassePipeline(
   phone: string | undefined,
   pdfBuffer: Buffer,
   pdfStoragePath: string,
-  pkvName?: string | null
+  pkvName?: string | null,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tarifProfil?: Record<string, any> | null
 ) {
-  const analyse = await analyzeKassePdf(pdfBuffer, pkvName)
+  const analyse = await analyzeKassePdf(pdfBuffer, pkvName, tarifProfil)
   console.log('[analyze-auto] Kasse done, rechnungen:', analyse.rechnungen?.length ?? 0)
 
   // ── Compute split Einsparpotenzial from aktionstyp per position ─────────────

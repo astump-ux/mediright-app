@@ -20,14 +20,20 @@ AKTUELLES EINGEHENDES SCHREIBEN VON AXA:
 AUFGABE:
 1. Analysiere das AXA-Schreiben präzise (max. 3 Sätze, Laiensprache). Beziehe dich konkret auf die Ablehnungsgründe und die bisherige Kommunikation aus der Fallakte.
 2. Bewerte die Lage: Welche Handlungsoptionen bestehen noch? Hat sich etwas geändert?
-3. Erstelle einen vollständigen, professionellen Antwortentwurf an AXA — inhaltlich präzise, auf die konkreten Punkte der Fallakte eingehend.
+3. Erstelle einen vollständigen, professionellen Antwortentwurf an AXA.
+
+⚡ PFLICHT — VG-ZITIERUNG:
+Wenn die Fallakte einen "VERTRAGSGRUNDLAGE"-Block enthält, MÜSSEN die relevanten VG-Nummern und Seitenangaben
+wörtlich im Brieftext zitiert werden. Format: "gemäß VG100, Seite X, Abschnitt Y" oder "laut § X der AVB (VG100, S. Y)".
+Beispiel: "Die Erstattung der Heilmittelbehandlung ist laut meinem Versicherungsvertrag (VG100, Seite 8) zu 80% zu erstatten."
+Ohne diese Zitate ist der Widerspruchsbrief rechtlich schwächer — immer konkret belegen.
 
 Antworte NUR mit diesem JSON (kein Text davor oder danach):
 {
   "ki_analyse": "Kurze Analyse was das AXA-Schreiben bedeutet (max. 3 Sätze, Laiensprache)",
   "naechster_schritt_erklaerung": "Was jetzt zu tun ist und warum (1-2 Sätze)",
   "ki_vorschlag_betreff": "Betreff für Antwortschreiben",
-  "ki_vorschlag_inhalt": "Vollständiger Brieftext für Antwort (förmlich, professionell, auf Deutsch, bezieht sich auf konkrete Fakten aus der Fallakte)",
+  "ki_vorschlag_inhalt": "Vollständiger Brieftext für Antwort (förmlich, professionell, auf Deutsch, bezieht sich auf konkrete Fakten + VG-Zitate aus der Fallakte)",
   "ki_naechster_empfaenger": "kasse | arzt | keiner",
   "ki_dringlichkeit": "hoch | mittel | niedrig",
   "ki_naechste_frist": "YYYY-MM-DD wenn eine Frist genannt wurde, sonst null"
@@ -45,12 +51,17 @@ AUFGABE:
 2. Was fehlt noch für einen erfolgreichen Widerspruch bei AXA? Was ist der nächste Schritt?
 3. Erstelle einen vollständigen Entwurf für den nächsten Brief — entweder zurück an den Arzt (falls Ergänzung nötig) oder an AXA (falls die Stellungnahme ausreicht).
 
+⚡ PFLICHT — VG-ZITIERUNG (wenn Brief an AXA gerichtet):
+Wenn die Fallakte einen "VERTRAGSGRUNDLAGE"-Block enthält, MÜSSEN die relevanten VG-Nummern und Seitenangaben
+im Brieftext an AXA zitiert werden. Format: "gemäß VG100, Seite X" oder "laut AVB § X (VG100, S. Y)".
+Diese Zitate belegen, dass die Leistung vertraglich zugesichert ist — unverzichtbar für einen starken Widerspruch.
+
 Antworte NUR mit diesem JSON (kein Text davor oder danach):
 {
   "ki_analyse": "Analyse der ärztlichen Stellungnahme (max. 3 Sätze, Laiensprache, konkrete Bezüge auf Ablehnungsgründe)",
   "naechster_schritt_erklaerung": "Was jetzt zu tun ist und warum (1-2 Sätze)",
   "ki_vorschlag_betreff": "Betreff für nächstes Schreiben",
-  "ki_vorschlag_inhalt": "Vollständiger Brieftext (förmlich, professionell, auf Deutsch, nutzt Inhalte aus Fallakte und Arztschreiben)",
+  "ki_vorschlag_inhalt": "Vollständiger Brieftext (förmlich, professionell, auf Deutsch, nutzt Inhalte aus Fallakte, Arztschreiben und VG-Zitate)",
   "ki_naechster_empfaenger": "kasse | arzt | keiner",
   "ki_dringlichkeit": "hoch | mittel | niedrig",
   "ki_naechste_frist": "YYYY-MM-DD wenn eine Frist genannt wurde, sonst null"

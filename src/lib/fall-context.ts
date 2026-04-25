@@ -17,7 +17,7 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
   const [kasseRes, vorgaengeRes, kommRes] = await Promise.all([
     admin
       .from('kassenabrechnungen')
-      .select('bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, kasse_analyse')
+      .select('user_id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, kasse_analyse')
       .eq('id', kassenabrechnungenId)
       .single(),
     admin
@@ -31,6 +31,22 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
       .order('datum', { ascending: true })
       .order('created_at', { ascending: true }),
   ])
+
+  // ── Load tarif_profile for VG citations ────────────────────────────────────
+  const userId = kasseRes.data?.user_id
+  let tarifProfilJson: Record<string, unknown> | null = null
+  if (userId) {
+    try {
+      const { data: tp } = await admin
+        .from('tarif_profile')
+        .select('profil_json, versicherung, tarif_name, avb_version')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .eq('analyse_status', 'completed')
+        .maybeSingle()
+      tarifProfilJson = (tp?.profil_json as Record<string, unknown>) ?? null
+    } catch { /* table not yet available */ }
+  }
 
   const kasse      = kasseRes.data
   const vorgaenge  = vorgaengeRes.data ?? []
@@ -122,6 +138,63 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
   } else {
     lines.push('Kommunikationsverlauf: Noch keine Kommunikation geführt.')
     lines.push('')
+  }
+
+  // ── Section 4: Vertragsgrundlage mit VG-Zitaten ────────────────────────────
+  if (tarifProfilJson) {
+    lines.push('──────────────────────────────────────────────────────')
+    lines.push('VERTRAGSGRUNDLAGE (aus AVB — für präzise Zitierung im Widerspruchsbrief)')
+    lines.push('──────────────────────────────────────────────────────')
+    lines.push('⚡ Diese Quellen MÜSSEN im Widerspruchsbrief mit exakter VG-Nummer + Seite zitiert werden.')
+    lines.push('')
+
+    const sb = tarifProfilJson.selbstbehalt as Record<string, unknown> | undefined
+    if (sb) {
+      lines.push(`SELBSTBEHALT: ${sb.prozent ?? '?'}% Eigenanteil, max. ${sb.jahresmaximum_eur ?? '?'} EUR/Jahr`)
+      if (Array.isArray(sb.ausnahmen_kein_selbstbehalt) && sb.ausnahmen_kein_selbstbehalt.length > 0) {
+        lines.push(`Ausnahmen (kein Selbstbehalt): ${(sb.ausnahmen_kein_selbstbehalt as string[]).join(', ')}`)
+      }
+      if (sb.quelle) lines.push(`Quelle: ${sb.quelle}`)
+      lines.push('')
+    }
+
+    const gl = tarifProfilJson.gesundheitslotse as Record<string, unknown> | undefined
+    if (gl) {
+      lines.push(`GESUNDHEITSLOTSE: mit Lotse ${gl.mit_lotse_pct ?? '?'}%, ohne Lotse ${gl.ohne_lotse_pct ?? '?'}%`)
+      if (gl.quelle) lines.push(`Quelle: ${gl.quelle}`)
+      lines.push('')
+    }
+
+    const es = tarifProfilJson.erstattungssaetze as Record<string, unknown> | undefined
+    if (es) {
+      const erstattungsZeilen: string[] = []
+      if (es.arzt_mit_lotse_pct != null)        erstattungsZeilen.push(`Arzt (mit Lotse): ${es.arzt_mit_lotse_pct}%`)
+      if (es.arzt_ohne_lotse_pct != null)       erstattungsZeilen.push(`Arzt (ohne Lotse): ${es.arzt_ohne_lotse_pct}%`)
+      if (es.heilmittel_bis_grenze_pct != null) erstattungsZeilen.push(`Heilmittel: ${es.heilmittel_bis_grenze_pct}% (bis ${es.heilmittel_jahresgrenze_eur ?? '?'} EUR/Jahr)`)
+      if (es.psychotherapie_pct != null)        erstattungsZeilen.push(`Psychotherapie: ${es.psychotherapie_pct}%`)
+      if (es.heilpraktiker_pct != null)         erstattungsZeilen.push(`Heilpraktiker: ${es.heilpraktiker_pct}% (max. ${es.heilpraktiker_jahresmax_eur ?? '?'} EUR/Jahr)`)
+      if (es.arzneimittel_generikum_pct != null) erstattungsZeilen.push(`Arzneimittel Generikum: ${es.arzneimittel_generikum_pct}%`)
+      if (erstattungsZeilen.length > 0) {
+        lines.push('ERSTATTUNGSSÄTZE (laut Vertrag):')
+        erstattungsZeilen.forEach(z => lines.push(`  • ${z}`))
+        lines.push('')
+      }
+    }
+
+    const klauseln = tarifProfilJson.sonderklauseln as Array<Record<string, unknown>> | undefined
+    if (Array.isArray(klauseln) && klauseln.length > 0) {
+      const kritisch = klauseln.filter(k => k.risiko === 'KRITISCH' || k.risiko === 'HOCH')
+      if (kritisch.length > 0) {
+        lines.push('SONDERKLAUSELN (KRITISCH/HOCH — zu beachten):')
+        kritisch.forEach(k => {
+          lines.push(`  [${k.risiko}] ${k.id ?? ''} — ${k.bezeichnung ?? ''}`)
+          if (k.wortlaut) lines.push(`  Vertragstext: "${String(k.wortlaut).slice(0, 300)}"`)
+          if (k.quelle)   lines.push(`  Quelle: ${k.quelle}`)
+          if (k.rechtliche_angreifbarkeit) lines.push(`  Rechtlich: ${k.rechtliche_angreifbarkeit}`)
+        })
+        lines.push('')
+      }
+    }
   }
 
   lines.push('═══════════════════════════════════════════════════════')
