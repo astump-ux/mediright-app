@@ -132,7 +132,7 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 | `avb_dokumente` | Hochgeladene AVB-PDFs (Supabase Storage) |
 | `pkv_urteile` | Kuratierte BGH/OLG-Urteile (Migrations 031–032) |
 | `pkv_ombudsmann_statistik` | Ombudsmann-Statistik 2025: Einigungsquote 33,1%, Kategorien |
-| `goae_positionen` | ~80 kuratierte GOÄ-Streitfall-Ziffern; Vollseeding via GOÄ-PDF-Upload geplant |
+| `goae_positionen` | ~80 kuratierte GOÄ-Streitfall-Ziffern (034) + 908 Vollseeding aus Bundesärztekammer-PDF (037) |
 | `pkv_ablehnungsmuster` | Anonymisierte Cross-User-Muster, wächst via DB-Trigger automatisch |
 | `chat_messages` | In-App-Chat-History |
 
@@ -224,7 +224,7 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 |---|---|---|---|---|
 | 1 | PKV-Ombudsmann Jahresbericht 2025 | `pkv_ombudsmann_statistik` | ✅ Fertig, 6 Kategorien | 7 |
 | 2a | GOÄ Streitfall-Ziffern (kuratiert) | `goae_positionen` | ✅ ~80 Ziffern | 8 |
-| 2b | GOÄ Vollständig (alle ~2500 Ziffern) | `goae_positionen` | 🔲 Offen — GOÄ-PDF hochladen + Parser | 8 |
+| 2b | GOÄ Vollständig (908 Positionen) | `goae_positionen` | ✅ Migration 037 — Bundesärztekammer-PDF geparsed | 8 |
 | 3 | Anonymisierte Ablehnungsmuster | `pkv_ablehnungsmuster` | ✅ Trigger aktiv, 8 Seed-Muster | 9 |
 | 3 | Per-User Ablehnungshistorie | `kassenabrechnungen` | ✅ Query in rejection-pattern-context | 9 |
 | 4 | BGH/OLG-Urteile | `pkv_urteile` | ✅ ~15 Urteile, Migrations 031–032 | 6 |
@@ -292,13 +292,13 @@ Modell pro Analyse-Typ in `app_settings` editierbar (Admin-Panel).
 |---|---|---|
 | `deploy.yml` | Push auf main | Vercel-Deploy (auto) |
 | `seed-benchmarks.yml` | manuell | Tarif-Benchmarks neu seeden |
-| `seed-goae-positionen.yml` | manuell | GOÄ-Vollseeding (aktuell ohne funktionierende API-Quelle — Workflow vorhanden, Quelle offen) |
+| `seed-goae-positionen.yml` | manuell | GOÄ-Vollseeding (via Migration 037 ersetzt; Workflow als Fallback behalten) |
 
 ---
 
 ## 13. Bekannte Lücken & offene TODOs
 
-- **GOÄ-Vollseeding:** Keine funktionierende öffentliche API gefunden. Lösung: GOÄ-PDF (von bundesaerztekammer.de oder privat-patienten.de) hochladen → Python-Parser → DB-Seed
+- ~~**GOÄ-Vollseeding:**~~ ✅ Migration 037 erledigt — 908 Positionen via pdfplumber-Parser aus Bundesärztekammer-PDF, Faktortyp-Ableitung aus Ziffernbereichen (Labor 3500-4999, Technisch 5000-5999)
 - ~~**Widerspruch-Outcome-Tracking:**~~ ✅ Erledigt in Migration 036 — DB-Trigger feuert automatisch bei Status → 'akzeptiert'/'abgelehnt'
 - **OLG-Urteile (Source #4):** Noch nicht recherchiert/geseedet
 - **UpsellBand Task #22:** Credit-aware 5-state Redesign noch in_progress
@@ -335,3 +335,4 @@ INTERNAL_API_SECRET                # für interne Route-zu-Route Calls
 | 2026-04-26 | Migration 034: goae_positionen + goae-context.ts (Training Source #2) |
 | 2026-04-26 | Migration 035: pkv_ablehnungsmuster + Trigger + rejection-pattern-context.ts (Training Source #3) |
 | 2026-04-26 | Migration 036: trg_widerspruch_outcome — Outcome-Tracking vollautomatisch via DB-Trigger |
+| 2026-04-26 | Migration 037: GOÄ-Vollseeding — 908 Positionen aus Bundesärztekammer-PDF (Training Source #2b ✅) |
