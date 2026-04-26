@@ -1,14 +1,19 @@
 -- Migration 037: GOÄ Vollseeding — Alle Positionen aus der amtlichen Gebührenordnung
 -- Quelle: Bundesärztekammer, gebuehrenordnung-fuer-aerzte.pdf (2024)
--- Umfang: 934 Positionen nach Qualitätsfilterung
+-- Umfang: 908 Positionen nach Qualitätsfilterung
 -- Strategie: ON CONFLICT (ziffer) DO NOTHING
 --   → 034-Kurationen (pkv_streitpotenzial, typische_ablehnung, ki_hinweis) bleiben erhalten
 -- Neue Spalten: punktzahl (Einfachsatz-Punkte), gebuehr_einfach (EUR bei 1.0-fach)
 
--- 1. Neue Spalten ergänzen (idempotent via IF NOT EXISTS)
+-- 1. Neue Spalten ergänzen + NOT-NULL-Default für pkv_streitpotenzial setzen
 ALTER TABLE goae_positionen
   ADD COLUMN IF NOT EXISTS punktzahl INTEGER,
   ADD COLUMN IF NOT EXISTS gebuehr_einfach NUMERIC(8,2);
+
+-- pkv_streitpotenzial ist NOT NULL — Default 0 (= kein bekanntes Streitpotenzial)
+-- für alle via Vollseeding eingefügten Positionen ohne Kuratierung
+ALTER TABLE goae_positionen
+  ALTER COLUMN pkv_streitpotenzial SET DEFAULT 0;
 
 -- 2. Alle GOÄ-Positionen einfügen
 INSERT INTO goae_positionen
