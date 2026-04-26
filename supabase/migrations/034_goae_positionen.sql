@@ -288,7 +288,7 @@ VALUES
 
 -- ── Steuerungsmittel Gesundheitslotse ────────────────────────────────────────
 
-('3', 'Zusatzziffer Lotse AXA', 'Behandlung ohne Gesundheitslotsen-Ueberweisung', 'A', 0, 'normal', 1.0, 1.0,
+('AXA_LOTSE', 'Gesundheitslotse AXA', 'Behandlung ohne Gesundheitslotsen-Ueberweisung', 'A', 0, 'normal', 1.0, 1.0,
  NULL, false, 'hoch',
  'AXA kuerzt Erstattung wenn Gesundheitslotsen-Pflicht nicht erfuellt',
  'AXA ActiveMe-U: Ohne Gesundheitslotsen-Ueberweisung sinkt Erstattungsquote (z.B. von 100% auf 80%). Pruefen ob Lotsen-Anforderung eingehalten wurde. Ausnahmen: Notfall, Augenarzt, Zahnarzt, direkt beim Internist.'),
