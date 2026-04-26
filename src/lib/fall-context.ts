@@ -13,6 +13,7 @@ import { buildBenchmarkContext } from './benchmark-context'
 import { searchPkvPrecedents } from './legal-search'
 import { getOmbudsmannContext } from './ombudsmann-context'
 import { getGoaeContext } from './goae-context'
+import { getRejectionPatternContext } from './rejection-pattern-context'
 
 export async function buildFallContext(kassenabrechnungenId: string): Promise<string> {
   const admin = getSupabaseAdmin()
@@ -263,6 +264,22 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
     const goaeBlock = await getGoaeContext(rechnungsText, ablehnungsText, explicitZiffern)
     if (goaeBlock) lines.push(goaeBlock)
   } catch { /* goae_positionen Tabelle noch nicht verfügbar — kein Fehler */ }
+
+  // ── Section 9: Ablehnungsmuster — Per-User-History + Cross-User-Community ──
+  // Zweistufig:
+  //   (a) Hat dieser User ähnliche Ablehnungen schon erlebt? Was war das Ergebnis?
+  //   (b) Wie häufig tritt dieses Muster community-weit auf? Wie ist die Erfolgsquote?
+  // Neue User ohne eigene History profitieren sofort von den Community-Daten.
+  if (kasse?.user_id && ablehnungsgruende.length > 0) {
+    try {
+      const patternBlock = await getRejectionPatternContext(
+        kasse.user_id,
+        kassenabrechnungenId,
+        ablehnungsgruende
+      )
+      if (patternBlock) lines.push(patternBlock)
+    } catch { /* pkv_ablehnungsmuster Tabelle noch nicht verfügbar — kein Fehler */ }
+  }
 
   lines.push('═══════════════════════════════════════════════════════')
   return lines.join('\n')
