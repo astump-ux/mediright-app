@@ -88,8 +88,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  analyse        jsonb;
-  gruende        jsonb;
+  v_analyse      jsonb;
+  v_gruende      jsonb;
   grund_text     text;
   norm_grund     text;
   key_str        text;
@@ -107,18 +107,18 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  analyse    := NEW.kasse_analyse;
-  gruende    := analyse -> 'ablehnungsgruende';
+  v_analyse  := NEW.kasse_analyse;
+  v_gruende  := v_analyse -> 'ablehnungsgruende';
   betrag_abg := COALESCE((NEW.betrag_abgelehnt)::numeric, 0);
 
   -- Kein Array → nichts zu tun
-  IF gruende IS NULL OR jsonb_typeof(gruende) != 'array' THEN
+  IF v_gruende IS NULL OR jsonb_typeof(v_gruende) != 'array' THEN
     RETURN NEW;
   END IF;
 
   -- Jeden Ablehnungsgrund einzeln verarbeiten
   FOR grund_text IN
-    SELECT jsonb_array_elements_text(gruende)
+    SELECT jsonb_array_elements_text(v_gruende)
   LOOP
     -- Normalisieren
     norm_grund := normalize_ablehnungsgrund(grund_text);
@@ -207,23 +207,23 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  analyse    jsonb;
-  gruende    jsonb;
+  v_analyse  jsonb;
+  v_gruende  jsonb;
   norm_grund text;
   key_str    text;
   kat        text;
   grund_text text;
 BEGIN
-  SELECT kasse_analyse INTO analyse
+  SELECT kasse_analyse INTO v_analyse
   FROM kassenabrechnungen
   WHERE id = p_kassenabrechnungen_id;
 
-  IF analyse IS NULL THEN RETURN; END IF;
+  IF v_analyse IS NULL THEN RETURN; END IF;
 
-  gruende := analyse -> 'ablehnungsgruende';
-  IF gruende IS NULL OR jsonb_typeof(gruende) != 'array' THEN RETURN; END IF;
+  v_gruende := v_analyse -> 'ablehnungsgruende';
+  IF v_gruende IS NULL OR jsonb_typeof(v_gruende) != 'array' THEN RETURN; END IF;
 
-  FOR grund_text IN SELECT jsonb_array_elements_text(gruende) LOOP
+  FOR grund_text IN SELECT jsonb_array_elements_text(v_gruende) LOOP
     norm_grund := normalize_ablehnungsgrund(grund_text);
 
     kat := CASE
