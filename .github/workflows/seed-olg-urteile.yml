@@ -1,0 +1,43 @@
+name: Seed OLG-Urteile (OpenLegalData + Claude)
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_cases:
+        description: 'Max. neue Urteile pro Lauf'
+        default: '30'
+        required: false
+      dry_run:
+        description: 'Dry Run (kein Supabase-Write)'
+        default: 'false'
+        required: false
+  schedule:
+    - cron: '0 4 1 */3 *'  # Quartalsweise: 1. des Quartalsmonats, 04:00 UTC
+
+jobs:
+  seed:
+    name: OLG-Urteile von OpenLegalData → Supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run OLG-Urteile Seed
+        env:
+          NEXT_PUBLIC_SUPABASE_URL:  ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY:         ${{ secrets.ANTHROPIC_API_KEY }}
+          MAX_CASES:                 ${{ inputs.max_cases || '30' }}
+          DRY_RUN:                   ${{ inputs.dry_run || 'false' }}
+        run: npx tsx scripts/seed-olg-urteile.ts
