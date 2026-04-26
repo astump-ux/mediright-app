@@ -34,10 +34,14 @@ Alle KI-Prompts für Widersprüche erhalten denselben strukturierten Kontext aus
 9 Sections, alle fail-silent (geben `''` zurück bei Fehler → kein Break der Pipeline).
 **Warum:** Konsistenz. Jede neue Trainingsdatenquelle wird als Section ergänzt, ohne andere Routen anzufassen.
 
-### 2.3 Anonymisierte Cross-User-Muster statt per-User-Training
-`pkv_ablehnungsmuster` speichert kein `user_id` — nur aggregierte Statistiken.
-Trigger auf `kassenabrechnungen` schreibt automatisch nach jeder Analyse.
-**Warum:** Neue User profitieren sofort. DSGVO-konform ohne aufwändige Anonymisierung.
+### 2.3 Zweistufige Ablehnungsmuster — per-User UND cross-User
+**Stufe 1 — Per-User-History:** Vollständig in `kassenabrechnungen` (user_id, kasse_analyse JSONB,
+betrag_abgelehnt, bescheiddatum). Keine separate Tabelle nötig — die Information ist bereits
+strukturiert vorhanden. `rejection-pattern-context.ts` queried diese direkt.
+**Stufe 2 — Cross-User-Muster:** `pkv_ablehnungsmuster` ohne user_id — nur aggregierte Statistiken.
+DB-Trigger schreibt automatisch nach jeder Kassenbescheid-Analyse.
+**Warum:** Neue User ohne eigene History profitieren sofort von Community-Daten (Stufe 2).
+User mit History bekommen zusätzlich ihre eigenen Fälle als Kontext (Stufe 1). DSGVO-konform.
 
 ### 2.4 Widerspruch-Ergebnis-Tracking noch nicht vollständig
 `record_widerspruch_ergebnis()` Funktion existiert (Migration 035), wird aber noch nicht
