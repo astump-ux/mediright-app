@@ -12,6 +12,7 @@
  */
 
 import { getSupabaseAdmin } from './supabase-admin'
+import { sendExitPassAlert, userExitPassHint } from './notifications'
 
 const CONFIDENCE_THRESHOLD  = 2      // Min. verifizierte Urteile vor Exit-Pass
 const LIVE_TIMEOUT_MS       = 6000   // Max. Wartezeit für Live-Recherche
@@ -210,22 +211,49 @@ export async function searchPkvPrecedents(
       return formatVerifiedBlock(verified)
     }
 
-    // Exit-Pass: Live-Recherche
+    // ── Exit-Pass: Live-Recherche + parallele Notifications ─────────────────
     const searchTerms = buildSearchTerms(ablehnungsgruende)
+    const timestamp   = new Date().toISOString()
     console.log(
       `[legal-search] Exit-Pass: ${verified.length}/${CONFIDENCE_THRESHOLD} verifizierte Urteile ` +
-      `→ Live-Recherche für "${searchTerms}"`
+      `→ Live-Recherche + Notifications für "${searchTerms}"`
     )
 
-    const liveResults = await liveResearchRii(searchTerms)
+    // Alle drei Tasks parallel starten — keiner blockiert den anderen
+    const [liveResults] = await Promise.all([
+      liveResearchRii(searchTerms),
 
-    // Async persistieren (nicht awaiten)
+      // Admin-Alert: sofort feuern, nicht auf Ergebnis warten
+      sendExitPassAlert({
+        ablehnungsgruende,
+        searchTerms,
+        verifiedCount:   verified.length,
+        liveResultCount: 0,       // wird nach liveResearch aktualisiert
+        kategorie:       kategorien[0],
+        timestamp,
+      }).catch(() => {}),
+    ])
+
+    // Async persistieren + nachträglichen Alert mit korrekter Live-Zahl
     if (liveResults.length > 0) {
       persistLiveResults(liveResults, kategorien[0]).catch(() => {})
+
+      // Zweiter Alert mit vollständigen Zahlen (fire-and-forget)
+      if (liveResults.length > 0) {
+        sendExitPassAlert({
+          ablehnungsgruende,
+          searchTerms,
+          verifiedCount:   verified.length,
+          liveResultCount: liveResults.length,
+          kategorie:       kategorien[0],
+          timestamp,
+        }).catch(() => {})
+      }
     }
 
-    const blocks: string[] = []
-    if (verified.length > 0)   blocks.push(formatVerifiedBlock(verified))
+    // User-Hinweis + verifizierte/live Urteile kombinieren
+    const blocks: string[] = [userExitPassHint(searchTerms)]
+    if (verified.length > 0)    blocks.push(formatVerifiedBlock(verified))
     if (liveResults.length > 0) blocks.push(formatLiveBlock(liveResults, searchTerms))
 
     return blocks.join('\n')
