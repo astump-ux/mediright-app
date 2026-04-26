@@ -1,0 +1,49 @@
+name: Seed GOÄ-Positionen (macip.de → Supabase)
+
+# Läuft manuell oder einmalig per Dispatch.
+# Holt alle GOÄ-Positionen von der macip.de API und upserted sie
+# in die goae_positionen Tabelle, ohne unsere kuratierten Felder
+# (pkv_streitpotenzial, typische_ablehnung, ki_hinweis) zu überschreiben.
+#
+# Voraussetzungen:
+#   GitHub Secrets:
+#     MACIP_API_KEY         — kostenlos registrieren auf https://api.macip.de/
+#     SUPABASE_URL          — bereits vorhanden
+#     SUPABASE_SERVICE_ROLE_KEY — bereits vorhanden
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit_per_page:
+        description: 'Items pro API-Request (max. 100 im Free-Plan)'
+        default: '100'
+        required: false
+      dry_run:
+        description: 'Dry run (kein DB-Write, nur Ausgabe)'
+        default: 'false'
+        required: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx supabase
+
+      - name: Run GOÄ seeder
+        env:
+          MACIP_API_KEY: ${{ secrets.MACIP_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LIMIT_PER_PAGE: ${{ inputs.limit_per_page || '100' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: python scripts/seed_goae_positionen.py
