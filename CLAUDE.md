@@ -43,10 +43,10 @@ DB-Trigger schreibt automatisch nach jeder Kassenbescheid-Analyse.
 **Warum:** Neue User ohne eigene History profitieren sofort von Community-Daten (Stufe 2).
 User mit History bekommen zusätzlich ihre eigenen Fälle als Kontext (Stufe 1). DSGVO-konform.
 
-### 2.4 Widerspruch-Ergebnis-Tracking noch nicht vollständig
-`record_widerspruch_ergebnis()` Funktion existiert (Migration 035), wird aber noch nicht
-automatisch aufgerufen — manueller API-Call nach Widerspruchsabschluss nötig.
-**TODO:** Widerspruch-Status-Änderung auf 'akzeptiert'/'abgelehnt' triggert die Funktion.
+### 2.4 Widerspruch-Ergebnis-Tracking vollautomatisch (Migration 036)
+`record_widerspruch_ergebnis()` wird via DB-Trigger `trg_widerspruch_outcome` automatisch
+aufgerufen sobald `widerspruch_status` auf `'akzeptiert'` oder `'abgelehnt'` wechselt.
+Kein App-Code nötig — die DB pflegt die Erfolgsquote in `pkv_ablehnungsmuster` selbst.
 
 ---
 
@@ -301,7 +301,7 @@ Modell pro Analyse-Typ in `app_settings` editierbar (Admin-Panel).
 ## 13. Bekannte Lücken & offene TODOs
 
 - **GOÄ-Vollseeding:** `MACIP_API_KEY` auf macip.de registrieren → GitHub Secret eintragen → Workflow starten
-- **Widerspruch-Outcome-Tracking:** `record_widerspruch_ergebnis()` noch nicht in Widerspruch-Status-Änderung eingebaut
+- ~~**Widerspruch-Outcome-Tracking:**~~ ✅ Erledigt in Migration 036 — DB-Trigger feuert automatisch bei Status → 'akzeptiert'/'abgelehnt'
 - **OLG-Urteile (Source #4):** Noch nicht recherchiert/geseedet
 - **UpsellBand Task #22:** Credit-aware 5-state Redesign noch in_progress
 - **macip.de Free Tier:** 100 Requests/Tag — bei 2500+ GOÄ-Ziffern ggf. kostenpflichtigen Plan nötig
@@ -338,3 +338,4 @@ MACIP_API_KEY                      # für GOÄ-Seed (noch ausstehend)
 | 2026-04-26 | Migration 033: pkv_ombudsmann_statistik (Training Source #1) |
 | 2026-04-26 | Migration 034: goae_positionen + goae-context.ts (Training Source #2) |
 | 2026-04-26 | Migration 035: pkv_ablehnungsmuster + Trigger + rejection-pattern-context.ts (Training Source #3) |
+| 2026-04-26 | Migration 036: trg_widerspruch_outcome — Outcome-Tracking vollautomatisch via DB-Trigger |
