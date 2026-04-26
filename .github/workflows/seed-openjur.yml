@@ -1,0 +1,48 @@
+name: Seed PKV-Urteile (openJur.de Scraper)
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_cases:
+        description: 'Max. neue Urteile pro Lauf'
+        default: '20'
+        required: false
+      dry_run:
+        description: 'Dry Run (kein Supabase-Write)'
+        default: 'false'
+        required: false
+      debug_html:
+        description: 'HTML-Struktur debuggen (true = erste Seite ausgeben)'
+        default: 'false'
+        required: false
+  schedule:
+    - cron: '0 5 1 */2 *'  # Alle 2 Monate, 1. des Monats, 05:00 UTC
+
+jobs:
+  seed:
+    name: openJur PKV-OLG-Urteile → Supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run openJur Scraper
+        env:
+          NEXT_PUBLIC_SUPABASE_URL:  ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY:         ${{ secrets.ANTHROPIC_API_KEY }}
+          MAX_CASES:                 ${{ inputs.max_cases || '20' }}
+          DRY_RUN:                   ${{ inputs.dry_run || 'false' }}
+          DEBUG_HTML:                ${{ inputs.debug_html || 'false' }}
+        run: npx tsx scripts/seed-openjur.ts
