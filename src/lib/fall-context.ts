@@ -12,6 +12,7 @@ import { getSupabaseAdmin } from './supabase-admin'
 import { buildBenchmarkContext } from './benchmark-context'
 import { searchPkvPrecedents } from './legal-search'
 import { getOmbudsmannContext } from './ombudsmann-context'
+import { getGoaeContext } from './goae-context'
 
 export async function buildFallContext(kassenabrechnungenId: string): Promise<string> {
   const admin = getSupabaseAdmin()
@@ -237,6 +238,31 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
       if (ombBlock) lines.push(ombBlock)
     } catch { /* Tabelle noch nicht verfügbar — kein Fehler */ }
   }
+
+  // ── Section 8: GOÄ-Positionsdaten (goae_positionen) ───────────────────────
+  // Reichert die Fallakte mit konkreten GOÄ-Daten an: Faktortyp, Schwellenwert,
+  // Höchstsatz, §12-Begründungspflicht und typische PKV-Ablehnungsgründe.
+  // Aktiviert wenn GOÄ-Ziffern in der Rechnung oder Ablehnungstext erkennbar sind.
+  try {
+    // Sammle explizite Ziffern aus den strukturierten Rechnungsdaten
+    const explicitZiffern: string[] = []
+    for (const v of vorgaenge) {
+      const positionen = (v.goae_positionen as Array<{ ziffer: string }> | null) ?? []
+      for (const p of positionen) {
+        if (p.ziffer) explicitZiffern.push(String(p.ziffer))
+      }
+    }
+
+    // Rechnungstext + Ablehnungstext für Ziffer-Erkennung aus Freitext
+    const rechnungsText = vorgaenge.map(v => {
+      const a = v.claude_analyse as Record<string, unknown> | null
+      return [v.arzt_name ?? '', a?.zusammenfassung ?? ''].join(' ')
+    }).join(' ')
+    const ablehnungsText = ablehnungsgruende.join(' ')
+
+    const goaeBlock = await getGoaeContext(rechnungsText, ablehnungsText, explicitZiffern)
+    if (goaeBlock) lines.push(goaeBlock)
+  } catch { /* goae_positionen Tabelle noch nicht verfügbar — kein Fehler */ }
 
   lines.push('═══════════════════════════════════════════════════════')
   return lines.join('\n')
