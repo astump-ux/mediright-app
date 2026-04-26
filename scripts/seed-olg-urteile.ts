@@ -1,228 +1,185 @@
 /**
- * scripts/seed-olg-urteile.ts
+ * scripts/seed-olg-urteile.ts  v2
  *
- * Holt PKV-relevante OLG-Urteile von de.openlegaldata.io,
- * extrahiert Leitsatz + PKV-Relevanz via Claude API,
- * und upserted in Supabase pkv_urteile.
- *
- * Läuft als GitHub Action — nicht aus der lokalen Sandbox.
+ * Fixes v1: API 400 wegen falschem court-Parameter + zu langen Queries.
+ * Lösung: court-Filter entfernt, stattdessen nach OLG im court.name filtern.
+ * Kürzere, einzelne Suchbegriffe statt Phrasen.
  */
 
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL    = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const SUPABASE_KEY    = process.env.SUPABASE_SERVICE_ROLE_KEY!
-const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY!
-const DRY_RUN         = process.env.DRY_RUN === 'true'
-const MAX_CASES       = parseInt(process.env.MAX_CASES ?? '30')
+const SUPABASE_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY!
+const DRY_RUN       = process.env.DRY_RUN === 'true'
+const MAX_CASES     = parseInt(process.env.MAX_CASES ?? '30')
 
 const supabase  = createClient(SUPABASE_URL, SUPABASE_KEY)
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_KEY })
 
-// ─── OpenLegalData Typen ──────────────────────────────────────────────────────
-
-interface OldCase {
-  id:         number
-  slug:       string
-  file_number: string          // Aktenzeichen
-  date:       string           // ISO date
-  court:      { name: string; jurisdiction: string; level_of_appeal: string }
-  content:    string           // Volltext (HTML/Text)
-}
-
-interface OldResponse {
-  count:   number
-  results: OldCase[]
-}
-
-// ─── Suchanfragen ─────────────────────────────────────────────────────────────
-
+// Kurze, einzelne Stichwörter — OpenLegalData mag keine langen Phrasen
 const QUERIES = [
-  'private Krankenversicherung medizinisch notwendig',
-  'PKV GOÄ Faktor Erstattung Abrechnung',
-  'Krankenversicherung Ausschlussklausel Leistungsablehnung',
-  'PKV Analogziffer Erstattung Heilbehandlung',
-  'private Krankenversicherung Beweislast Versicherungsnehmer',
+  'Krankenversicherung medizinisch notwendig',
+  'PKV Erstattung Heilbehandlung',
+  'Krankenversicherung GOÄ Faktor',
+  'PKV Ausschlussklausel Leistung',
+  'Krankenversicherung Beweislast',
+  'PKV Analogziffer',
+  'private Krankenversicherung Ablehnung',
 ]
 
-// Gerichte: nur OLG + BGH IV ZR (neue Entscheidungen)
-const COURT_FILTER = 'OLG'
-
-// ─── Kategorie-Klassifizierung (lokal, vor Claude-Call) ──────────────────────
+function isOlg(courtName: string): boolean {
+  return /oberlandesgericht|^OLG /i.test(courtName)
+}
 
 function classifyKategorie(text: string): string {
   const t = text.toLowerCase()
-  if (/beitragsanpassung|prämienerhöhung|§\s*203\s*vvg/.test(t))   return 'beitragsanpassung'
-  if (/goä|goa|faktor|analogziffer|analog|abrechnungs/.test(t))      return 'goae'
-  if (/ausschluss|klausel|vorerkrankung|risikoausschluss/.test(t))   return 'ausschlussklausel'
-  if (/medizinisch|heilbehandlung|notwendig|therapie/.test(t))       return 'medizinische_notwendigkeit'
+  if (/beitragsanpassung|prämienerhöhung|§\s*203\s*vvg/.test(t)) return 'beitragsanpassung'
+  if (/goä|goa|faktor|analogziffer|analog|abrechnungs/.test(t))   return 'goae'
+  if (/ausschluss|klausel|vorerkrankung|risikoausschluss/.test(t)) return 'ausschlussklausel'
+  if (/medizinisch|heilbehandlung|notwendig|therapie/.test(t))     return 'medizinische_notwendigkeit'
   return 'allgemein'
 }
 
 function extractSchlagwoerter(text: string): string[] {
   const t = text.toLowerCase()
   const tags: string[] = []
-  if (/medizinisch notwendig/.test(t))   tags.push('medizinisch notwendig')
-  if (/beweislast/.test(t))              tags.push('Beweislast')
-  if (/goä|goa/.test(t))                tags.push('GOÄ')
-  if (/analogziffer|analog/.test(t))     tags.push('Analogziffer')
-  if (/ausschluss/.test(t))             tags.push('Leistungsausschluss')
-  if (/heilbehandlung/.test(t))          tags.push('Heilbehandlung')
-  if (/beitragsanpassung/.test(t))       tags.push('Beitragsanpassung')
-  if (/vorerkrankung/.test(t))           tags.push('Vorerkrankung')
-  if (/faktor/.test(t))                  tags.push('GOÄ-Faktor')
+  if (/medizinisch notwendig/.test(t))     tags.push('medizinisch notwendig')
+  if (/beweislast/.test(t))               tags.push('Beweislast')
+  if (/goä|goa/.test(t))                  tags.push('GOÄ')
+  if (/analogziffer|analog/.test(t))       tags.push('Analogziffer')
+  if (/ausschluss/.test(t))               tags.push('Leistungsausschluss')
+  if (/heilbehandlung/.test(t))            tags.push('Heilbehandlung')
+  if (/beitragsanpassung/.test(t))         tags.push('Beitragsanpassung')
+  if (/vorerkrankung/.test(t))             tags.push('Vorerkrankung')
+  if (/faktor/.test(t))                   tags.push('GOÄ-Faktor')
   if (/physiotherapie|heilmittel/.test(t)) tags.push('Physiotherapie')
-  if (/wahlleistung|chefarzt/.test(t))   tags.push('Wahlleistung')
+  if (/wahlleistung|chefarzt/.test(t))     tags.push('Wahlleistung')
   return tags.length ? tags : ['PKV', 'Krankenversicherung']
 }
-
-// ─── Claude: Leitsatz + PKV-Relevanz extrahieren ─────────────────────────────
 
 async function extractWithClaude(
   aktenzeichen: string,
   rawText: string,
   kategorie: string
 ): Promise<{ leitsatz: string; relevanz_pkv: string } | null> {
-  // Kürze Volltext auf 6000 Zeichen für den Prompt
-  const excerpt = rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 6000)
+  const excerpt = rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 5000)
 
-  const prompt = `Du analysierst ein deutsches Gerichtsurteil zu privaten Krankenversicherungen (PKV).
-Aktenzeichen: ${aktenzeichen}
-Kategorie: ${kategorie}
+  const msg = await anthropic.messages.create({
+    model:      'claude-haiku-4-5-20251001',
+    max_tokens: 600,
+    messages: [{
+      role: 'user',
+      content: `Du analysierst ein deutsches OLG-Urteil zur privaten Krankenversicherung (PKV).
+Aktenzeichen: ${aktenzeichen} | Kategorie: ${kategorie}
 
 Urteilstext (Auszug):
 ${excerpt}
 
-Extrahiere bitte:
-1. LEITSATZ: Ein präziser, 2-4 Sätze langer Leitsatz der Kernaussage. Neutral-juristisch formuliert.
-2. PKV_RELEVANZ: 2-3 Sätze, wie dieses Urteil konkret für PKV-Versicherte anwendbar ist, die gegen eine Ablehnung vorgehen. Praktisch und handlungsorientiert.
+Antworte NUR wenn es ein echtes PKV-Streitfall-Urteil ist (Erstattung, GOÄ, medizinische Notwendigkeit, Ausschlussklausel).
+Format:
+LEITSATZ: [2-4 Sätze, juristisch präzise Kernaussage]
+PKV_RELEVANZ: [2-3 Sätze, praktische Anwendung für Versicherte im Widerspruchsverfahren]
 
-Antworte im Format:
-LEITSATZ: [Text]
-PKV_RELEVANZ: [Text]
+Falls kein PKV-Streitfall: antworte nur IRRELEVANT`
+    }]
+  }).catch(() => null)
 
-Falls der Text kein PKV-relevantes Urteil enthält, antworte nur: IRRELEVANT`
+  if (!msg) return null
+  const out = (msg.content[0] as { text: string }).text.trim()
+  if (out.startsWith('IRRELEVANT')) return null
 
-  try {
-    const msg = await anthropic.messages.create({
-      model:      'claude-haiku-4-5-20251001',
-      max_tokens: 600,
-      messages:   [{ role: 'user', content: prompt }],
-    })
-    const out = (msg.content[0] as { text: string }).text.trim()
-    if (out.startsWith('IRRELEVANT')) return null
+  const lm = out.match(/LEITSATZ:\s*([\s\S]+?)(?=PKV_RELEVANZ:|$)/i)
+  const rm = out.match(/PKV_RELEVANZ:\s*([\s\S]+?)$/i)
+  if (!lm || !rm) return null
 
-    const leitsatzMatch   = out.match(/LEITSATZ:\s*([\s\S]+?)(?=PKV_RELEVANZ:|$)/i)
-    const relevanzMatch   = out.match(/PKV_RELEVANZ:\s*([\s\S]+?)$/i)
-
-    if (!leitsatzMatch || !relevanzMatch) return null
-
-    return {
-      leitsatz:    leitsatzMatch[1].trim(),
-      relevanz_pkv: relevanzMatch[1].trim(),
-    }
-  } catch (e) {
-    console.error(`  Claude-Fehler für ${aktenzeichen}:`, e)
-    return null
-  }
+  return { leitsatz: lm[1].trim(), relevanz_pkv: rm[1].trim() }
 }
 
-// ─── OpenLegalData: Urteile abrufen ──────────────────────────────────────────
-
-async function fetchCases(query: string, page = 1): Promise<OldCase[]> {
-  const params = new URLSearchParams({
-    q:       query,
-    court:   COURT_FILTER,
-    limit:   '10',
-    offset:  String((page - 1) * 10),
-  })
+async function fetchCases(query: string, offset = 0): Promise<{ results: any[]; count: number }> {
+  // Kein court-Filter — wird im Script gefiltert
+  const params = new URLSearchParams({ q: query, limit: '10', offset: String(offset) })
   const url = `https://de.openlegaldata.io/api/cases/?${params}`
   const res = await fetch(url, {
     headers: { Accept: 'application/json', 'User-Agent': 'mediright-seed/1.0' }
   })
   if (!res.ok) {
-    console.warn(`  API ${res.status} für Query: ${query}`)
-    return []
+    const body = await res.text().catch(() => '')
+    console.warn(`  API ${res.status} — ${body.slice(0, 200)}`)
+    return { results: [], count: 0 }
   }
-  const data: OldResponse = await res.json()
-  return data.results ?? []
+  const data = await res.json()
+  return { results: data.results ?? [], count: data.count ?? 0 }
 }
-
-// ─── Bereits vorhandene Aktenzeichen aus Supabase laden ──────────────────────
 
 async function getExistingAktenzeichen(): Promise<Set<string>> {
   const { data } = await supabase.from('pkv_urteile').select('aktenzeichen')
-  return new Set((data ?? []).map((r: { aktenzeichen: string }) => r.aktenzeichen))
+  return new Set((data ?? []).map((r: any) => r.aktenzeichen))
 }
 
-// ─── Hauptprogramm ───────────────────────────────────────────────────────────
-
 async function main() {
-  console.log('=== OLG-Urteile Seed-Script ===')
-  console.log(`DRY_RUN=${DRY_RUN}, MAX_CASES=${MAX_CASES}`)
+  console.log(`=== OLG-Urteile Seed v2 === DRY_RUN=${DRY_RUN} MAX=${MAX_CASES}`)
 
-  const existing  = await getExistingAktenzeichen()
+  const existing = await getExistingAktenzeichen()
   console.log(`Bereits in DB: ${existing.size} Urteile`)
 
-  const seen      = new Set<string>()
+  const seen     = new Set<string>()
   const toInsert: object[] = []
 
   for (const query of QUERIES) {
     if (toInsert.length >= MAX_CASES) break
     console.log(`\nQuery: "${query}"`)
 
-    const cases = await fetchCases(query)
-    console.log(`  ${cases.length} Treffer`)
+    const { results, count } = await fetchCases(query)
+    console.log(`  ${results.length} Treffer (von ${count} gesamt)`)
 
-    for (const c of cases) {
+    for (const c of results) {
       if (toInsert.length >= MAX_CASES) break
 
-      const az = `${c.court?.name ?? 'OLG'} ${c.file_number}`.trim()
+      const courtName: string = c.court?.name ?? ''
+      if (!isOlg(courtName)) {
+        // Kein OLG — überspringen (z.B. LG, AG, BGH)
+        continue
+      }
+
+      const az = `${courtName} ${c.file_number ?? ''}`.trim()
       if (seen.has(az) || existing.has(az)) continue
       seen.add(az)
 
-      // Nur OLG-Ebene (kein LG, AG, VG)
-      if (!c.court?.name?.startsWith('OLG') && !c.court?.name?.includes('Oberlandesgericht')) continue
+      console.log(`  → ${az} (${c.date}) [${courtName}]`)
 
-      console.log(`  → ${az} (${c.date})`)
+      const fullText = c.content ?? c.description ?? ''
+      const kategorie = classifyKategorie(fullText)
+      const schlagwoerter = extractSchlagwoerter(fullText)
 
-      const kategorie = classifyKategorie(c.content ?? '')
-      const schlagwoerter = extractSchlagwoerter(c.content ?? '')
-
-      // Claude-Extraktion
-      const extracted = await extractWithClaude(az, c.content ?? '', kategorie)
+      const extracted = await extractWithClaude(az, fullText, kategorie)
       if (!extracted) {
-        console.log(`    ↳ Irrelevant (Claude-Filter)`)
+        console.log(`    ↳ Irrelevant`)
         continue
       }
 
       toInsert.push({
-        aktenzeichen: az,
-        datum:        c.date,
-        gericht:      c.court.name,
-        senat:        '',
+        aktenzeichen:  az,
+        datum:         c.date,
+        gericht:       courtName,
+        senat:         '',
         kategorie,
         schlagwoerter,
-        leitsatz:     extracted.leitsatz,
-        relevanz_pkv: extracted.relevanz_pkv,
-        quelle_url:   `https://de.openlegaldata.io/case/${c.slug}/`,
-        verified:     false,  // Manuell zu prüfen
+        leitsatz:      extracted.leitsatz,
+        relevanz_pkv:  extracted.relevanz_pkv,
+        quelle_url:    `https://de.openlegaldata.io/case/${c.slug}/`,
+        verified:      false,
       })
-      console.log(`    ✓ Extrahiert (${kategorie})`)
+      console.log(`    ✓ (${kategorie})`)
     }
   }
 
   console.log(`\n─── Ergebnis: ${toInsert.length} neue Urteile ───`)
 
-  if (DRY_RUN) {
-    console.log('DRY RUN — kein Supabase-Upsert')
-    console.log(JSON.stringify(toInsert.slice(0, 2), null, 2))
-    return
-  }
-
-  if (!toInsert.length) {
-    console.log('Keine neuen Urteile — fertig.')
+  if (DRY_RUN || !toInsert.length) {
+    if (DRY_RUN) console.log('DRY RUN — kein Write')
+    else console.log('Keine neuen Urteile.')
     return
   }
 
@@ -230,13 +187,9 @@ async function main() {
     .from('pkv_urteile')
     .upsert(toInsert, { onConflict: 'aktenzeichen', ignoreDuplicates: true })
 
-  if (error) {
-    console.error('Supabase-Fehler:', error)
-    process.exit(1)
-  }
+  if (error) { console.error('Supabase-Fehler:', error); process.exit(1) }
 
-  console.log(`✅ ${toInsert.length} Urteile in Supabase gespeichert (verified=false)`)
-  console.log('Bitte manuell in Supabase prüfen und verified=true setzen.')
+  console.log(`✅ ${toInsert.length} neue Urteile gespeichert (verified=false)`)
 }
 
 main().catch(e => { console.error(e); process.exit(1) })
