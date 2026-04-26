@@ -130,7 +130,7 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 | `tarif_benchmarks` | AVB-Analyse von 5 PKV-Versicherern (Debeka, DKV, Allianz, Signal Iduna, Barmenia) |
 | `tarif_profile` | Per-User AVB-Analyse (JSON) nach Versicherungsschein-Upload |
 | `avb_dokumente` | Hochgeladene AVB-PDFs (Supabase Storage) |
-| `pkv_urteile` | Kuratierte BGH/OLG-Urteile (Migrations 031–032) |
+| `pkv_urteile` | BGH-Urteile (Migrations 031–032) + 10 OLG-Urteile (Migration 038) |
 | `pkv_ombudsmann_statistik` | Ombudsmann-Statistik 2025: Einigungsquote 33,1%, Kategorien |
 | `goae_positionen` | ~80 kuratierte GOÄ-Streitfall-Ziffern (034) + 908 Vollseeding aus Bundesärztekammer-PDF (037) |
 | `pkv_ablehnungsmuster` | Anonymisierte Cross-User-Muster, wächst via DB-Trigger automatisch |
@@ -227,11 +227,12 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 | 2b | GOÄ Vollständig (908 Positionen) | `goae_positionen` | ✅ Migration 037 — Bundesärztekammer-PDF geparsed | 8 |
 | 3 | Anonymisierte Ablehnungsmuster | `pkv_ablehnungsmuster` | ✅ Trigger aktiv, 8 Seed-Muster | 9 |
 | 3 | Per-User Ablehnungshistorie | `kassenabrechnungen` | ✅ Query in rejection-pattern-context | 9 |
-| 4 | BGH/OLG-Urteile | `pkv_urteile` | ✅ ~15 Urteile, Migrations 031–032 | 6 |
+| 4a | BGH-Urteile | `pkv_urteile` | ✅ ~12 Urteile, Migrations 031–032 | 6 |
+| 4b | OLG-Urteile | `pkv_urteile` | ✅ 10 Urteile, Migration 038 — 4 Kategorien, 7 Gerichte | 6 |
 | — | AVB-Vertragsanalyse (User) | `tarif_profile` | ✅ Upload + Claude-Analyse im Onboarding | 4 |
 | — | Tarif-Benchmarks (5 Versicherer) | `tarif_benchmarks` | ✅ Debeka/DKV/Allianz/Signal Iduna/Barmenia | 5 |
 
-**Nächste offene Quelle:** OLG-Urteile (Source #4 ursprünglich geplant) — Recherche noch ausstehend.
+**Alle geplanten Trainingsquellen abgeschlossen.** Erweiterung möglich z. B. um Amtsgerichts-Urteile oder neue BGH-Entscheidungen.
 
 ---
 
@@ -300,7 +301,7 @@ Modell pro Analyse-Typ in `app_settings` editierbar (Admin-Panel).
 
 - ~~**GOÄ-Vollseeding:**~~ ✅ Migration 037 erledigt — 908 Positionen via pdfplumber-Parser aus Bundesärztekammer-PDF, Faktortyp-Ableitung aus Ziffernbereichen (Labor 3500-4999, Technisch 5000-5999)
 - ~~**Widerspruch-Outcome-Tracking:**~~ ✅ Erledigt in Migration 036 — DB-Trigger feuert automatisch bei Status → 'akzeptiert'/'abgelehnt'
-- **OLG-Urteile (Source #4):** Noch nicht recherchiert/geseedet
+- ~~**OLG-Urteile (Source #4):**~~ ✅ Migration 038 erledigt — 10 Urteile aus OLG Braunschweig, Karlsruhe, Nürnberg, Naumburg, Düsseldorf, Koblenz, Hamm, Saarbrücken
 - **UpsellBand Task #22:** Credit-aware 5-state Redesign noch in_progress
 
 ---
@@ -336,3 +337,4 @@ INTERNAL_API_SECRET                # für interne Route-zu-Route Calls
 | 2026-04-26 | Migration 035: pkv_ablehnungsmuster + Trigger + rejection-pattern-context.ts (Training Source #3) |
 | 2026-04-26 | Migration 036: trg_widerspruch_outcome — Outcome-Tracking vollautomatisch via DB-Trigger |
 | 2026-04-26 | Migration 037: GOÄ-Vollseeding — 908 Positionen aus Bundesärztekammer-PDF (Training Source #2b ✅) |
+| 2026-04-26 | Migration 038: OLG-Urteile — 10 Entscheidungen aus 7 Gerichten (Training Source #4b ✅) — alle Trainingsquellen abgeschlossen |
