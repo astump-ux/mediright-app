@@ -1,15 +1,8 @@
 /**
- * scripts/seed-openjur.ts
+ * scripts/seed-openjur.ts  v2
  *
- * Scrapt openJur.de nach PKV-relevanten OLG-Urteilen und speichert
- * verifizierte Kerninformationen via Claude Haiku in Supabase.
- *
- * Aufruf:
- *   MAX_CASES=20 DRY_RUN=false npx tsx scripts/seed-openjur.ts
- *   DEBUG_HTML=true npx tsx scripts/seed-openjur.ts   ← erste Run zum Prüfen der Struktur
- *
- * Wichtig: openJur ToS erlauben nicht-kommerzielles Crawling bei vernünftigem
- * Tempo. Wir nutzen 1-2s Delays zwischen Requests.
+ * Scrapt openJur.de nach PKV-relevanten OLG-Urteilen.
+ * DEBUG_HTML=true zeigt HTML-Rohstruktur für Diagnose.
  */
 
 import Anthropic from '@anthropic-ai/sdk'
@@ -22,22 +15,19 @@ const DRY_RUN       = process.env.DRY_RUN === 'true'
 const MAX_CASES     = parseInt(process.env.MAX_CASES ?? '20')
 const DEBUG_HTML    = process.env.DEBUG_HTML === 'true'
 
-const BASE = 'https://openjur.de'
-const DELAY = 1200  // ms zwischen Requests — höflich gegenüber openJur
+const BASE  = 'https://openjur.de'
+const DELAY = 1500
 
 const supabase  = createClient(SUPABASE_URL, SUPABASE_KEY)
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_KEY })
 
-// ─── PKV-Suchbegriffe: gezielte Queries für häufigste Streitthemen ────────────
 const SEARCH_QUERIES = [
   'private Krankenversicherung Erstattung',
-  'private Krankenversicherung medizinisch notwendig',
+  'Krankenversicherung medizinisch notwendig',
   'Krankenversicherung GOÄ Faktor',
-  'Krankenversicherung Beitragsanpassung § 203',
-  'Krankenversicherung Leistungsausschluss Vorerkrankung',
+  'Krankenversicherung Beitragsanpassung',
+  'Krankenversicherung Leistungsausschluss',
 ]
-
-// ─── HTTP Helper ──────────────────────────────────────────────────────────────
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
@@ -47,310 +37,229 @@ async function fetchHtml(url: string): Promise<string | null> {
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'mediright-research-bot/1.0 (non-commercial; contact: stump23@gmail.com)',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'de-DE,de;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
       }
     })
-    if (!res.ok) {
-      console.warn(`  HTTP ${res.status}: ${url}`)
-      return null
-    }
+    if (!res.ok) { console.warn(`  HTTP ${res.status}: ${url}`); return null }
     return res.text()
-  } catch (e) {
-    console.warn(`  Fetch-Fehler: ${url}:`, e)
+  } catch (e: any) {
+    console.warn(`  Fetch-Fehler ${url}: ${e.message}`)
     return null
   }
 }
 
-// ─── HTML-Parsing: Suche ─────────────────────────────────────────────────────
-
-interface SearchHit {
-  url:    string
-  title:  string
-  gericht: string
-  datum:  string
-  az:     string
-}
+interface SearchHit { id: string; url: string; gericht: string; datum: string; az: string; title: string }
 
 function parseSearchResults(html: string, query: string): SearchHit[] {
+  const allLinks = [...html.matchAll(/href="\/u\/(\d+)\.html"/g)]
+  console.log(`  Gesamt /u/-Links auf Seite: ${allLinks.length}`)
+
   if (DEBUG_HTML) {
-    console.log(`\n=== DEBUG HTML (erste 3000 Zeichen, Query: "${query}") ===`)
-    console.log(html.slice(0, 3000))
-    console.log('=== END DEBUG ===\n')
-  }
-
-  const hits: SearchHit[] = []
-
-  // Strategie 1: Links mit /u/NNNNNN.html Muster — das ist das openJur-Urteilsformat
-  const linkPattern = /href="(\/u\/(\d+)\.html)"/g
-  const seenIds = new Set<string>()
-  let m: RegExpExecArray | null
-
-  while ((m = linkPattern.exec(html)) !== null) {
-    const path = m[1]
-    const id = m[2]
-    if (seenIds.has(id)) continue
-    seenIds.add(id)
-
-    // Kontext um den Link (500 Zeichen) für Metadaten
-    const start = Math.max(0, m.index - 100)
-    const end   = Math.min(html.length, m.index + 500)
-    const ctx   = html.slice(start, end)
-
-    // Gericht aus Kontext extrahieren
-    const gerichtM = ctx.match(/Oberlandesgericht\s+\w+|OLG\s+\w+/i)
-    if (!gerichtM) continue  // Kein OLG → überspringen
-
-    // Datum (TT.MM.JJJJ)
-    const datumM = ctx.match(/(\d{2}\.\d{2}\.\d{4})/)
-    // Aktenzeichen (typisch: Zahl U Zahl/Zahl oder ähnlich)
-    const azM = ctx.match(/(\d+\s+U\s+\d+\/\d{2,4}|\d+\s+W\s+\d+\/\d{2,4})/i)
-    // Titel: Text in <a>
-    const titleM = ctx.match(/<a[^>]*href="\/u\/\d+\.html"[^>]*>([^<]+)<\/a>/)
-
-    hits.push({
-      url:    `${BASE}${path}`,
-      title:  titleM?.[1]?.trim() ?? `Urteil ${id}`,
-      gericht: gerichtM[0],
-      datum:  datumM ? datumM[1] : '',
-      az:     azM ? azM[1].replace(/\s+/g, ' ').trim() : '',
-    })
-  }
-
-  return hits
-}
-
-// ─── HTML-Parsing: Urteilsseite ───────────────────────────────────────────────
-
-interface CaseData {
-  gericht:  string
-  datum:    string
-  az:       string
-  volltext: string
-}
-
-function parseCasePage(html: string, fallback: SearchHit): CaseData {
-  if (DEBUG_HTML) {
-    console.log('\n=== DEBUG CASE HTML (erste 4000 Zeichen) ===')
-    console.log(html.slice(0, 4000))
-    console.log('=== END DEBUG ===\n')
-  }
-
-  // Volltext: openJur nutzt typischerweise <div id="urteil"> oder <div class="urteilstext">
-  // Mehrere Patterns probieren
-  let volltext = ''
-
-  const patterns = [
-    /<div[^>]+id="urteil"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i,
-    /<div[^>]+class="[^"]*urteil[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?:<\/div>|<div)/i,
-    /<div[^>]+class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?:<\/div>|<div)/i,
-    /<article[^>]*>([\s\S]*?)<\/article>/i,
-    /<main[^>]*>([\s\S]*?)<\/main>/i,
-  ]
-
-  for (const p of patterns) {
-    const m = html.match(p)
-    if (m && m[1].length > 500) {
-      volltext = m[1]
-      break
+    console.log('\n=== DEBUG HTML (erste 5000 Zeichen) ===')
+    console.log(html.slice(0, 5000))
+    console.log('=== END ===\n')
+    if (allLinks.length > 0) {
+      console.log('=== DEBUG: Erste 2 Link-Kontexte (bereinigt) ===')
+      allLinks.slice(0, 2).forEach(m => {
+        const ctx = html.slice(Math.max(0, m.index! - 400), Math.min(html.length, m.index! + 800))
+        console.log(`\n--- /u/${m[1]}.html ---`)
+        console.log(ctx.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 600))
+      })
+      console.log('=== END ===\n')
     }
   }
 
-  // Fallback: Alles zwischen <body> nehmen
-  if (!volltext) {
-    const bodyM = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
-    volltext = bodyM?.[1] ?? html
-  }
+  if (allLinks.length === 0) return []
 
-  // HTML-Tags entfernen, Whitespace normalisieren
-  const text = volltext
+  const hits: SearchHit[] = []
+  const seenIds = new Set<string>()
+
+  for (const m of allLinks) {
+    const id = m[1]
+    if (seenIds.has(id)) continue
+    seenIds.add(id)
+
+    const start   = Math.max(0, m.index! - 400)
+    const end     = Math.min(html.length, m.index! + 800)
+    const ctxRaw  = html.slice(start, end)
+    const ctxText = ctxRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+
+    // OLG-Erkennung — breite Patterns
+    const olg = ctxText.match(
+      /((?:Ober|Hanseatisches|Thüringer|Saarländisches|Brandenburgisches|Pfälzisches|Schleswig-Holsteinisches)\s+)?(?:Oberlandesgericht)\s+[\wäöüÄÖÜß\-]+/i
+    ) || ctxText.match(/\bOLG\s+[\wäöüÄÖÜß\-]+/i)
+
+    if (!olg) continue
+
+    const datumM = ctxText.match(/(\d{2}\.\d{2}\.\d{4})/)
+    const azM    = ctxText.match(/([IVX\d][\w\-]*\s*[UW]\s+\d+\/\d{2,4})/i)
+    const titleM = ctxRaw.match(/<a[^>]*href="\/u\/\d+\.html"[^>]*>([^<]{5,150})<\/a>/i)
+
+    hits.push({
+      id, url: `${BASE}/u/${id}.html`,
+      gericht: olg[0].trim(),
+      datum:   datumM?.[1] ?? '',
+      az:      azM?.[1]?.replace(/\s+/g, ' ').trim() ?? '',
+      title:   titleM?.[1]?.trim() ?? `Urteil ${id}`,
+    })
+  }
+  return hits
+}
+
+interface CaseData { gericht: string; datum: string; az: string; volltext: string }
+
+function parseCasePage(html: string, fallback: SearchHit): CaseData {
+  let raw = ''
+  for (const p of [
+    /<div[^>]+id=["']urteil["'][^>]*>([\s\S]+?)<\/div>\s*<\/div>/i,
+    /<div[^>]+class=["'][^"']*urteil[^"']*["'][^>]*>([\s\S]+?)<\/div>\s*(?:<\/div>|<footer)/i,
+    /<article[^>]*>([\s\S]+?)<\/article>/i,
+    /<main[^>]*>([\s\S]+?)<\/main>/i,
+  ]) {
+    const m = html.match(p)
+    if (m && m[1].length > raw.length) raw = m[1]
+  }
+  if (!raw) raw = html.match(/<body[^>]*>([\s\S]+?)<\/body>/i)?.[1] ?? html
+
+  const volltext = raw
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 
-  // Metadaten aus der Seite extrahieren
-  const gerichtM = html.match(/(?:Gericht|Court)[:\s]*([^<\n]{5,60})(?:<|$)/i)
-                 || html.match(/(Oberlandesgericht\s+\w+)/i)
-  const datumM   = html.match(/(?:Datum|Date)[:\s]*(\d{2}\.\d{2}\.\d{4})/i)
-                 || html.match(/(\d{2}\.\d{2}\.\d{4})/)
-  const azM      = html.match(/(?:Aktenzeichen|Az\.?)[:\s]*([A-Z0-9 /\-]+(?:\/\d{2,4}))/i)
-                 || html.match(/(\d+\s+[UW]\s+\d+\/\d{2,4})/i)
+  const plain  = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+  const gM = plain.match(/((?:Ober|Hanseatisches\s+|Thüringer\s+|Saarländisches\s+|Brandenburgisches\s+|Pfälzisches\s+|Schleswig-Holsteinisches\s+)?Oberlandesgericht\s+[\wäöüÄÖÜß\-]+)/i)
+  const dM = plain.match(/(\d{2}\.\d{2}\.\d{4})/)
+  const aM = plain.match(/([IVX\d][\w\-]*\s*[UW]\s+\d+\/\d{2,4})/i)
 
   return {
-    gericht:  gerichtM?.[1]?.trim() ?? fallback.gericht,
-    datum:    datumM?.[1]?.trim()   ?? fallback.datum,
-    az:       azM?.[1]?.trim()      ?? fallback.az,
-    volltext: text,
+    gericht:  gM?.[1]?.trim() ?? fallback.gericht,
+    datum:    dM?.[1]?.trim() ?? fallback.datum,
+    az:       aM?.[1]?.replace(/\s+/g, ' ').trim() ?? fallback.az,
+    volltext,
   }
 }
 
-// ─── Klassifizierung ─────────────────────────────────────────────────────────
-
-function isPkvRelevant(text: string): boolean {
-  if (!text || text.length < 200) return false
-  const t = text.toLowerCase()
-  return /krankenversicherung|pkv|goä|goa|heilbehandlung|krankheitskosten|arzthonorar|versicherungsleistung|versicherungsnehmer/.test(t)
+function isPkvRelevant(t: string) {
+  return t.length > 200 && /krankenversicherung|pkv|goä|goa|heilbehandlung|krankheitskosten|arzthonorar|versicherungsleistung|versicherungsnehmer/.test(t.toLowerCase())
 }
 
-function classifyKategorie(text: string): string {
-  const t = text.toLowerCase()
-  if (/beitragsanpassung|prämienerhöhung|§\s*203\s*vvg/.test(t)) return 'beitragsanpassung'
-  if (/goä|goa|faktor|analogziffer|analog/.test(t))               return 'goae'
-  if (/ausschluss|klausel|vorerkrankung|risikoausschluss/.test(t)) return 'ausschlussklausel'
-  if (/medizinisch|heilbehandlung|notwendig|therapie/.test(t))     return 'medizinische_notwendigkeit'
+function classifyKategorie(t: string): string {
+  const l = t.toLowerCase()
+  if (/beitragsanpassung|prämienerhöhung|§\s*203/.test(l)) return 'beitragsanpassung'
+  if (/goä|goa|faktor|analogziffer/.test(l))               return 'goae'
+  if (/ausschluss|klausel|vorerkrankung/.test(l))           return 'ausschlussklausel'
+  if (/medizinisch|heilbehandlung|notwendig|therapie/.test(l)) return 'medizinische_notwendigkeit'
   return 'allgemein'
 }
 
-function extractSchlagwoerter(text: string): string[] {
-  const t = text.toLowerCase()
+function extractSchlagwoerter(t: string): string[] {
+  const l = t.toLowerCase()
   const tags: string[] = []
-  if (/medizinisch notwendig/.test(t))      tags.push('medizinisch notwendig')
-  if (/beweislast/.test(t))                tags.push('Beweislast')
-  if (/goä|goa/.test(t))                   tags.push('GOÄ')
-  if (/analogziffer/.test(t))              tags.push('Analogziffer')
-  if (/leistungsausschluss|ausschluss/.test(t)) tags.push('Leistungsausschluss')
-  if (/heilbehandlung/.test(t))            tags.push('Heilbehandlung')
-  if (/beitragsanpassung/.test(t))         tags.push('Beitragsanpassung')
-  if (/vorerkrankung/.test(t))             tags.push('Vorerkrankung')
-  if (/faktor/.test(t))                    tags.push('GOÄ-Faktor')
-  if (/wahlleistung|chefarzt/.test(t))     tags.push('Wahlleistung')
+  if (/medizinisch notwendig/.test(l)) tags.push('medizinisch notwendig')
+  if (/beweislast/.test(l))           tags.push('Beweislast')
+  if (/goä|goa/.test(l))              tags.push('GOÄ')
+  if (/analogziffer/.test(l))         tags.push('Analogziffer')
+  if (/ausschluss/.test(l))           tags.push('Leistungsausschluss')
+  if (/heilbehandlung/.test(l))       tags.push('Heilbehandlung')
+  if (/beitragsanpassung/.test(l))    tags.push('Beitragsanpassung')
+  if (/vorerkrankung/.test(l))        tags.push('Vorerkrankung')
+  if (/faktor/.test(l))               tags.push('GOÄ-Faktor')
+  if (/wahlleistung|chefarzt/.test(l)) tags.push('Wahlleistung')
   return tags.length ? tags : ['PKV', 'Krankenversicherung']
 }
 
-function formatDatum(datumStr: string): string {
-  // TT.MM.JJJJ → JJJJ-MM-TT
-  const m = datumStr.match(/(\d{2})\.(\d{2})\.(\d{4})/)
-  if (!m) return datumStr
-  return `${m[3]}-${m[2]}-${m[1]}`
+function formatDatum(s: string): string {
+  const m = s.match(/(\d{2})\.(\d{2})\.(\d{4})/)
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : (s || new Date().toISOString().slice(0, 10))
 }
 
-// ─── Claude: Leitsatz + Relevanz extrahieren ─────────────────────────────────
-
-async function extractWithClaude(
-  az: string, text: string, kategorie: string
-): Promise<{ leitsatz: string; relevanz_pkv: string } | null> {
-  const excerpt = text.slice(0, 6000)
+async function extractWithClaude(az: string, text: string, kat: string) {
   const msg = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 700,
-    messages: [{
-      role: 'user',
-      content: `Analysiere dieses OLG-Urteil zur privaten Krankenversicherung.
-Az: ${az} | Kategorie: ${kategorie}
+    messages: [{ role: 'user', content: `Analysiere dieses OLG-Urteil zur privaten Krankenversicherung.
+Az: ${az} | Kategorie: ${kat}
 
 Text:
-${excerpt}
+${text.slice(0, 6000)}
 
-Antworte NUR wenn echter PKV-Streitfall (Erstattung, GOÄ, medizinische Notwendigkeit, Ausschlussklausel, Beitragsanpassung).
-
+Antworte NUR wenn echter PKV-Streitfall.
 Format:
-LEITSATZ: [2-4 Sätze — juristische Kernaussage des Urteils]
-PKV_RELEVANZ: [2-3 Sätze — praktische Bedeutung für PKV-Widerspruchsverfahren]
+LEITSATZ: [2-4 Sätze Kernaussage]
+PKV_RELEVANZ: [2-3 Sätze Bedeutung für Widerspruch]
 
-Sonst: IRRELEVANT`
-    }]
-  }).catch(e => { console.warn('  Claude-Fehler:', e.message); return null })
+Sonst: IRRELEVANT` }]
+  }).catch(e => { console.warn('  Claude:', e.message); return null })
 
   if (!msg) return null
   const out = (msg.content[0] as { text: string }).text.trim()
   if (out.startsWith('IRRELEVANT')) return null
-
   const lm = out.match(/LEITSATZ:\s*([\s\S]+?)(?=PKV_RELEVANZ:|$)/i)
   const rm = out.match(/PKV_RELEVANZ:\s*([\s\S]+?)$/i)
-  if (!lm || !rm) return null
-  return { leitsatz: lm[1].trim(), relevanz_pkv: rm[1].trim() }
+  return (lm && rm) ? { leitsatz: lm[1].trim(), relevanz_pkv: rm[1].trim() } : null
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────────
-
 async function main() {
-  console.log(`=== openJur OLG-Seed === DRY_RUN=${DRY_RUN} MAX=${MAX_CASES} DEBUG=${DEBUG_HTML}`)
+  console.log(`=== openJur OLG-Seed v2 === DRY_RUN=${DRY_RUN} MAX=${MAX_CASES} DEBUG=${DEBUG_HTML}`)
 
-  const { data: existingData } = await supabase.from('pkv_urteile').select('aktenzeichen, quelle_url')
-  const existingAz   = new Set((existingData ?? []).map((r: any) => r.aktenzeichen))
-  const existingUrls = new Set((existingData ?? []).map((r: any) => r.quelle_url))
+  const { data: ex } = await supabase.from('pkv_urteile').select('aktenzeichen, quelle_url')
+  const existingAz   = new Set((ex ?? []).map((r: any) => r.aktenzeichen))
+  const existingUrls = new Set((ex ?? []).map((r: any) => r.quelle_url))
   console.log(`Bereits in DB: ${existingAz.size} Urteile`)
 
-  const seen     = new Set<string>()
+  const seen: Set<string> = new Set()
   const toInsert: object[] = []
 
   for (const query of SEARCH_QUERIES) {
     if (toInsert.length >= MAX_CASES) break
-
-    const searchUrl = `${BASE}/suche/?q=${encodeURIComponent(query)}&sort=relevanz`
     console.log(`\nSuche: "${query}"`)
-    console.log(`  → ${searchUrl}`)
-
-    const html = await fetchHtml(searchUrl)
-    if (!html) { console.warn('  Keine Antwort'); continue }
+    const html = await fetchHtml(`${BASE}/suche/?q=${encodeURIComponent(query)}&sort=relevanz`)
+    if (!html) continue
 
     const hits = parseSearchResults(html, query)
-    console.log(`  ${hits.length} OLG-Treffer gefunden`)
-
-    // Debug: Erste 3 Treffer anzeigen
-    if (hits.length > 0) {
-      console.log('  Beispiel-Treffer:')
-      hits.slice(0, 3).forEach(h => console.log(`    - ${h.gericht} | ${h.datum} | ${h.az} | ${h.url}`))
-    }
+    console.log(`  ${hits.length} OLG-Treffer nach Filter`)
+    hits.slice(0, 3).forEach(h => console.log(`    • ${h.gericht} | ${h.az} | ${h.datum}`))
 
     for (const hit of hits) {
       if (toInsert.length >= MAX_CASES) break
-      if (existingUrls.has(hit.url)) { console.log(`  (bereits in DB: ${hit.url})`); continue }
+      if (existingUrls.has(hit.url)) continue
 
-      // Urteilsseite laden
-      const caseHtml = await fetchHtml(hit.url)
-      if (!caseHtml) continue
-
-      const caseData = parseCasePage(caseHtml, hit)
-      const az = caseData.az || `${caseData.gericht} (${caseData.datum})`
-
+      const ch = await fetchHtml(hit.url)
+      if (!ch) continue
+      const d  = parseCasePage(ch, hit)
+      const az = d.az || hit.az || `${d.gericht} (${d.datum})`
       if (seen.has(az) || existingAz.has(az)) continue
       seen.add(az)
 
-      const textLen = caseData.volltext.length
-      console.log(`  → ${az} — ${textLen} Zeichen`)
+      const pkv = isPkvRelevant(d.volltext)
+      console.log(`  → ${az} — ${d.volltext.length} Zeichen — PKV: ${pkv}`)
+      if (!pkv) continue
 
-      if (!isPkvRelevant(caseData.volltext)) {
-        console.log(`    ↳ PKV-Filter: nicht relevant`)
-        continue
-      }
-
-      const kategorie = classifyKategorie(caseData.volltext)
-      const extracted = await extractWithClaude(az, caseData.volltext, kategorie)
-      if (!extracted) { console.log(`    ↳ Claude: IRRELEVANT`); continue }
+      const kat = classifyKategorie(d.volltext)
+      const ext = await extractWithClaude(az, d.volltext, kat)
+      if (!ext) { console.log('    ↳ IRRELEVANT'); continue }
 
       toInsert.push({
-        aktenzeichen:  az,
-        datum:         formatDatum(caseData.datum) || new Date().toISOString().slice(0, 10),
-        gericht:       caseData.gericht,
-        senat:         '',
-        kategorie,
-        schlagwoerter: extractSchlagwoerter(caseData.volltext),
-        leitsatz:      extracted.leitsatz,
-        relevanz_pkv:  extracted.relevanz_pkv,
-        quelle_url:    hit.url,
-        verified:      false,
+        aktenzeichen: az, datum: formatDatum(d.datum),
+        gericht: d.gericht, senat: '', kategorie: kat,
+        schlagwoerter: extractSchlagwoerter(d.volltext),
+        leitsatz: ext.leitsatz, relevanz_pkv: ext.relevanz_pkv,
+        quelle_url: hit.url, verified: false,
       })
-      console.log(`    ✓ ${kategorie} — gespeichert`)
+      console.log(`    ✓ ${kat}`)
     }
   }
 
   console.log(`\n─── Ergebnis: ${toInsert.length} neue Urteile ───`)
+  if (DRY_RUN || !toInsert.length) { console.log(DRY_RUN ? 'DRY RUN' : 'Nichts Neues.'); return }
 
-  if (DRY_RUN || !toInsert.length) {
-    if (DRY_RUN)       console.log('DRY RUN — kein Supabase-Write')
-    else               console.log('Keine neuen PKV-Urteile gefunden.')
-    return
-  }
-
-  const { error } = await supabase
-    .from('pkv_urteile')
+  const { error } = await supabase.from('pkv_urteile')
     .upsert(toInsert, { onConflict: 'aktenzeichen', ignoreDuplicates: true })
-
-  if (error) { console.error('Supabase-Fehler:', error); process.exit(1) }
-  console.log(`✅ ${toInsert.length} Urteile in DB (verified=false — bitte prüfen)`)
+  if (error) { console.error('Supabase:', error); process.exit(1) }
+  console.log(`✅ ${toInsert.length} Urteile gespeichert (verified=false)`)
 }
 
 main().catch(e => { console.error(e); process.exit(1) })
