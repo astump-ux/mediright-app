@@ -132,7 +132,7 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 | `avb_dokumente` | Hochgeladene AVB-PDFs (Supabase Storage) |
 | `pkv_urteile` | Kuratierte BGH/OLG-Urteile (Migrations 031–032) |
 | `pkv_ombudsmann_statistik` | Ombudsmann-Statistik 2025: Einigungsquote 33,1%, Kategorien |
-| `goae_positionen` | ~80 kuratierte GOÄ-Streitfall-Ziffern + vollständig via macip.de-Seed |
+| `goae_positionen` | ~80 kuratierte GOÄ-Streitfall-Ziffern; Vollseeding via GOÄ-PDF-Upload geplant |
 | `pkv_ablehnungsmuster` | Anonymisierte Cross-User-Muster, wächst via DB-Trigger automatisch |
 | `chat_messages` | In-App-Chat-History |
 
@@ -224,7 +224,7 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 |---|---|---|---|---|
 | 1 | PKV-Ombudsmann Jahresbericht 2025 | `pkv_ombudsmann_statistik` | ✅ Fertig, 6 Kategorien | 7 |
 | 2a | GOÄ Streitfall-Ziffern (kuratiert) | `goae_positionen` | ✅ ~80 Ziffern | 8 |
-| 2b | GOÄ Vollständig via macip.de API | `goae_positionen` | 🔲 GitHub Action bereit, API-Key fehlt | 8 |
+| 2b | GOÄ Vollständig (alle ~2500 Ziffern) | `goae_positionen` | 🔲 Offen — GOÄ-PDF hochladen + Parser | 8 |
 | 3 | Anonymisierte Ablehnungsmuster | `pkv_ablehnungsmuster` | ✅ Trigger aktiv, 8 Seed-Muster | 9 |
 | 3 | Per-User Ablehnungshistorie | `kassenabrechnungen` | ✅ Query in rejection-pattern-context | 9 |
 | 4 | BGH/OLG-Urteile | `pkv_urteile` | ✅ ~15 Urteile, Migrations 031–032 | 6 |
@@ -292,19 +292,16 @@ Modell pro Analyse-Typ in `app_settings` editierbar (Admin-Panel).
 |---|---|---|
 | `deploy.yml` | Push auf main | Vercel-Deploy (auto) |
 | `seed-benchmarks.yml` | manuell | Tarif-Benchmarks neu seeden |
-| `seed-goae-positionen.yml` | manuell | GOÄ-Vollseeding via macip.de API |
-
-**Benötigte Secrets für GOÄ-Seed:** `MACIP_API_KEY` (noch nicht eingetragen), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+| `seed-goae-positionen.yml` | manuell | GOÄ-Vollseeding (aktuell ohne funktionierende API-Quelle — Workflow vorhanden, Quelle offen) |
 
 ---
 
 ## 13. Bekannte Lücken & offene TODOs
 
-- **GOÄ-Vollseeding:** `MACIP_API_KEY` auf macip.de registrieren → GitHub Secret eintragen → Workflow starten
+- **GOÄ-Vollseeding:** Keine funktionierende öffentliche API gefunden. Lösung: GOÄ-PDF (von bundesaerztekammer.de oder privat-patienten.de) hochladen → Python-Parser → DB-Seed
 - ~~**Widerspruch-Outcome-Tracking:**~~ ✅ Erledigt in Migration 036 — DB-Trigger feuert automatisch bei Status → 'akzeptiert'/'abgelehnt'
 - **OLG-Urteile (Source #4):** Noch nicht recherchiert/geseedet
 - **UpsellBand Task #22:** Credit-aware 5-state Redesign noch in_progress
-- **macip.de Free Tier:** 100 Requests/Tag — bei 2500+ GOÄ-Ziffern ggf. kostenpflichtigen Plan nötig
 
 ---
 
@@ -325,7 +322,6 @@ TWILIO_ACCOUNT_SID
 TWILIO_AUTH_TOKEN
 TWILIO_WHATSAPP_NUMBER
 INTERNAL_API_SECRET                # für interne Route-zu-Route Calls
-MACIP_API_KEY                      # für GOÄ-Seed (noch ausstehend)
 ```
 
 ---
