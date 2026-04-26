@@ -1,5 +1,9 @@
 name: Seed OLG-Urteile (OpenLegalData + Claude)
 
+# DEAKTIVIERT: OpenLegalData liefert für alle court_id-Queries dieselben
+# 5 Phantom-Cases (Zukunftsdaten, falsche Gerichte, 404-Slugs).
+# Die API ist für OLG-Urteile nicht verwendbar (Stand: April 2026).
+# Manuell triggerbar für zukünftige Tests falls API verbessert wird.
 on:
   workflow_dispatch:
     inputs:
@@ -9,10 +13,11 @@ on:
         required: false
       dry_run:
         description: 'Dry Run (kein Supabase-Write)'
-        default: 'false'
+        default: 'true'
         required: false
-  schedule:
-    - cron: '0 4 1 */3 *'  # Quartalsweise: 1. des Quartalsmonats, 04:00 UTC
+  # schedule deaktiviert — API zu unzuverlässig für Automatisierung
+  # schedule:
+  #   - cron: '0 4 1 */3 *'
 
 jobs:
   seed:
@@ -39,5 +44,5 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANTHROPIC_API_KEY:         ${{ secrets.ANTHROPIC_API_KEY }}
           MAX_CASES:                 ${{ inputs.max_cases || '30' }}
-          DRY_RUN:                   ${{ inputs.dry_run || 'false' }}
+          DRY_RUN:                   ${{ inputs.dry_run || 'true' }}
         run: npx tsx scripts/seed-olg-urteile.ts
