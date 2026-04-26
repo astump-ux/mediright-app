@@ -1,15 +1,11 @@
 /**
- * scripts/seed-olg-urteile.ts  v4
+ * scripts/seed-olg-urteile.ts  v5
  *
- * Strategie: Zuverlässige Court-Discovery durch mehrere Fallbacks.
- * Das Problem: /courts/?level_of_appeal=OLG liefert 0 Ergebnisse (Parameter
- * wird von der API ignoriert oder hat andere Werte als erwartet).
- *
- * Fallback-Kaskade:
- *  1. /courts/?level_of_appeal=OLG (original attempt)
- *  2. /courts/?name__icontains=Oberlandesgericht (Django ORM filter)
- *  3. /courts/ paginiert abrufen, client-seitig auf OLG filtern
- *  4. Direkte Case-Suche via /cases/?court__name__icontains=Oberlandesgericht
+ * Fixes gegenüber v4:
+ *  - Rate Limiting: 300ms Delay zwischen API-Calls (verhindert 429)
+ *  - Content-Fetch: List-Endpoint liefert leeren content → Detail-Endpoint /cases/{slug}/ nötig
+ *  - Batch-Strategie: Erst alle Kandidaten sammeln, dann selektiv Detail abrufen
+ *  - Debug-Logging: zeigt content-Länge + PKV-Check-Ergebnis
  */
 
 import Anthropic from '@anthropic-ai/sdk'
@@ -22,133 +18,105 @@ const DRY_RUN       = process.env.DRY_RUN === 'true'
 const MAX_CASES     = parseInt(process.env.MAX_CASES ?? '30')
 const BASE_URL      = 'https://de.openlegaldata.io/api'
 
+// Delay zwischen API-Requests: verhindert 429 Rate Limiting
+const API_DELAY_MS = 400
+
 const supabase  = createClient(SUPABASE_URL, SUPABASE_KEY)
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_KEY })
 
 interface OldCourt {
-  id:              number
-  name:            string
-  slug:            string
-  level_of_appeal?: string
-  jurisdiction?:   string
+  id:   number
+  name: string
+  slug: string
 }
 
-interface OldCase {
+interface CaseListItem {
   id:          number
   slug:        string
   file_number: string
   date:        string
   court:       OldCourt | number
-  content:     string
+  // content ist im List-Endpoint oft leer oder fehlt
+  content?:    string
+  summary?:    string
+}
+
+interface CaseDetail extends CaseListItem {
+  content: string
 }
 
 // ─── API Helper ──────────────────────────────────────────────────────────────
 
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+
 async function apiFetch(path: string): Promise<any> {
+  await sleep(API_DELAY_MS)
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json', 'User-Agent': 'mediright-seed/1.0' }
-  })
-  if (!res.ok) {
-    console.warn(`  API ${res.status}: ${url}`)
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'mediright-seed/1.0' }
+    })
+    if (!res.ok) {
+      console.warn(`  API ${res.status}: ${url}`)
+      if (res.status === 429) await sleep(3000) // extra backoff bei Rate Limit
+      return null
+    }
+    return res.json()
+  } catch (e) {
+    console.warn(`  Fetch-Fehler: ${url}`, e)
     return null
   }
-  return res.json()
 }
 
-function isOlgCourt(court: OldCourt): boolean {
-  const name = (court.name ?? '').toLowerCase()
-  const slug = (court.slug ?? '').toLowerCase()
-  const loa  = (court.level_of_appeal ?? '').toLowerCase()
-  return name.includes('oberlandesgericht') ||
-         name.includes(' olg ') ||
-         slug.startsWith('olg-') ||
-         loa === 'olg' || loa === 'oberlandesgericht'
+function getCourtName(court: OldCourt | number): string {
+  if (typeof court === 'object' && court?.name) return court.name
+  return `Gericht#${court}`
 }
 
-// ─── Court Discovery (4 Strategien) ─────────────────────────────────────────
-
-async function tryLevelFilter(): Promise<OldCourt[]> {
-  const data = await apiFetch('/courts/?level_of_appeal=OLG&limit=100')
-  const results = data?.results ?? []
-  console.log(`    level_of_appeal=OLG → ${results.length} Courts`)
-  return results
+function isOlgCourt(c: OldCourt): boolean {
+  const name = (c.name ?? '').toLowerCase()
+  const slug = (c.slug ?? '').toLowerCase()
+  return name.includes('oberlandesgericht') || slug.startsWith('olg-')
 }
 
-async function tryNameFilter(): Promise<OldCourt[]> {
-  const data = await apiFetch('/courts/?name__icontains=Oberlandesgericht&limit=100')
-  const results = data?.results ?? []
-  console.log(`    name__icontains=Oberlandesgericht → ${results.length} Courts`)
-  return results
-}
+// ─── Court Discovery ─────────────────────────────────────────────────────────
 
-async function tryAllCourtsClientFilter(): Promise<OldCourt[]> {
+async function getOlgCourts(): Promise<OldCourt[]> {
+  console.log('Lade OLG-Gerichte (name__icontains)...')
   const courts: OldCourt[] = []
-  let url: string | null = '/courts/?limit=100'
-  let pages = 0
+  let url: string | null = '/courts/?name__icontains=Oberlandesgericht&limit=100'
 
-  while (url && pages < 20) {
+  while (url) {
     const data = await apiFetch(url)
     if (!data) break
     courts.push(...(data.results ?? []))
     url = data.next ?? null
-    pages++
   }
 
   const olg = courts.filter(isOlgCourt)
-  console.log(`    Alle Courts (${courts.length}) client-seitig gefiltert → ${olg.length} OLGs`)
+  console.log(`  ${olg.length} OLG-Gerichte gefunden (von ${courts.length} gesamt)`)
   return olg
 }
 
-async function getOlgCourts(): Promise<OldCourt[]> {
-  console.log('Suche OLG-Gerichte (mehrere Strategien)...')
+// ─── Case Fetch + Detail ─────────────────────────────────────────────────────
 
-  // Strategie 1
-  let courts = await tryLevelFilter()
-  if (courts.length) return courts
-
-  // Strategie 2
-  courts = await tryNameFilter()
-  if (courts.length) return courts
-
-  // Strategie 3: Alles laden + client-seitig filtern
-  courts = await tryAllCourtsClientFilter()
-  return courts
-}
-
-// ─── Case Fetch ──────────────────────────────────────────────────────────────
-
-async function getCasesForCourt(courtId: number): Promise<OldCase[]> {
-  const data = await apiFetch(`/cases/?court_id=${courtId}&limit=10&ordering=-date`)
+async function getCasesForCourt(courtId: number): Promise<CaseListItem[]> {
+  const data = await apiFetch(`/cases/?court_id=${courtId}&limit=5&ordering=-date`)
   return data?.results ?? []
 }
 
-async function getCasesDirect(): Promise<OldCase[]> {
-  // Fallback: Fälle direkt nach Gerichtsname filtern
-  console.log('  Court-Discovery gescheitert — versuche direkten Case-Filter...')
-  const data = await apiFetch(
-    '/cases/?court__name__icontains=Oberlandesgericht&limit=30&ordering=-date'
-  )
-  if (data?.results?.length) {
-    console.log(`  Direkte Case-Suche: ${data.results.length} Treffer`)
-    return data.results
-  }
-  // Letzter Versuch: aktuellste Fälle aller Art, OLG-Filter nachher
-  const data2 = await apiFetch('/cases/?limit=100&ordering=-date')
-  const results = (data2?.results ?? []) as OldCase[]
-  const olg = results.filter(c => {
-    const court = c.court as OldCourt
-    return court && isOlgCourt(court)
-  })
-  console.log(`  Neueste 100 Cases: ${olg.length} davon OLG`)
-  return olg
+async function getCaseDetail(slug: string): Promise<CaseDetail | null> {
+  const data = await apiFetch(`/cases/${slug}/`)
+  return data ?? null
 }
 
-// ─── Klassifizierung ─────────────────────────────────────────────────────────
+// ─── PKV Filter ──────────────────────────────────────────────────────────────
 
 function isPkvRelevant(text: string): boolean {
+  if (!text || text.length < 50) return false
   const t = text.toLowerCase()
-  return /krankenversicherung|pkv|goä|goa|heilbehandlung|erstattung|versicherungsnehmer|medizinisch notwendig|therapie|behandlungskosten/.test(t)
+  // Breiter gefasst als v4 — deckt mehr Randthemen ab
+  return /krankenversicherung|private.*versicherung|pkv|goä|goa|heilbehandlung|erstattung.*behandlung|versicherungsnehmer|medizinisch|therapie|behandlungskosten|arzthonorar|krankheitskosten|versicherungsleistung/.test(t)
 }
 
 function classifyKategorie(text: string): string {
@@ -175,15 +143,6 @@ function extractSchlagwoerter(text: string): string[] {
   if (/physiotherapie|heilmittel/.test(t)) tags.push('Physiotherapie')
   if (/wahlleistung|chefarzt/.test(t))    tags.push('Wahlleistung')
   return tags.length ? tags : ['PKV', 'Krankenversicherung']
-}
-
-function getCourtName(court: OldCourt | number): string {
-  if (typeof court === 'object') return court.name ?? 'Unbekanntes Gericht'
-  return `Gericht #${court}`
-}
-
-function getCaseSlug(c: OldCase): string {
-  return c.slug ?? String(c.id)
 }
 
 // ─── Claude Extraction ───────────────────────────────────────────────────────
@@ -225,68 +184,73 @@ Sonst: IRRELEVANT`
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`=== OLG-Urteile Seed v4 === DRY_RUN=${DRY_RUN} MAX=${MAX_CASES}`)
+  console.log(`=== OLG-Urteile Seed v5 === DRY_RUN=${DRY_RUN} MAX=${MAX_CASES}`)
 
   const { data: existingData } = await supabase.from('pkv_urteile').select('aktenzeichen')
   const existing = new Set((existingData ?? []).map((r: any) => r.aktenzeichen))
   console.log(`Bereits in DB: ${existing.size} Urteile`)
 
   const courts = await getOlgCourts()
-  console.log(`→ ${courts.length} OLG-Gerichte gefunden`)
+  if (!courts.length) {
+    console.error('Keine OLG-Gerichte gefunden — Abbruch.')
+    process.exit(1)
+  }
 
   const seen     = new Set<string>()
   const toInsert: object[] = []
-  let allCases: OldCase[]  = []
 
-  if (courts.length === 0) {
-    // Letzter Fallback: direkte Case-Abfrage
-    allCases = await getCasesDirect()
-  } else {
-    // Court-basiert: Fälle je Gericht laden
-    const shuffled = courts.sort(() => Math.random() - 0.5)
-    for (const court of shuffled) {
+  // Gerichte mischen für Abwechslung
+  const shuffled = courts.sort(() => Math.random() - 0.5)
+  let candidatesChecked = 0
+
+  for (const court of shuffled) {
+    if (toInsert.length >= MAX_CASES) break
+
+    const listItems = await getCasesForCourt(court.id)
+    if (!listItems.length) continue
+
+    for (const item of listItems) {
       if (toInsert.length >= MAX_CASES) break
-      const cases = await getCasesForCourt(court.id)
-      // court-Objekt rückbinden (API liefert manchmal nur ID)
-      allCases.push(...cases.map(c => ({ ...c, court })))
+
+      const az = `${court.name} ${item.file_number ?? ''}`.trim()
+      if (seen.has(az) || existing.has(az)) continue
+      seen.add(az)
+      candidatesChecked++
+
+      // List-Endpoint hat oft leeren content → Detail holen
+      let text = item.content ?? item.summary ?? ''
+      if (text.length < 200 && item.slug) {
+        const detail = await getCaseDetail(item.slug)
+        text = detail?.content ?? detail?.summary ?? text
+      }
+
+      const textLen = text.replace(/<[^>]+>/g, '').trim().length
+      const pkv = isPkvRelevant(text)
+      console.log(`  ${az} (${item.date}) — ${textLen} Zeichen — PKV: ${pkv}`)
+
+      if (!pkv) continue
+
+      const kategorie = classifyKategorie(text)
+      const extracted = await extractWithClaude(az, text, kategorie)
+      if (!extracted) { console.log(`    ↳ Claude: Irrelevant`); continue }
+
+      toInsert.push({
+        aktenzeichen:  az,
+        datum:         item.date,
+        gericht:       court.name,
+        senat:         '',
+        kategorie,
+        schlagwoerter: extractSchlagwoerter(text),
+        leitsatz:      extracted.leitsatz,
+        relevanz_pkv:  extracted.relevanz_pkv,
+        quelle_url:    `https://de.openlegaldata.io/case/${item.slug}/`,
+        verified:      false,
+      })
+      console.log(`    ✓ gespeichert als ${kategorie}`)
     }
   }
 
-  console.log(`\nVerarbeite ${allCases.length} Kandidaten...`)
-
-  for (const c of allCases) {
-    if (toInsert.length >= MAX_CASES) break
-
-    const courtName = getCourtName(c.court)
-    const az = `${courtName} ${c.file_number ?? ''}`.trim()
-    if (seen.has(az) || existing.has(az)) continue
-    seen.add(az)
-
-    const text = c.content ?? ''
-    if (!isPkvRelevant(text)) continue
-
-    console.log(`  → ${az} (${c.date}) — PKV-relevant`)
-
-    const kategorie = classifyKategorie(text)
-    const extracted = await extractWithClaude(az, text, kategorie)
-    if (!extracted) { console.log(`    ↳ Claude: Irrelevant`); continue }
-
-    toInsert.push({
-      aktenzeichen:  az,
-      datum:         c.date,
-      gericht:       courtName,
-      senat:         '',
-      kategorie,
-      schlagwoerter: extractSchlagwoerter(text),
-      leitsatz:      extracted.leitsatz,
-      relevanz_pkv:  extracted.relevanz_pkv,
-      quelle_url:    `https://de.openlegaldata.io/case/${getCaseSlug(c)}/`,
-      verified:      false,
-    })
-    console.log(`    ✓ ${kategorie}`)
-  }
-
-  console.log(`\n─── Ergebnis: ${toInsert.length} neue Urteile ───`)
+  console.log(`\n─── Ergebnis: ${toInsert.length} neue Urteile (${candidatesChecked} geprüft) ───`)
 
   if (DRY_RUN || !toInsert.length) {
     if (DRY_RUN) console.log('DRY RUN — kein Write')
