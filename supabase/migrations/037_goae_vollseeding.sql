@@ -13,7 +13,7 @@ ALTER TABLE goae_positionen
 -- pkv_streitpotenzial ist NOT NULL — Default 0 (= kein bekanntes Streitpotenzial)
 -- für alle via Vollseeding eingefügten Positionen ohne Kuratierung
 ALTER TABLE goae_positionen
-  ALTER COLUMN pkv_streitpotenzial SET DEFAULT 0;
+  ALTER COLUMN pkv_streitpotenzial SET DEFAULT 'niedrig';
 
 -- 2. Alle GOÄ-Positionen einfügen
 INSERT INTO goae_positionen
