@@ -32,25 +32,26 @@ export async function PATCH(
   if (arzt_status && !VALID_ARZT.includes(arzt_status))
     return NextResponse.json({ error: 'Invalid arzt_status' }, { status: 400 })
 
-  const admin = getSupabaseAdmin()
-
-  // Two-step ownership check (same pattern as widerspruch-kommunikationen POST)
-  const { data: kasse, error: lookupErr } = await admin
-    .from('kassenabrechnungen').select('id, user_id, widerspruch_status').eq('id', id).maybeSingle()
+  // Ownership check via RLS — use the USER client so Postgres RLS enforces access.
+  // This is more reliable than a manual user_id comparison, which can fail when
+  // the UUID is stored in a slightly different format or under a different auth context.
+  const { data: owned, error: lookupErr } = await supabase
+    .from('kassenabrechnungen')
+    .select('id, widerspruch_status')
+    .eq('id', id)
+    .maybeSingle()
 
   if (lookupErr) {
-    console.error('[widerspruch-status PATCH] lookup error:', lookupErr.message, { id })
+    console.error('[widerspruch-status PATCH] lookup error:', lookupErr.message, { id, userId: user.id })
     return NextResponse.json({ error: 'DB lookup error' }, { status: 500 })
   }
-  if (!kasse) {
-    console.error('[widerspruch-status PATCH] record not found:', { id })
+  if (!owned) {
+    console.error('[widerspruch-status PATCH] not found or not owned:', { id, userId: user.id })
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
-  if (kasse.user_id !== user.id) {
-    console.error('[widerspruch-status PATCH] ownership mismatch:', { stored: kasse.user_id, requesting: user.id, id })
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
 
+  // Use admin client for the actual write (service role bypasses RLS write policies)
+  const admin = getSupabaseAdmin()
   const update: Record<string, string> = {}
   if (status)      update.widerspruch_status      = status
   if (arzt_status) update.arzt_reklamation_status = arzt_status
@@ -63,6 +64,6 @@ export async function PATCH(
     return NextResponse.json({ error: updateErr.message }, { status: 500 })
   }
 
-  console.log('[widerspruch-status PATCH] success:', { id, update, prev: kasse.widerspruch_status })
+  console.log('[widerspruch-status PATCH] success:', { id, update, prev: owned.widerspruch_status })
   return NextResponse.json({ widerspruch_status: status, arzt_reklamation_status: arzt_status })
 }
