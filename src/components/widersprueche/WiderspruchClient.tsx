@@ -900,10 +900,10 @@ function KommunikationModal({
         }),
       })
       const saved = await postRes.json()
-      if (!postRes.ok) throw new Error(saved.error)
+      if (!postRes.ok) throw new Error(`[${postRes.status}] ${saved.error ?? 'Unbekannter Fehler'}`)
       const analyseRes = await fetch(`/api/widerspruch-kommunikationen/${saved.id}/analyse`, { method: 'POST' })
       const analysed = await analyseRes.json()
-      if (!analyseRes.ok) throw new Error(analysed.error)
+      if (!analyseRes.ok) throw new Error(`[Analyse ${analyseRes.status}] ${analysed.error ?? 'Unbekannter Fehler'}`)
       setResult(analysed)
       setNaechsterSchritt(analysed.naechster_schritt_erklaerung ?? null)
       onAdded(analysed)

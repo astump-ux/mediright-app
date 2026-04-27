@@ -44,15 +44,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  // Verify ownership
-  const { data: kasse } = await getSupabaseAdmin()
+  // Verify ownership — look up by ID first, then check user_id explicitly.
+  // This two-step approach gives better error messages for debugging and handles
+  // edge cases where the admin-inserted record's user_id might be stored differently.
+  const { data: kasse, error: kasseErr } = await getSupabaseAdmin()
     .from('kassenabrechnungen')
-    .select('id')
+    .select('id, user_id')
     .eq('id', kassenabrechnungen_id)
-    .eq('user_id', user.id)
-    .single()
+    .maybeSingle()
 
-  if (!kasse) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (kasseErr) {
+    console.error('[widerspruch-kommunikationen POST] DB error:', kasseErr.message, { kassenabrechnungen_id })
+    return NextResponse.json({ error: 'Datenbankfehler beim Laden des Vorgangs' }, { status: 500 })
+  }
+  if (!kasse) {
+    console.error('[widerspruch-kommunikationen POST] kassenabrechnungen not found:', { kassenabrechnungen_id })
+    return NextResponse.json({ error: 'Kassenbescheid nicht gefunden' }, { status: 404 })
+  }
+  if (kasse.user_id !== user.id) {
+    console.error('[widerspruch-kommunikationen POST] user_id mismatch:', { stored: kasse.user_id, requesting: user.id })
+    return NextResponse.json({ error: 'Kein Zugriff auf diesen Vorgang' }, { status: 403 })
+  }
 
   const { data, error } = await getSupabaseAdmin()
     .from('widerspruch_kommunikationen')
