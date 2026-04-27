@@ -13,7 +13,7 @@
  */
 
 const RESEND_API_KEY   = process.env.RESEND_API_KEY
-const ADMIN_EMAIL      = 'astump@dl-remote.com'
+const ADMIN_EMAIL      = 'stump23@gmail.com'  // TODO: auf astump@dl-remote.com zurück sobald mediright.de in Resend verifiziert
 // Resend-verifizierte Absender-Domain nutzen.
 // Solange mediright.de noch nicht in Resend verifiziert ist → onboarding@resend.dev (sofort nutzbar)
 // Sobald mediright.de verifiziert: auf 'MediRight System <system@mediright.de>' umstellen.
