@@ -1047,7 +1047,7 @@ function KommunikationModal({
 }
 
 // ── WiderspruchCard ───────────────────────────────────────────────────────────
-function WiderspruchCard({ fall }: { fall: WiderspruchFall }) {
+function WiderspruchCard({ fall, isDemo = false }: { fall: WiderspruchFall; isDemo?: boolean }) {
   const [open, setOpen]           = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [kommunikationen, setKommunikationen] = useState<WiderspruchKommunikation[]>(fall.kommunikationen)
@@ -1176,13 +1176,19 @@ function WiderspruchCard({ fall }: { fall: WiderspruchFall }) {
             {/* CTA: Add new incoming communication */}
             {!isClosed && (
               <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px dashed #e2e8f0', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <button onClick={() => setShowModal(true)}
+                <button
+                  onClick={() => !isDemo && setShowModal(true)}
+                  disabled={isDemo}
+                  title={isDemo ? 'Demo-Modus: Lade zuerst einen echten Kassenbescheid hoch' : undefined}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 8,
                     padding: '9px 18px', borderRadius: 10,
-                    border: `1.5px solid ${amber}`,
-                    background: amberL, color: '#92400e',
-                    fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                    border: `1.5px solid ${isDemo ? '#e2e8f0' : amber}`,
+                    background: isDemo ? '#f8fafc' : amberL,
+                    color: isDemo ? '#94a3b8' : '#92400e',
+                    fontWeight: 700, fontSize: 12,
+                    cursor: isDemo ? 'not-allowed' : 'pointer',
+                    opacity: isDemo ? 0.6 : 1,
                   }}>
                   📥 Neue Antwort eingangen — KI analysieren
                 </button>
@@ -1227,7 +1233,7 @@ export default function WiderspruchClient({ faelle, isDemo = false }: { faelle: 
         </div>
       )}
       {faelle.map(f => (
-        <WiderspruchCard key={f.id} fall={f} />
+        <WiderspruchCard key={f.id} fall={f} isDemo={isDemo} />
       ))}
     </div>
   )
