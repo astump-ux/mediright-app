@@ -14,7 +14,10 @@
 
 const RESEND_API_KEY   = process.env.RESEND_API_KEY
 const ADMIN_EMAIL      = 'astump@dl-remote.com'
-const FROM_EMAIL       = 'MediRight System <system@mediright.de>'
+// Resend-verifizierte Absender-Domain nutzen.
+// Solange mediright.de noch nicht in Resend verifiziert ist → onboarding@resend.dev (sofort nutzbar)
+// Sobald mediright.de verifiziert: auf 'MediRight System <system@mediright.de>' umstellen.
+const FROM_EMAIL       = 'MediRight System <onboarding@resend.dev>'
 const APP_BASE_URL     = process.env.NEXT_PUBLIC_APP_URL ?? 'https://mediright.de'
 
 export interface ExitPassContext {
