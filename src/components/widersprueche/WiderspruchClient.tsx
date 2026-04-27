@@ -857,6 +857,7 @@ function KommunikationModal({
   const [pdfLoading, setPdfLoading]   = useState(false)
   const [pdfFilename, setPdfFilename] = useState<string | null>(null)
   const [pdfError, setPdfError]       = useState<string | null>(null)
+  const [analyseError, setAnalyseError] = useState<string | null>(null)
   const fileInputRef                  = useRef<HTMLInputElement>(null)
 
   async function handlePdfUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -865,17 +866,23 @@ function KommunikationModal({
     setPdfLoading(true)
     setPdfError(null)
     setPdfFilename(file.name)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30_000)
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await fetch('/api/upload/kommunikation-pdf', { method: 'POST', body: fd })
+      const res = await fetch('/api/upload/kommunikation-pdf', { method: 'POST', body: fd, signal: controller.signal })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Unbekannter Fehler')
       setInhalt(data.text)
     } catch (err) {
-      setPdfError(String(err))
+      const msg = err instanceof Error && err.name === 'AbortError'
+        ? 'PDF-Upload Timeout (>30s) – bitte erneut versuchen'
+        : String(err)
+      setPdfError(msg)
       setPdfFilename(null)
     } finally {
+      clearTimeout(timeoutId)
       setPdfLoading(false)
       // Reset so dasselbe File nochmal hochgeladen werden kann
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -885,6 +892,9 @@ function KommunikationModal({
   async function handleAnalyse() {
     if (!inhalt.trim()) return
     setLoading(true)
+    setAnalyseError(null)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 60_000)
     try {
       const postRes = await fetch('/api/widerspruch-kommunikationen', {
         method: 'POST',
@@ -898,18 +908,26 @@ function KommunikationModal({
           betreff: betreff || null,
           inhalt,
         }),
+        signal: controller.signal,
       })
       const saved = await postRes.json()
       if (!postRes.ok) throw new Error(`[${postRes.status}] ${saved.error ?? 'Unbekannter Fehler'}`)
-      const analyseRes = await fetch(`/api/widerspruch-kommunikationen/${saved.id}/analyse`, { method: 'POST' })
+      const analyseRes = await fetch(`/api/widerspruch-kommunikationen/${saved.id}/analyse`, {
+        method: 'POST',
+        signal: controller.signal,
+      })
       const analysed = await analyseRes.json()
       if (!analyseRes.ok) throw new Error(`[Analyse ${analyseRes.status}] ${analysed.error ?? 'Unbekannter Fehler'}`)
       setResult(analysed)
       setNaechsterSchritt(analysed.naechster_schritt_erklaerung ?? null)
       onAdded(analysed)
     } catch (e) {
-      alert('Fehler: ' + String(e))
+      const msg = e instanceof Error && e.name === 'AbortError'
+        ? 'Anfrage Timeout (>60s) – bitte erneut versuchen'
+        : String(e)
+      setAnalyseError(msg)
     } finally {
+      clearTimeout(timeoutId)
       setLoading(false)
     }
   }
@@ -1005,6 +1023,20 @@ function KommunikationModal({
                   </p>
                 )}
               </div>
+              {analyseError && (
+                <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 9, background: '#fef2f2', border: '1.5px solid #fca5a5', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <span style={{ color: red, flexShrink: 0, marginTop: 1 }}>⚠</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#991b1b', marginBottom: 2 }}>Fehler beim Speichern / Analysieren</div>
+                    <div style={{ fontSize: 11, color: '#7f1d1d', fontFamily: 'monospace', wordBreak: 'break-all' }}>{analyseError}</div>
+                    <button
+                      onClick={() => setAnalyseError(null)}
+                      style={{ marginTop: 6, fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 6, border: '1px solid #fca5a5', background: 'white', color: '#991b1b', cursor: 'pointer' }}>
+                      ✕ Meldung schließen — erneut versuchen
+                    </button>
+                  </div>
+                </div>
+              )}
               <button onClick={handleAnalyse} disabled={!inhalt.trim() || loading}
                 style={{ width: '100%', padding: '12px 0', borderRadius: 9, border: 'none', background: !inhalt.trim() || loading ? '#e2e8f0' : navy, color: !inhalt.trim() || loading ? slate : 'white', fontWeight: 700, fontSize: 13, cursor: inhalt.trim() && !loading ? 'pointer' : 'not-allowed' }}>
                 {loading ? '🤖 KI analysiert…' : '🤖 Analysieren & nächsten Schritt vorschlagen'}
