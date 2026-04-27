@@ -488,13 +488,14 @@ function WiderspruchBriefNode({ fall, userName }: { fall: WiderspruchFall; userN
   async function markWiderspruchGesendet() {
     if (isSent) return
     try {
-      await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
+      const res = await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'gesendet' }),
       })
-      setLocalStatus('gesendet')
-    } catch { /* non-critical */ }
+      if (res.ok) setLocalStatus('gesendet')
+      else console.error('[markWiderspruchGesendet]', res.status, await res.text())
+    } catch (e) { console.error('[markWiderspruchGesendet]', e) }
   }
 
   return (
@@ -605,13 +606,14 @@ function ArztReklamationsBriefNode({ fall, userName }: { fall: WiderspruchFall; 
   async function markArztGesendet() {
     if (isSent) return
     try {
-      await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
+      const res = await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ arzt_status: 'gesendet' }),
       })
-      setLocalStatus('gesendet')
-    } catch { /* non-critical */ }
+      if (res.ok) setLocalStatus('gesendet')
+      else console.error('[markArztGesendet]', res.status, await res.text())
+    } catch (e) { console.error('[markArztGesendet]', e) }
   }
 
   return (

@@ -33,18 +33,36 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid arzt_status' }, { status: 400 })
 
   const admin = getSupabaseAdmin()
-  // Two-step ownership check — same pattern as widerspruch-kommunikationen POST.
-  // Using .single() with a combined id+user_id filter can silently return null
-  // when the record exists but user_id was written under a different auth context.
-  const { data: kasse } = await admin
-    .from('kassenabrechnungen').select('id, user_id').eq('id', id).maybeSingle()
-  if (!kasse) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (kasse.user_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // Two-step ownership check (same pattern as widerspruch-kommunikationen POST)
+  const { data: kasse, error: lookupErr } = await admin
+    .from('kassenabrechnungen').select('id, user_id, widerspruch_status').eq('id', id).maybeSingle()
+
+  if (lookupErr) {
+    console.error('[widerspruch-status PATCH] lookup error:', lookupErr.message, { id })
+    return NextResponse.json({ error: 'DB lookup error' }, { status: 500 })
+  }
+  if (!kasse) {
+    console.error('[widerspruch-status PATCH] record not found:', { id })
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  if (kasse.user_id !== user.id) {
+    console.error('[widerspruch-status PATCH] ownership mismatch:', { stored: kasse.user_id, requesting: user.id, id })
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const update: Record<string, string> = {}
   if (status)      update.widerspruch_status      = status
   if (arzt_status) update.arzt_reklamation_status = arzt_status
 
-  await admin.from('kassenabrechnungen').update(update).eq('id', id)
+  const { error: updateErr } = await admin
+    .from('kassenabrechnungen').update(update).eq('id', id)
+
+  if (updateErr) {
+    console.error('[widerspruch-status PATCH] update error:', updateErr.message, { id, update })
+    return NextResponse.json({ error: updateErr.message }, { status: 500 })
+  }
+
+  console.log('[widerspruch-status PATCH] success:', { id, update, prev: kasse.widerspruch_status })
   return NextResponse.json({ widerspruch_status: status, arzt_reklamation_status: arzt_status })
 }
