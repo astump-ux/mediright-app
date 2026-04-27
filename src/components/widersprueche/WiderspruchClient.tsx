@@ -515,13 +515,14 @@ function WiderspruchBriefNode({ fall, userName }: { fall: WiderspruchFall; userN
             onClick={async () => {
               const next = isSent ? 'erstellt' : 'gesendet'
               try {
-                await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
+                const res = await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ status: next }),
                 })
-                setLocalStatus(next)
-              } catch { /* non-critical */ }
+                if (res.ok) setLocalStatus(next)
+                else console.error('[widerspruch-status toggle]', res.status, await res.text())
+              } catch (e) { console.error('[widerspruch-status toggle]', e) }
             }}
             style={{
               fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, cursor: 'pointer',
@@ -630,13 +631,14 @@ function ArztReklamationsBriefNode({ fall, userName }: { fall: WiderspruchFall; 
             onClick={async () => {
               const next = isSent ? 'erstellt' : 'gesendet'
               try {
-                await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
+                const res = await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ arzt_status: next }),
                 })
-                setLocalStatus(next)
-              } catch { /* non-critical */ }
+                if (res.ok) setLocalStatus(next)
+                else console.error('[arzt-status toggle]', res.status, await res.text())
+              } catch (e) { console.error('[arzt-status toggle]', e) }
             }}
             style={{
               fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, cursor: 'pointer',

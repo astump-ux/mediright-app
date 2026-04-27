@@ -33,9 +33,13 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid arzt_status' }, { status: 400 })
 
   const admin = getSupabaseAdmin()
+  // Two-step ownership check — same pattern as widerspruch-kommunikationen POST.
+  // Using .single() with a combined id+user_id filter can silently return null
+  // when the record exists but user_id was written under a different auth context.
   const { data: kasse } = await admin
-    .from('kassenabrechnungen').select('id').eq('id', id).eq('user_id', user.id).single()
+    .from('kassenabrechnungen').select('id, user_id').eq('id', id).maybeSingle()
   if (!kasse) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (kasse.user_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const update: Record<string, string> = {}
   if (status)      update.widerspruch_status      = status
