@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getSupabaseClient } from '@/lib/supabase'
 import type { WiderspruchFall, WiderspruchKommunikation, WiderspruchVorgang } from '@/app/widersprueche/page'
 import { WIDERSPRUCH_STATUS_CFG, KassenwiderspruchBadge, ArztreklamationBadge } from '@/components/ui/WiderspruchStatus'
@@ -847,13 +847,40 @@ function KommunikationModal({
   onClose: () => void
   onAdded: (komm: WiderspruchKommunikation) => void
 }) {
-  const [partner, setPartner] = useState<'kasse' | 'arzt'>('kasse')
-  const [inhalt, setInhalt]   = useState('')
-  const [betreff, setBetreff] = useState('')
-  const [datum, setDatum]     = useState(new Date().toISOString().split('T')[0])
-  const [loading, setLoading] = useState(false)
-  const [result, setResult]   = useState<WiderspruchKommunikation | null>(null)
+  const [partner, setPartner]         = useState<'kasse' | 'arzt'>('kasse')
+  const [inhalt, setInhalt]           = useState('')
+  const [betreff, setBetreff]         = useState('')
+  const [datum, setDatum]             = useState(new Date().toISOString().split('T')[0])
+  const [loading, setLoading]         = useState(false)
+  const [result, setResult]           = useState<WiderspruchKommunikation | null>(null)
   const [naechsterSchritt, setNaechsterSchritt] = useState<string | null>(null)
+  const [pdfLoading, setPdfLoading]   = useState(false)
+  const [pdfFilename, setPdfFilename] = useState<string | null>(null)
+  const [pdfError, setPdfError]       = useState<string | null>(null)
+  const fileInputRef                  = useRef<HTMLInputElement>(null)
+
+  async function handlePdfUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPdfLoading(true)
+    setPdfError(null)
+    setPdfFilename(file.name)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/upload/kommunikation-pdf', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Unbekannter Fehler')
+      setInhalt(data.text)
+    } catch (err) {
+      setPdfError(String(err))
+      setPdfFilename(null)
+    } finally {
+      setPdfLoading(false)
+      // Reset so dasselbe File nochmal hochgeladen werden kann
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
 
   async function handleAnalyse() {
     if (!inhalt.trim()) return
@@ -927,11 +954,56 @@ function KommunikationModal({
                 </div>
               </div>
               <div style={{ marginBottom: 18 }}>
-                <label style={{ fontSize: 10, fontWeight: 700, color: slate, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Inhalt des Schreibens</label>
+                {/* Label + PDF-Upload-Button in einer Zeile */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: slate, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Inhalt des Schreibens
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {pdfFilename && !pdfError && (
+                      <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        ✓ {pdfFilename}
+                      </span>
+                    )}
+                    {pdfError && (
+                      <span style={{ fontSize: 10, color: '#dc2626', fontWeight: 600 }} title={pdfError}>
+                        ⚠ PDF-Fehler
+                      </span>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      style={{ display: 'none' }}
+                      onChange={handlePdfUpload}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={pdfLoading}
+                      title="PDF hochladen – Text wird automatisch extrahiert"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '5px 10px', borderRadius: 7,
+                        border: `1.5px solid ${pdfLoading ? '#e2e8f0' : blue}`,
+                        background: pdfLoading ? '#f8fafc' : blueL,
+                        color: pdfLoading ? slate : '#1d4ed8',
+                        fontWeight: 700, fontSize: 11, cursor: pdfLoading ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {pdfLoading ? '⏳ Lese PDF…' : '📎 PDF hochladen'}
+                    </button>
+                  </div>
+                </div>
                 <textarea value={inhalt} onChange={e => setInhalt(e.target.value)}
-                  placeholder="Vollständigen Text des eingegangenen Schreibens hier einfügen…"
+                  placeholder={pdfLoading ? 'PDF wird verarbeitet…' : 'Vollständigen Text des eingegangenen Schreibens hier einfügen – oder oben PDF hochladen…'}
                   rows={11}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 9, border: '1.5px solid #e2e8f0', fontSize: 11, color: navy, lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'monospace' }} />
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 9, border: `1.5px solid ${pdfFilename && !pdfError ? '#86efac' : '#e2e8f0'}`, fontSize: 11, color: navy, lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'monospace' }} />
+                {pdfFilename && !pdfError && (
+                  <p style={{ margin: '4px 0 0', fontSize: 10, color: '#64748b' }}>
+                    Text aus PDF extrahiert. Du kannst ihn oben noch bearbeiten, bevor die KI analysiert.
+                  </p>
+                )}
               </div>
               <button onClick={handleAnalyse} disabled={!inhalt.trim() || loading}
                 style={{ width: '100%', padding: '12px 0', borderRadius: 9, border: 'none', background: !inhalt.trim() || loading ? '#e2e8f0' : navy, color: !inhalt.trim() || loading ? slate : 'white', fontWeight: 700, fontSize: 13, cursor: inhalt.trim() && !loading ? 'pointer' : 'not-allowed' }}>
