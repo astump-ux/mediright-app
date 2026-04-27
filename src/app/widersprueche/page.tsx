@@ -60,15 +60,42 @@ export default async function WiderspruchPage() {
     )
   }
 
-  const { data: kassenabrechnungen } = await getSupabaseAdmin()
+  // Primary query: all active Widerspruchsfälle
+  const { data: activeKasse } = await getSupabaseAdmin()
     .from('kassenabrechnungen')
     .select('id, bescheiddatum, referenznummer, betrag_abgelehnt, betrag_eingereicht, betrag_erstattet, betrag_widerspruch_kasse, betrag_korrektur_arzt, widerspruch_status, arzt_reklamation_status, widerspruch_gesendet_am, kasse_analyse, pdf_storage_path')
     .eq('user_id', user.id)
     .in('widerspruch_status', ['erstellt', 'gesendet', 'beantwortet', 'erfolgreich', 'abgelehnt'])
     .order('created_at', { ascending: false })
 
-  // Demo mode when no real data
-  const isDemo = !kassenabrechnungen?.length
+  // Secondary query: records where analysis was done but widerspruch was never formally started
+  // (status stuck at 'keiner' even though kasse_analyse IS NOT NULL — e.g. user never clicked
+  // "Widerspruch starten" on the Kassenbescheid page, or the PATCH call failed silently).
+  const { data: pendingKasse } = await getSupabaseAdmin()
+    .from('kassenabrechnungen')
+    .select('id, bescheiddatum, referenznummer, betrag_abgelehnt, betrag_eingereicht, betrag_erstattet, betrag_widerspruch_kasse, betrag_korrektur_arzt, widerspruch_status, arzt_reklamation_status, widerspruch_gesendet_am, kasse_analyse, pdf_storage_path')
+    .eq('user_id', user.id)
+    .eq('widerspruch_status', 'keiner')
+    .not('kasse_analyse', 'is', null)
+    .gt('betrag_abgelehnt', 0)
+    .order('created_at', { ascending: false })
+
+  // Auto-promote pending records to 'erstellt' — visiting this page implies intent to manage
+  if (pendingKasse?.length) {
+    await getSupabaseAdmin()
+      .from('kassenabrechnungen')
+      .update({ widerspruch_status: 'erstellt' })
+      .in('id', pendingKasse.map(k => k.id))
+    // reflect the transition in memory so the UI renders correctly
+    for (const k of pendingKasse) {
+      (k as Record<string, unknown>).widerspruch_status = 'erstellt'
+    }
+  }
+
+  const kassenabrechnungen = [...(activeKasse ?? []), ...(pendingKasse ?? [])]
+
+  // Demo mode only when the user truly has no rejected claims at all
+  const isDemo = kassenabrechnungen.length === 0
   if (isDemo) {
     return (
       <div>

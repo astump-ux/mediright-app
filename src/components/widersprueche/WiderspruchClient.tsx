@@ -1098,6 +1098,14 @@ function WiderspruchCard({ fall, isDemo = false }: { fall: WiderspruchFall; isDe
 
   const latestIncoming = [...kommunikationen].reverse().find(k => k.richtung === 'eingehend')
 
+  // Only show "Nächste Aktion" hint if the user hasn't already sent a reply
+  // (i.e. no outgoing communication exists after the latest incoming one)
+  const latestIncomingIdx = latestIncoming
+    ? kommunikationen.lastIndexOf(latestIncoming)
+    : -1
+  const hasOutgoingAfterLatestIncoming = latestIncomingIdx >= 0
+    && kommunikationen.slice(latestIncomingIdx + 1).some(k => k.richtung === 'ausgehend')
+
   // Determine whether an Arztreklamation track exists
   const arztTrackPositionen = ((fall.kasse_analyse?.rechnungen ?? []) as RawRechnung[])
     .flatMap(g => (g.positionen ?? []).filter(p => p.aktionstyp === 'korrektur_arzt'))
@@ -1224,7 +1232,9 @@ function WiderspruchCard({ fall, isDemo = false }: { fall: WiderspruchFall; isDe
                   }}>
                   📥 Neue Antwort eingangen — KI analysieren
                 </button>
-                {latestIncoming?.ki_naechster_empfaenger && latestIncoming.ki_naechster_empfaenger !== 'keiner' && (
+                {latestIncoming?.ki_naechster_empfaenger
+                  && latestIncoming.ki_naechster_empfaenger !== 'keiner'
+                  && !hasOutgoingAfterLatestIncoming && (
                   <span style={{ fontSize: 11, color: '#92400e', fontWeight: 600 }}>
                     ↳ Nächste Aktion: {latestIncoming.ki_naechster_empfaenger === 'kasse' ? 'An AXA schreiben' : 'Arzt kontaktieren'}
                   </span>
