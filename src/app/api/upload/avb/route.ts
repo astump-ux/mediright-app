@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient as createClient } from '@/lib/supabase-server'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
-export const config = { api: { bodyParser: false } }
+// This route no longer accepts a file body — it only accepts JSON metadata.
+// The actual file is uploaded directly from the browser to Supabase Storage
+// via a signed upload URL, bypassing Vercel's 4.5 MB request body limit.
 
-const MAX_SIZE_BYTES = 50 * 1024 * 1024 // 50 MB
+const MAX_SIZE_BYTES = 100 * 1024 * 1024 // 100 MB (client-side guard only)
 const BUCKET = 'avb-dokumente'
 
 export async function POST(req: NextRequest) {
@@ -15,25 +18,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Nicht authentifiziert' }, { status: 401 })
   }
 
-  // Parse multipart form
-  let formData: FormData
+  // Parse JSON body (no file — just metadata)
+  let body: { fileName?: string; fileSize?: number; dateityp?: string }
   try {
-    formData = await req.formData()
+    body = await req.json()
   } catch {
-    return NextResponse.json({ error: 'Ungültige Formulardaten' }, { status: 400 })
+    return NextResponse.json({ error: 'Ungültiger JSON-Body' }, { status: 400 })
   }
 
-  const file = formData.get('file') as File | null
-  const dateityp = (formData.get('dateityp') as string) || 'avb'
+  const { fileName, fileSize, dateityp = 'avb' } = body
 
-  if (!file) {
-    return NextResponse.json({ error: 'Keine Datei hochgeladen' }, { status: 400 })
+  if (!fileName || typeof fileName !== 'string') {
+    return NextResponse.json({ error: 'fileName fehlt' }, { status: 400 })
   }
-  if (!file.name.toLowerCase().endsWith('.pdf')) {
+  if (!fileName.toLowerCase().endsWith('.pdf')) {
     return NextResponse.json({ error: 'Nur PDF-Dateien erlaubt' }, { status: 400 })
   }
-  if (file.size > MAX_SIZE_BYTES) {
-    return NextResponse.json({ error: 'Datei zu groß (max. 50 MB)' }, { status: 400 })
+  if (fileSize && fileSize > MAX_SIZE_BYTES) {
+    return NextResponse.json({ error: 'Datei zu groß (max. 100 MB)' }, { status: 400 })
   }
   if (!['avb', 'versicherungsschein', 'sonstiges'].includes(dateityp)) {
     return NextResponse.json({ error: 'Ungültiger Dateityp' }, { status: 400 })
@@ -41,27 +43,26 @@ export async function POST(req: NextRequest) {
 
   // Build storage path: {user_id}/{timestamp}_{filename}
   const timestamp = Date.now()
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_')
   const storagePath = `${user.id}/${timestamp}_${safeName}`
 
-  // Upload to Supabase Storage
-  const fileBuffer = await file.arrayBuffer()
-  const { error: storageError } = await supabase.storage
-    .from(BUCKET)
-    .upload(storagePath, fileBuffer, {
-      contentType: 'application/pdf',
-      upsert: false,
-    })
+  // Admin client needed to create signed upload URL
+  const admin = getSupabaseAdmin()
 
-  if (storageError) {
-    console.error('[upload/avb] Storage error:', storageError)
-    return NextResponse.json({ error: 'Upload fehlgeschlagen', detail: storageError.message }, { status: 500 })
+  // Create signed upload URL (browser will upload directly to this)
+  const { data: signedData, error: signedError } = await admin.storage
+    .from(BUCKET)
+    .createSignedUploadUrl(storagePath)
+
+  if (signedError || !signedData) {
+    console.error('[upload/avb] Signed URL error:', signedError)
+    return NextResponse.json({ error: 'Signed Upload URL konnte nicht erstellt werden' }, { status: 500 })
   }
 
-  // Create tarif_profile row (status: pending) if none active yet
+  // Create or reuse tarif_profile row (status: pending)
   let tarif_profile_id: string | null = null
 
-  const { data: existing } = await supabase
+  const { data: existing } = await admin
     .from('tarif_profile')
     .select('id')
     .eq('user_id', user.id)
@@ -69,20 +70,18 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
 
   if (existing) {
-    // Re-use existing profile — document will be linked to it, analysis will update it
     tarif_profile_id = existing.id
-    await supabase
+    await admin
       .from('tarif_profile')
       .update({ analyse_status: 'pending', fehler_meldung: null })
       .eq('id', existing.id)
   } else {
-    // Create fresh profile row
-    const { data: newProfile, error: profileError } = await supabase
+    const { data: newProfile, error: profileError } = await admin
       .from('tarif_profile')
       .insert({
         user_id: user.id,
-        versicherung: '',      // filled by analysis
-        tarif_name: '',        // filled by analysis
+        versicherung: '',
+        tarif_name: '',
         profil_json: {},
         quelldokumente: [],
         analyse_status: 'pending',
@@ -93,23 +92,21 @@ export async function POST(req: NextRequest) {
 
     if (profileError || !newProfile) {
       console.error('[upload/avb] Profile insert error:', profileError)
-      // Clean up storage on failure
-      await supabase.storage.from(BUCKET).remove([storagePath])
       return NextResponse.json({ error: 'Profil konnte nicht angelegt werden' }, { status: 500 })
     }
     tarif_profile_id = newProfile.id
   }
 
-  // Insert avb_dokumente row
-  const { data: dokument, error: dokError } = await supabase
+  // Insert avb_dokumente row (file not yet uploaded, but path is reserved)
+  const { data: dokument, error: dokError } = await admin
     .from('avb_dokumente')
     .insert({
       user_id: user.id,
       tarif_profile_id,
-      dateiname_original: file.name,
+      dateiname_original: fileName,
       storage_path: storagePath,
       dateityp,
-      groesse_bytes: file.size,
+      groesse_bytes: fileSize ?? 0,
     })
     .select('id')
     .single()
@@ -119,26 +116,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Dokument-Eintrag fehlgeschlagen' }, { status: 500 })
   }
 
-  // Trigger async analysis (fire-and-forget via internal fetch)
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-  fetch(`${baseUrl}/api/analyse/avb`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-internal-secret': process.env.INTERNAL_API_SECRET || '',
-    },
-    body: JSON.stringify({
-      tarif_profile_id,
-      dokument_id: dokument.id,
-      user_id: user.id,
-    }),
-  }).catch(err => console.error('[upload/avb] Async analyse trigger failed:', err))
-
+  // Return signed upload URL + IDs for the client to use
   return NextResponse.json({
-    success: true,
+    signedUrl:        signedData.signedUrl,
+    token:            signedData.token,
+    storagePath,
     tarif_profile_id,
-    dokument_id: dokument.id,
-    storage_path: storagePath,
-    message: 'PDF hochgeladen. Analyse läuft im Hintergrund.',
+    dokument_id:      dokument.id,
+    message:          'Bereit zum Upload. Bitte Datei direkt zu Supabase hochladen.',
   })
 }

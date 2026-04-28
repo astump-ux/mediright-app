@@ -69,14 +69,40 @@ export default function OnboardingWizard({ credits, existingName }: Props) {
     setAnalyseMessage('')
 
     try {
-      const form = new FormData()
-      form.append('file', selectedFile)
-      form.append('dateityp', 'avb')
+      // ── Step 1: API reserviert Storage-Pfad + DB-Einträge, gibt Signed Upload URL zurück
+      // (kein Datei-Payload → kein Vercel 4.5 MB Limit)
+      const prepRes = await fetch('/api/upload/avb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName:   selectedFile.name,
+          fileSize:   selectedFile.size,
+          dateityp:   'avb',
+        }),
+      })
+      if (!prepRes.ok) {
+        const d = await prepRes.json().catch(() => ({}))
+        throw new Error(d.error ?? 'Vorbereitung fehlgeschlagen')
+      }
+      const { signedUrl, token, storagePath, tarif_profile_id, dokument_id } = await prepRes.json()
 
-      const res = await fetch('/api/upload/avb', { method: 'POST', body: form })
+      // ── Step 2: Datei direkt vom Browser zu Supabase Storage (bypasses Vercel komplett)
+      const { getSupabaseClient } = await import('@/lib/supabase')
+      const sb = getSupabaseClient()
+      const { error: uploadErr } = await sb.storage
+        .from('avb-dokumente')
+        .uploadToSignedUrl(storagePath, token, selectedFile, { contentType: 'application/pdf' })
+      if (uploadErr) throw new Error(uploadErr.message)
+
+      // ── Step 3: KI-Analyse starten
+      const res = await fetch('/api/upload/avb/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tarif_profile_id, dokument_id }),
+      })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error(d.error ?? 'Upload fehlgeschlagen')
+        throw new Error(d.error ?? 'Analyse-Start fehlgeschlagen')
       }
 
       setUploadStatus('analyzing')
