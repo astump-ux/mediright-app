@@ -13,11 +13,13 @@
  *  4. Inline Reveal, not Modal — thread actions appear in-place at end of thread
  */
 
-import { useState, useRef, useCallback } from 'react'
-import type { FallDossier, FallKommunikation, FallVorgang, UnverarbeitetVorgang } from '@/app/meine-faelle/page'
-import type { KassePosition } from '@/lib/goae-analyzer'
+import { useState, useRef, useCallback, lazy, Suspense, type ComponentProps } from 'react'
+import type { FallDossier, FallKommunikation, UnverarbeitetVorgang } from '@/app/meine-faelle/page'
+import type { KassePosition, KasseAnalyseResult, KasseRechnungGruppe } from '@/lib/goae-analyzer'
 import { WIDERSPRUCH_STATUS_CFG } from '@/components/ui/WiderspruchStatus'
 import HandlungsempfehlungPanel from '@/components/ui/HandlungsempfehlungPanel'
+
+const AnalyseModal = lazy(() => import('@/components/rechnungen/AnalyseModal'))
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const navy   = '#0f172a'
@@ -236,6 +238,35 @@ function BescheidTab({ fall, onSwitchToRechnungen }: { fall: FallDossier; onSwit
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+      {/* Einsparpotenzial-Banner — wenn Arztrechnungen GOÄ-Analyse haben */}
+      {(() => {
+        const totalEinspar = fall.vorgaenge.reduce((sum, v) => {
+          const ep = (v.goae_analyse?.einsparpotenzial as number | null) ?? 0
+          return sum + ep
+        }, 0)
+        if (totalEinspar <= 0) return null
+        return (
+          <div style={{
+            display: 'flex', gap: 10, padding: '11px 14px',
+            background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 9,
+            fontSize: 12, color: '#14532d', alignItems: 'center',
+          }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>💡</span>
+            <div style={{ flex: 1, lineHeight: 1.5 }}>
+              <strong>Einsparpotenzial erkannt:</strong> Die GOÄ-Analyse der verknüpften Rechnungen zeigt
+              ein Einsparpotenzial von <strong>{totalEinspar.toFixed(2).replace('.', ',')} €</strong> —
+              z.B. durch Widerspruch oder Korrektur beim Arzt.
+            </div>
+            <button onClick={onSwitchToRechnungen} style={{
+              flexShrink: 0, padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
+              background: '#16a34a', color: 'white', fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap',
+            }}>
+              Rechnungen prüfen →
+            </button>
+          </div>
+        )
+      })()}
+
       {/* Vorläufig-Banner — wenn noch keine Arztrechnungen verknüpft */}
       {analyse && fall.vorgaenge.length === 0 && (
         <div style={{
@@ -351,11 +382,24 @@ function BescheidTab({ fall, onSwitchToRechnungen }: { fall: FallDossier; onSwit
 // ── TAB 2: RECHNUNGEN ──────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-function RechnungenTab({ vorgaenge, onUploaded }: { vorgaenge: FallVorgang[]; onUploaded: () => void }) {
+function RechnungenTab({ fall, onUploaded }: { fall: FallDossier; onUploaded: () => void }) {
+  const vorgaenge = fall.vorgaenge
   const [uploading, setUploading]   = useState(false)
   const [uploadErr, setUploadErr]   = useState<string | null>(null)
   const [uploadOk, setUploadOk]     = useState(false)
+  const [analyseVorgangId, setAnalyseVorgangId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Build kassenbescheid summary from fall data for AnalyseModal
+  const kassenbescheid = {
+    id: fall.id,
+    bescheiddatum: fall.bescheiddatum,
+    referenznummer: fall.referenznummer,
+    betragErstattet: fall.betrag_erstattet,
+    betragAbgelehnt: fall.betrag_abgelehnt,
+    widerspruchEmpfohlen: fall.widerspruch_empfohlen,
+    widerspruchStatus: fall.widerspruch_status,
+  }
 
   async function handleFile(file: File) {
     setUploading(true); setUploadErr(null); setUploadOk(false)
@@ -424,33 +468,70 @@ function RechnungenTab({ vorgaenge, onUploaded }: { vorgaenge: FallVorgang[]; on
       </div>
     )
   }
+  // find the active vorgang for modal
+  const activeVorgang = analyseVorgangId ? vorgaenge.find(v => v.id === analyseVorgangId) ?? null : null
+  const activeKasseGruppe: KasseRechnungGruppe | null = activeVorgang
+    ? (fall.rechnungen.find(r => r.matchedVorgangId === activeVorgang.id) ?? null)
+    : null
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {vorgaenge.map(v => (
-        <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: grey, borderRadius: 9, fontSize: 12, border: '1px solid #e2e8f0' }}>
-          <span style={{ color: slate, fontSize: 16 }}>🩺</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, color: navy }}>{v.arzt_name ?? 'Arzt unbekannt'}</div>
-            {v.rechnungsnummer && <div style={{ fontSize: 10, color: slate }}>Rg-Nr: {v.rechnungsnummer}</div>}
-          </div>
-          {v.rechnungsdatum && <span style={{ color: slate, fontSize: 11, whiteSpace: 'nowrap' }}>{fmtDate(v.rechnungsdatum)}</span>}
-          {v.betrag_gesamt != null && (
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: navy, whiteSpace: 'nowrap' }}>{fmt(v.betrag_gesamt)}</span>
-          )}
-          {v.kasse_match_status && (
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: '#dcfce7', color: '#15803d' }}>
-              ✓ gematcht
-            </span>
-          )}
-          {v.pdf_storage_path && (
-            <a href={`/rechnungen`}
-              style={{ fontSize: 10, fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: '#f1f5f9', color: slate, textDecoration: 'none', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>
-              → Details
-            </a>
-          )}
-        </div>
-      ))}
-    </div>
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {vorgaenge.map(v => {
+          const einsparpotenzial = (v.goae_analyse?.einsparpotenzial as number | null) ?? 0
+          return (
+            <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: grey, borderRadius: 9, fontSize: 12, border: '1px solid #e2e8f0' }}>
+              <span style={{ color: slate, fontSize: 16 }}>🩺</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, color: navy }}>{v.arzt_name ?? 'Arzt unbekannt'}</div>
+                {v.rechnungsnummer && <div style={{ fontSize: 10, color: slate }}>Rg-Nr: {v.rechnungsnummer}</div>}
+              </div>
+              {v.rechnungsdatum && <span style={{ color: slate, fontSize: 11, whiteSpace: 'nowrap' }}>{fmtDate(v.rechnungsdatum)}</span>}
+              {v.betrag_gesamt != null && (
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: navy, whiteSpace: 'nowrap' }}>{fmt(v.betrag_gesamt)}</span>
+              )}
+              {v.kasse_match_status && (
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: '#dcfce7', color: '#15803d' }}>
+                  ✓ gematcht
+                </span>
+              )}
+              {v.goae_analyse && (
+                <button
+                  onClick={() => setAnalyseVorgangId(v.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 6, background: '#f0fdf4', color: '#16a34a', border: '1.5px solid #86efac', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  💡 Analyse
+                  {einsparpotenzial > 0 && (
+                    <span style={{ background: '#16a34a', color: 'white', padding: '1px 5px', borderRadius: 10, fontSize: 9, fontWeight: 700 }}>
+                      {einsparpotenzial.toFixed(0)} €
+                    </span>
+                  )}
+                </button>
+              )}
+              {v.pdf_storage_path && !v.goae_analyse && (
+                <a href={`/rechnungen`}
+                  style={{ fontSize: 10, fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: '#f1f5f9', color: slate, textDecoration: 'none', border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>
+                  → Details
+                </a>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* AnalyseModal — lazy-loaded, only when a vorgang is selected */}
+      {activeVorgang?.goae_analyse && (
+        <Suspense fallback={null}>
+          <AnalyseModal
+            type="rechnung"
+            data={activeVorgang.goae_analyse as unknown as ComponentProps<typeof AnalyseModal>['data']}
+            kasseGruppe={activeKasseGruppe}
+            kasseAnalyseNew={fall.kasse_analyse as KasseAnalyseResult | null}
+            kassenbescheid={kassenbescheid}
+            onClose={() => setAnalyseVorgangId(null)}
+          />
+        </Suspense>
+      )}
+    </>
   )
 }
 
@@ -930,7 +1011,7 @@ function FallDossierCard({
           {/* ── Tab content ── */}
           <div style={{ padding: '16px', background: 'white' }}>
             {activeTab === 'bescheid' && <BescheidTab fall={fall} onSwitchToRechnungen={() => setActiveTab('rechnungen')} />}
-            {activeTab === 'rechnungen' && <RechnungenTab vorgaenge={fall.vorgaenge} onUploaded={() => window.location.reload()} />}
+            {activeTab === 'rechnungen' && <RechnungenTab fall={fall} onUploaded={() => window.location.reload()} />}
             {activeTab === 'widerspruch' && <WiderspruchThreadTab fall={fall} userName={userName} />}
           </div>
         </>
