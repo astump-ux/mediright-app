@@ -93,14 +93,7 @@ export default async function MeineFaellePage() {
   // ── 1. Fetch all kassenabrechnungen ─────────────────────────────────────────
   const { data: kassenRaw } = await admin
     .from('kassenabrechnungen')
-    .select([
-      'id', 'bescheiddatum', 'referenznummer',
-      'betrag_eingereicht', 'betrag_erstattet', 'betrag_abgelehnt',
-      'widerspruch_empfohlen', 'widerspruch_status', 'arzt_reklamation_status',
-      'widerspruch_gesendet_am', 'betrag_widerspruch_kasse', 'betrag_korrektur_arzt',
-      'selbstbehalt_abgezogen', 'selbstbehalt_verbleibend', 'selbstbehalt_jahresgrenze',
-      'kasse_analyse', 'pdf_storage_path',
-    ].join(', '))
+    .select('id, bescheiddatum, referenznummer, betrag_eingereicht, betrag_erstattet, betrag_abgelehnt, widerspruch_empfohlen, widerspruch_status, arzt_reklamation_status, widerspruch_gesendet_am, betrag_widerspruch_kasse, betrag_korrektur_arzt, selbstbehalt_abgezogen, selbstbehalt_verbleibend, selbstbehalt_jahresgrenze, kasse_analyse, pdf_storage_path')
     .eq('user_id', user.id)
     .order('bescheiddatum', { ascending: false })
 
