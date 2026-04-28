@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
 
     // ── Step 2: Benchmark Cache Lookup ───────────────────────────────────────
     // Prüft ob wir das Tarif-Profil schon für einen anderen User analysiert haben.
-    // tariff_benchmarks ist systemweit (kein user_id) → kein DSGVO-Problem.
+    // tarif_benchmarks ist systemweit (kein user_id) → kein DSGVO-Problem.
     let benchmarkHit: {
       id: string
       versicherer: string
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
 
     if (quickVersicherung) {
       const { data: candidates } = await admin
-        .from('tariff_benchmarks')
+        .from('tarif_benchmarks')
         .select('id, versicherer, tarif_name, avb_version, profil_json')
         .eq('analyse_status', 'completed')
         .ilike('versicherer', `%${quickVersicherung}%`)
@@ -358,7 +358,7 @@ Wichtige Anweisungen:
     const newTarifName    = (extractedJson.tarif_name    as string) || ''
     if (newVersicherung && newTarifName) {
       await admin
-        .from('tariff_benchmarks')
+        .from('tarif_benchmarks')
         .upsert({
           versicherer:    newVersicherung,
           tarif_name:     newTarifName,

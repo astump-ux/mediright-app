@@ -1,10 +1,10 @@
 -- Migration 040: AXA ActiveMe-U Benchmark Seed
 -- Speist das bereits vollständig analysierte AXA ActiveMe-U Tarif-Profil
--- in tariff_benchmarks ein. Zukünftige AXA-User erhalten die Analyse
+-- in tarif_benchmarks ein. Zukünftige AXA-User erhalten die Analyse
 -- sofort aus dem Cache (kein Opus-Call nötig).
 -- Persönliche Daten wurden entfernt (Versicherungsnr., Name, Beitrag).
 
-insert into tariff_benchmarks (
+insert into tarif_benchmarks (
   versicherer,
   tarif_name,
   tarif_typ,
