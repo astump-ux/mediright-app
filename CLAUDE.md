@@ -2,7 +2,7 @@
 
 # MediRight — Architekturdokumentation & Source of Truth
 
-> Letzte Aktualisierung: 2026-04-28
+> Letzte Aktualisierung: 2026-04-28 (Meine Fälle Dossier-Pattern)
 > Diese Datei wird nach jedem Sprint aktualisiert. Sie ist die primäre Referenz für KI-Assistenten und Entwickler.
 
 ---
@@ -55,6 +55,16 @@ confidence `'haeufig'` oder `'bestaetigt'`, max. 20 Einträge. Fail-silent: leer
 **Warum:** GOÄ-Pre-Analyse ohne Tarif-Wissen ist blind. Mit den Mustern erkennt Haiku
 tarifspezifische Ablehnungsrisiken bevor der Kassenbescheid überhaupt eintrifft.
 Phase 2 (Auto-Extraktion aus jedem neuen Bescheid → upsert) ist als TODO in `analyze-kasse/route.ts` markiert.
+
+### 2.7 Meine Fälle — Dossier-Pattern (UX-Redesign April 2026)
+Kassenbescheid ist das primäre UI-Objekt. `/meine-faelle` vereint drei vorherige Seiten
+(Rechnungen, Kassenabrechnungen, Widersprüche) in einer dossier-artigen Ansicht.
+Jede `FallDossierCard` hat 3 Tabs: Bescheid-Details, verknüpfte Rechnungen, Widerspruch-Thread.
+**InlineKommunikationForm** ersetzt das vorherige Modal — Antworten werden inline am Thread-Ende
+aufgedeckt (GitHub Issues / Linear Pattern: Aktion erscheint kontextuell dort, wo der User liest).
+`/api/upload/smart` delegiert an kassenbescheid oder arztrechnung Handler basierend auf `classifyPdf()`.
+**Warum:** User denkt in "Fällen" (Behandlung → Erstattung → Widerspruch), nicht in Feature-Silos.
+Die 3-Query-Architektur (kassenabrechnungen + vorgaenge + kommunikationen) bleibt flach ohne JOINs.
 
 ### 2.6 Widerspruch-Status — RLS-Pattern für PATCH-Routen
 Ownership-Checks in Mutationsrouten (z. B. `/api/kassenabrechnungen/[id]/widerspruch-status`)
@@ -188,6 +198,7 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 ### Upload & Analyse
 | Route | Methode | Zweck |
 |---|---|---|
+| `/api/upload/smart` | POST | Zero-Classification: classifyPdf() → delegiert an kassenbescheid oder arztrechnung |
 | `/api/upload/arztrechnung` | POST | PDF → Supabase Storage → Rule Engine → KI-Fallback → vorgaenge |
 | `/api/upload/kassenbescheid` | POST | PDF → Storage → KI-Analyse → kassenabrechnungen → Matching |
 | `/api/upload/avb` | POST | AVB-PDF → Storage (für Tarif-Analyse) |
@@ -334,6 +345,7 @@ Modell pro Analyse-Typ in `app_settings` editierbar (Admin-Panel).
 - ~~**Tariff Intelligence Base Phase 1:**~~ ✅ Erledigt — Migrations 018+039, `fetchTariffContext()` in `goae-analyzer.ts`, 22 AXA-Muster aus echten Bescheiden
 - **Tariff Intelligence Base Phase 2:** Auto-Extraktion nach jeder Kassenbescheid-Analyse → upsert in `tariff_exclusions`. TODO in `analyze-kasse/route.ts` Section 5 markiert.
 - **UpsellBand Task #22:** Credit-aware 5-state Redesign noch in_progress
+- ~~**UX Redesign: Meine Fälle:**~~ ✅ Dossier-Pattern implementiert — `/meine-faelle`, `FaelleDossierClient`, `/api/upload/smart`. Nav auf Dashboard + Meine Fälle + Ärzte reduziert.
 - **WiderspruchClient UI-Verbesserungen (Sprint April 2026):**
   - ✅ Modal-Hängeproblem behoben (AbortController Timeouts: 60s Analyse / 30s Upload, `finally` resettet immer Loading-State)
   - ✅ Demo-Modus-Erkennung korrigiert (`isDemo = length === 0`, Auto-Promotion auf Server)
@@ -380,3 +392,4 @@ INTERNAL_API_SECRET                # für interne Route-zu-Route Calls
 | 2026-04-27 | `goae-analyzer.ts`: `fetchTariffContext()` injiziert tariff_exclusions in GOÄ-System-Prompt (confidence haeufig/bestaetigt, max 20 Einträge, fail-silent) |
 | 2026-04-27 | WiderspruchClient: Modal-Hang fix (AbortController + finally-Reset), Demo-Modus-Fix (isDemo = length===0 + Server-Auto-Promotion), hasOutgoingAfterLatestIncoming für "Nächste Aktion"-Suppression, res.ok-Check auf allen Toggle-Buttons |
 | 2026-04-28 | API fix: `widerspruch-status` PATCH — Ownership-Check via RLS (User-Client Lookup statt manueller UUID-Vergleich, Admin-Client nur für Write). Commit 982635f |
+| 2026-04-28 | UX Redesign: "Meine Fälle" Dossier-Pattern — `/meine-faelle` (Server) + `FaelleDossierClient` (Client, ~960 Zeilen) mit SummaryBar, SmartUploadZone, 3-Tab-FallDossierCard, InlineKommunikationForm (Modal-Ersatz). `/api/upload/smart`: classifyPdf() → delegate. Header: Meine Fälle als primary Nav. Commit 1b0b104 |
