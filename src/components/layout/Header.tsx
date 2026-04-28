@@ -6,11 +6,9 @@ import type { CreditStatus } from "@/lib/credits";
 import { getSupabaseClient } from "@/lib/supabase";
 
 const navItems = [
-  { href: "/dashboard",        label: "Dashboard" },
-  { href: "/rechnungen",       label: "Rechnungen" },
-  { href: "/kassenabrechnung", label: "Kassenabrechnungen" },
-  { href: "/widersprueche",    label: "Widersprüche" },
-  { href: "/aerzte",           label: "Ärzte" },
+  { href: "/dashboard",        label: "Dashboard",          primary: false },
+  { href: "/meine-faelle",     label: "Meine Fälle",        primary: true  },
+  { href: "/aerzte",           label: "Ärzte",              primary: false },
 ];
 
 export default function Header() {
@@ -98,9 +96,26 @@ export default function Header() {
         </Link>
 
         {/* Main nav */}
-        <nav className="flex gap-1">
+        <nav className="flex gap-1 items-center">
           {navItems.map((item) => {
             const active = pathname.startsWith(item.href);
+            if (item.primary) {
+              // "Meine Fälle" — visually elevated: mint accent when inactive, bright when active
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="text-sm font-bold px-4 py-1.5 rounded-lg transition-colors"
+                  style={{
+                    color:      active ? "#0f172a" : "white",
+                    background: active ? "var(--mint)" : "rgba(var(--mint-rgb, 52,211,153),0.18)",
+                    border:     active ? "none" : "1px solid rgba(var(--mint-rgb, 52,211,153),0.35)",
+                  }}
+                >
+                  {item.label}
+                </Link>
+              );
+            }
             return (
               <Link
                 key={item.href}
