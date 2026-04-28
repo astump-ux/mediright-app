@@ -922,40 +922,78 @@ export default function FaelleDossierClient({
           </h1>
           <p style={{ color: slate, fontSize: 13, marginTop: 4 }}>
             {isDemo
-              ? 'Beispielansicht · Laden Sie Ihren ersten Kassenbescheid hoch'
+              ? 'Kassenbescheide, Arztrechnungen & Widersprüche auf einen Blick'
               : `${faelle.length} Fall${faelle.length !== 1 ? 'ä' : ''}lle · Kassenbescheide, Arztrechnungen & Widersprüche auf einen Blick`}
           </p>
         </div>
       </div>
 
-      {/* Summary bar */}
+      {/* Summary bar — real data only */}
       {!isDemo && faelle.length > 0 && <SummaryBar faelle={faelle} />}
 
-      {/* Smart upload */}
-      {!isDemo && <SmartUploadZone onSuccess={handleUploadSuccess} />}
+      {/* ── SMART UPLOAD — always visible, primary CTA in demo mode ──────────── */}
+      <div style={isDemo ? {
+        background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)',
+        borderRadius: 14,
+        padding: '24px 24px 20px',
+        marginBottom: 28,
+        boxShadow: '0 4px 24px rgba(15,23,42,0.18)',
+      } : { marginBottom: 24 }}>
+        {isDemo && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: 'white', marginBottom: 6 }}>
+              📤 Ihren ersten Kassenbescheid hochladen
+            </div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 1.5 }}>
+              Laden Sie einfach ein beliebiges PKV-Dokument hoch — KI erkennt automatisch den Typ
+              und legt Ihren ersten echten Fall an. Die Beispieldaten unten verschwinden dann.
+            </div>
+          </div>
+        )}
+        <SmartUploadZone onSuccess={handleUploadSuccess} />
+      </div>
 
-      {/* Demo notice */}
+      {/* ── DEMO SECTION ─────────────────────────────────────────────────────── */}
       {isDemo && (
-        <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#78350f' }}>
-          📋 <strong>Beispielansicht</strong> — Laden Sie oben Ihren ersten Kassenbescheid hoch um loszulegen. KI analysiert und legt Ihren ersten Fall automatisch an.
-        </div>
+        <>
+          {/* Separator with "Beispieldaten" label */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+            <div style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+              color: '#94a3b8', background: '#f8fafc',
+              border: '1px solid #e2e8f0', borderRadius: 20,
+              padding: '4px 14px', whiteSpace: 'nowrap',
+            }}>
+              Beispieldaten — nicht Ihre echten Daten
+            </div>
+            <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+          </div>
+
+          {/* Demo cards wrapped with muted visual treatment */}
+          <div style={{ opacity: 0.72, pointerEvents: 'none', userSelect: 'none' }}>
+            {faelle.map(fall => (
+              <FallDossierCard key={fall.id} fall={fall} userName={userName} />
+            ))}
+          </div>
+        </>
       )}
 
-      {/* Fall cards */}
-      {faelle.map(fall => (
-        <FallDossierCard key={fall.id} fall={fall} userName={userName} />
-      ))}
-
-      {/* Unverarbeitet */}
-      {!isDemo && <UnverarbeitetSection vorgaenge={unverarbeitet} />}
-
-      {/* Empty state */}
-      {!isDemo && faelle.length === 0 && unverarbeitet.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 48, color: slate }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📂</div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: navy, marginBottom: 8 }}>Noch keine Fälle</div>
-          <div style={{ fontSize: 13 }}>Laden Sie oben Ihren ersten Kassenbescheid oder eine Arztrechnung hoch.</div>
-        </div>
+      {/* ── REAL DATA ────────────────────────────────────────────────────────── */}
+      {!isDemo && (
+        <>
+          {faelle.map(fall => (
+            <FallDossierCard key={fall.id} fall={fall} userName={userName} />
+          ))}
+          <UnverarbeitetSection vorgaenge={unverarbeitet} />
+          {faelle.length === 0 && unverarbeitet.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 48, color: slate }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>📂</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: navy, marginBottom: 8 }}>Noch keine Fälle</div>
+              <div style={{ fontSize: 13 }}>Laden Sie oben Ihren ersten Kassenbescheid oder eine Arztrechnung hoch.</div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
