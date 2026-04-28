@@ -2,7 +2,7 @@
 
 # MediRight — Architekturdokumentation & Source of Truth
 
-> Letzte Aktualisierung: 2026-04-26
+> Letzte Aktualisierung: 2026-04-28
 > Diese Datei wird nach jedem Sprint aktualisiert. Sie ist die primäre Referenz für KI-Assistenten und Entwickler.
 
 ---
@@ -47,6 +47,21 @@ User mit History bekommen zusätzlich ihre eigenen Fälle als Kontext (Stufe 1).
 `record_widerspruch_ergebnis()` wird via DB-Trigger `trg_widerspruch_outcome` automatisch
 aufgerufen sobald `widerspruch_status` auf `'akzeptiert'` oder `'abgelehnt'` wechselt.
 Kein App-Code nötig — die DB pflegt die Erfolgsquote in `pkv_ablehnungsmuster` selbst.
+
+### 2.5 Tariff Intelligence Base (Migrations 018, 039)
+`tariff_exclusions` speichert tarifspezifische Ablehnungsmuster aus echten AXA-Bescheiden.
+Wird in `goae-analyzer.ts` via `fetchTariffContext()` in den System-Prompt injiziert — nur bei
+confidence `'haeufig'` oder `'bestaetigt'`, max. 20 Einträge. Fail-silent: leerer String bei Fehler.
+**Warum:** GOÄ-Pre-Analyse ohne Tarif-Wissen ist blind. Mit den Mustern erkennt Haiku
+tarifspezifische Ablehnungsrisiken bevor der Kassenbescheid überhaupt eintrifft.
+Phase 2 (Auto-Extraktion aus jedem neuen Bescheid → upsert) ist als TODO in `analyze-kasse/route.ts` markiert.
+
+### 2.6 Widerspruch-Status — RLS-Pattern für PATCH-Routen
+Ownership-Checks in Mutationsrouten (z. B. `/api/kassenabrechnungen/[id]/widerspruch-status`)
+nutzen den **User-Supabase-Client** für den Lookup (Postgres RLS erzwingt `auth.uid() = user_id`),
+den **Admin-Client** nur für den Write (Service Role umgeht RLS-Write-Policies).
+**Warum:** Manueller UUID-Vergleich `kasse.user_id !== user.id` ist fehleranfällig
+(Formatunterschiede zwischen Auth-Context und DB-Spalte). RLS ist robuster und vertrauenswürdiger.
 
 ---
 
@@ -99,7 +114,7 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 
 ---
 
-## 4. Datenbank-Schema (35 Migrationen)
+## 4. Datenbank-Schema (39 Migrationen)
 
 ### Kern-Tabellen
 | Tabelle | Zweck |
@@ -134,6 +149,7 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 | `pkv_ombudsmann_statistik` | Ombudsmann-Statistik 2025: Einigungsquote 33,1%, Kategorien |
 | `goae_positionen` | ~80 kuratierte GOÄ-Streitfall-Ziffern (034) + 908 Vollseeding aus Bundesärztekammer-PDF (037) |
 | `pkv_ablehnungsmuster` | Anonymisierte Cross-User-Muster, wächst via DB-Trigger automatisch |
+| `tariff_exclusions` | Tarifspezifische Ablehnungsmuster aus echten Bescheiden (Migrations 018+039); in GOÄ-Analyse-Prompt injiziert |
 | `chat_messages` | In-App-Chat-History |
 
 ### Rollen & System
@@ -184,7 +200,7 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 | Route | Methode | Zweck |
 |---|---|---|
 | `/api/kassenabrechnungen/[id]/widerspruch-starten` | PATCH | Status 'keiner' → 'erstellt' |
-| `/api/kassenabrechnungen/[id]/widerspruch-status` | GET | Aktueller Status |
+| `/api/kassenabrechnungen/[id]/widerspruch-status` | PATCH | `widerspruch_status` und/oder `arzt_reklamation_status` setzen. Body: `{ status?, arzt_status? }`. Ownership via RLS (User-Client Lookup, Admin-Client Write) |
 | `/api/widerspruch-kommunikationen` | POST | Neuen Widerspruchsbrief erstellen (inkl. buildFallContext) |
 | `/api/widerspruch-kommunikationen/[id]/analyse` | POST | Antwort der Kasse analysieren |
 
@@ -231,8 +247,9 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 | 4b | OLG-Urteile | `pkv_urteile` | ✅ 10 Urteile, Migration 038 — 4 Kategorien, 7 Gerichte | 6 |
 | — | AVB-Vertragsanalyse (User) | `tarif_profile` | ✅ Upload + Claude-Analyse im Onboarding | 4 |
 | — | Tarif-Benchmarks (5 Versicherer) | `tarif_benchmarks` | ✅ Debeka/DKV/Allianz/Signal Iduna/Barmenia | 5 |
+| 5 | Tarifspezifische Ablehnungsmuster | `tariff_exclusions` | ✅ Migrations 018+039 — 22 AXA-Muster aus echten Bescheiden; in GOÄ-System-Prompt injiziert | GOÄ-Prompt |
 
-**Alle geplanten Trainingsquellen abgeschlossen.** Erweiterung möglich z. B. um Amtsgerichts-Urteile oder neue BGH-Entscheidungen.
+**Alle geplanten Trainingsquellen abgeschlossen.** Erweiterung möglich z. B. um neue `tariff_exclusions`-Einträge nach jedem Kassenbescheid, Amtsgerichts-Urteile, oder neue BGH-Entscheidungen.
 
 ---
 
@@ -262,14 +279,26 @@ Twilio-Secrets: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMB
 
 ---
 
-## 10. Widerspruch-Status-Maschine
+## 10. Widerspruch-Status-Maschinen
 
+### Kassenwiderspruch (`widerspruch_status` — Migration 011)
 ```
 keiner → erstellt → gesendet → beantwortet → akzeptiert
                                             → abgelehnt
 ```
 
-Parallel läuft `arzt_reklamation_status` für Direktreklamationen beim Arzt (unabhängiger Track).
+### Arztreklamation (`arzt_reklamation_status` — Migration 017)
+```
+keiner → erstellt → gesendet
+```
+Unabhängiger Track für Direktreklamationen beim Arzt (z. B. fehlerhafte GOÄ-Berechnung).
+Beide Tracks werden via `PATCH /api/kassenabrechnungen/[id]/widerspruch-status` gesetzt.
+
+**Auto-Promotion auf Seite `widersprueche/page.tsx` (Server Component):**
+- Datensätze mit `widerspruch_status = 'keiner'` + `kasse_analyse IS NOT NULL` + `betrag_abgelehnt > 0`
+  werden beim Seitenaufruf automatisch zu `'erstellt'` befördert.
+- Verhindert dass reale Fälle fälschlicherweise als Demo erkannt werden.
+- `isDemo = kassenabrechnungen.length === 0` (true nur wenn überhaupt keine Datensätze).
 
 ---
 
@@ -299,10 +328,17 @@ Modell pro Analyse-Typ in `app_settings` editierbar (Admin-Panel).
 
 ## 13. Bekannte Lücken & offene TODOs
 
-- ~~**GOÄ-Vollseeding:**~~ ✅ Migration 037 erledigt — 908 Positionen via pdfplumber-Parser aus Bundesärztekammer-PDF, Faktortyp-Ableitung aus Ziffernbereichen (Labor 3500-4999, Technisch 5000-5999)
+- ~~**GOÄ-Vollseeding:**~~ ✅ Migration 037 erledigt — 908 Positionen via pdfplumber-Parser aus Bundesärztekammer-PDF
 - ~~**Widerspruch-Outcome-Tracking:**~~ ✅ Erledigt in Migration 036 — DB-Trigger feuert automatisch bei Status → 'akzeptiert'/'abgelehnt'
-- ~~**OLG-Urteile (Source #4):**~~ ✅ Migration 038 erledigt — 10 Urteile aus OLG Braunschweig, Karlsruhe, Nürnberg, Naumburg, Düsseldorf, Koblenz, Hamm, Saarbrücken
+- ~~**OLG-Urteile (Source #4):**~~ ✅ Migration 038 erledigt — 10 Urteile aus 7 Gerichten
+- ~~**Tariff Intelligence Base Phase 1:**~~ ✅ Erledigt — Migrations 018+039, `fetchTariffContext()` in `goae-analyzer.ts`, 22 AXA-Muster aus echten Bescheiden
+- **Tariff Intelligence Base Phase 2:** Auto-Extraktion nach jeder Kassenbescheid-Analyse → upsert in `tariff_exclusions`. TODO in `analyze-kasse/route.ts` Section 5 markiert.
 - **UpsellBand Task #22:** Credit-aware 5-state Redesign noch in_progress
+- **WiderspruchClient UI-Verbesserungen (Sprint April 2026):**
+  - ✅ Modal-Hängeproblem behoben (AbortController Timeouts: 60s Analyse / 30s Upload, `finally` resettet immer Loading-State)
+  - ✅ Demo-Modus-Erkennung korrigiert (`isDemo = length === 0`, Auto-Promotion auf Server)
+  - ✅ "Nächste Aktion"-Hint unterdrückt wenn User bereits auf letzte Kasse-Antwort reagiert hat (`hasOutgoingAfterLatestIncoming`)
+  - ✅ Toggle-Buttons prüfen `res.ok` bevor `setLocalStatus()` (verhindert optimistic-UI-Bug bei 404/500)
 
 ---
 
@@ -338,3 +374,9 @@ INTERNAL_API_SECRET                # für interne Route-zu-Route Calls
 | 2026-04-26 | Migration 036: trg_widerspruch_outcome — Outcome-Tracking vollautomatisch via DB-Trigger |
 | 2026-04-26 | Migration 037: GOÄ-Vollseeding — 908 Positionen aus Bundesärztekammer-PDF (Training Source #2b ✅) |
 | 2026-04-26 | Migration 038: OLG-Urteile — 10 Entscheidungen aus 7 Gerichten (Training Source #4b ✅) — alle Trainingsquellen abgeschlossen |
+| 2026-04-26 | Migration 018: `tariff_exclusions` Tabelle + initialer AXA-Seed — 11 Muster aus echten Bescheiden (GOÄ 31, 30, 30a, Labor, Mahnkosten, Tarif-Strukturregeln) |
+| 2026-04-27 | Migration 017: `arzt_reklamation_status` Spalte in kassenabrechnungen — unabhängiger Track für Arzt-Direktreklamationen |
+| 2026-04-27 | Migration 039: tariff_exclusions Update — 11 neue Muster aus AXA-MDK-Bescheid H25778 (GOÄ 3561, 75, A3744, A3767, A3891, 4062, 4134, 4135, 4140, Stufendiagnostik, Erregerserologie) |
+| 2026-04-27 | `goae-analyzer.ts`: `fetchTariffContext()` injiziert tariff_exclusions in GOÄ-System-Prompt (confidence haeufig/bestaetigt, max 20 Einträge, fail-silent) |
+| 2026-04-27 | WiderspruchClient: Modal-Hang fix (AbortController + finally-Reset), Demo-Modus-Fix (isDemo = length===0 + Server-Auto-Promotion), hasOutgoingAfterLatestIncoming für "Nächste Aktion"-Suppression, res.ok-Check auf allen Toggle-Buttons |
+| 2026-04-28 | API fix: `widerspruch-status` PATCH — Ownership-Check via RLS (User-Client Lookup statt manueller UUID-Vergleich, Admin-Client nur für Write). Commit 982635f |
