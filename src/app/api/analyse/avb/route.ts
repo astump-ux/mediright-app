@@ -124,7 +124,14 @@ export async function POST(req: NextRequest) {
             )
           : null
 
-        benchmarkHit = (exactMatch ?? candidates[0]) as typeof benchmarkHit
+        const hit = exactMatch ?? candidates[0]
+        benchmarkHit = hit ? {
+          id:           hit.id,
+          versicherer:  hit.versicherer,
+          tarif_name:   hit.tarif_name,
+          avb_version:  hit.avb_version,
+          profil_json:  hit.profil_json as Record<string, unknown>,
+        } : null
       }
     }
 
