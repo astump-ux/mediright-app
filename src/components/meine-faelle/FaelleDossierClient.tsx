@@ -215,7 +215,7 @@ function SmartUploadZone({ onSuccess }: { onSuccess: () => void }) {
 // ── TAB 1: BESCHEID & ABLEHNUNGEN ─────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-function BescheidTab({ fall }: { fall: FallDossier }) {
+function BescheidTab({ fall, onSwitchToRechnungen }: { fall: FallDossier; onSwitchToRechnungen: () => void }) {
   const analyse = fall.kasse_analyse
   const ablehnungsgruende: string[] = (analyse?.ablehnungsgruende as string[] | null) ?? []
   const rechnungen = (analyse?.rechnungen ?? []) as Array<{
@@ -235,6 +235,30 @@ function BescheidTab({ fall }: { fall: FallDossier }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Vorläufig-Banner — wenn noch keine Arztrechnungen verknüpft */}
+      {analyse && fall.vorgaenge.length === 0 && (
+        <div style={{
+          display: 'flex', gap: 10, padding: '11px 14px',
+          background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 9,
+          fontSize: 12, color: '#78350f', alignItems: 'flex-start',
+        }}>
+          <span style={{ flexShrink: 0, marginTop: 1 }}>⚠️</span>
+          <div style={{ lineHeight: 1.5 }}>
+            <strong>Vorläufige Analyse</strong> — Noch keine Arztrechnungen verknüpft.
+            Die KI hat den Kassenbescheid ausgewertet, aber ohne die Originalrechnungen können
+            GOÄ-Positionen und medizinische Begründungen nicht geprüft werden.
+            Die Handlungsempfehlung wird präziser, sobald Sie die Rechnungen hochladen.{' '}
+            <button onClick={onSwitchToRechnungen} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: '#b45309', fontWeight: 700, fontSize: 12, padding: 0,
+              textDecoration: 'underline',
+            }}>
+              Rechnungen jetzt hochladen →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* KI-Handlungsempfehlung */}
       {analyse && (
@@ -327,15 +351,76 @@ function BescheidTab({ fall }: { fall: FallDossier }) {
 // ── TAB 2: RECHNUNGEN ──────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-function RechnungenTab({ vorgaenge }: { vorgaenge: FallVorgang[] }) {
+function RechnungenTab({ vorgaenge, onUploaded }: { vorgaenge: FallVorgang[]; onUploaded: () => void }) {
+  const [uploading, setUploading]   = useState(false)
+  const [uploadErr, setUploadErr]   = useState<string | null>(null)
+  const [uploadOk, setUploadOk]     = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function handleFile(file: File) {
+    setUploading(true); setUploadErr(null); setUploadOk(false)
+    const fd = new FormData(); fd.append('file', file)
+    try {
+      const res = await fetch('/api/upload/smart', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message ?? data.error ?? 'Fehler')
+      setUploadOk(true)
+      setTimeout(() => { onUploaded() }, 2500)
+    } catch(e) { setUploadErr(String(e)) }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
+  }
+
   if (vorgaenge.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: 24, color: slate, fontSize: 13 }}>
-        Keine Arztrechnungen direkt mit diesem Bescheid verknüpft.
-        <br />
-        <a href="/rechnungen" style={{ color: blue, fontWeight: 600, fontSize: 12, marginTop: 6, display: 'inline-block' }}>
-          → Alle Rechnungen anzeigen
-        </a>
+      <div>
+        <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+
+        {/* Primary CTA */}
+        <div style={{
+          border: `2px dashed #7dd3fc`, background: '#f0f9ff', borderRadius: 10,
+          padding: '20px 24px', marginBottom: 12,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#0369a1', marginBottom: 6 }}>
+            📄 Arztrechnungen zu diesem Bescheid hochladen
+          </div>
+          <div style={{ fontSize: 12, color: slate, marginBottom: 14, lineHeight: 1.5 }}>
+            Laden Sie die Originalrechnungen hoch, die AXA mit diesem Bescheid abgerechnet hat.
+            Die KI erkennt automatisch welche Rechnungen dazugehören und verknüpft sie.
+            Danach wird die Handlungsempfehlung deutlich präziser — inkl. GOÄ-Positionsprüfung
+            und spezifischer Widerspruchsargumente.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => !uploading && fileRef.current?.click()}
+              disabled={uploading}
+              style={{
+                padding: '9px 18px', borderRadius: 8, border: 'none', cursor: uploading ? 'wait' : 'pointer',
+                background: '#0369a1', color: 'white', fontWeight: 700, fontSize: 13,
+              }}
+            >
+              {uploading ? '⏳ KI analysiert…' : '📤 Rechnung hochladen'}
+            </button>
+            <div style={{ fontSize: 11, color: slate, display: 'flex', alignItems: 'center' }}>
+              PDF · KI ordnet automatisch zu
+            </div>
+          </div>
+          {uploadOk && (
+            <div style={{ marginTop: 10, fontSize: 12, color: '#065f46', fontWeight: 600 }}>
+              ✅ Rechnung hochgeladen — Seite wird aktualisiert…
+            </div>
+          )}
+          {uploadErr && (
+            <div style={{ marginTop: 10, fontSize: 12, color: '#991b1b', fontWeight: 600 }}>
+              ❌ {uploadErr}
+            </div>
+          )}
+        </div>
+
+        <div style={{ fontSize: 11, color: slate, textAlign: 'center' }}>
+          Keine Rechnung zur Hand?{' '}
+          <a href="/rechnungen" style={{ color: blue, fontWeight: 600 }}>Alle Rechnungen anzeigen</a>
+        </div>
       </div>
     )
   }
@@ -736,6 +821,18 @@ function FallDossierCard({
 }) {
   const [activeTab, setActiveTab] = useState<'bescheid' | 'rechnungen' | 'widerspruch'>('bescheid')
   const [expanded, setExpanded]   = useState(true)
+  const [pdfLoading, setPdfLoading] = useState(false)
+
+  async function openKassenbescheidPdf() {
+    if (!fall.pdf_storage_path) return
+    setPdfLoading(true)
+    try {
+      const { getSupabaseClient } = await import('@/lib/supabase')
+      const sb = getSupabaseClient()
+      const { data } = await sb.storage.from('rechnungen').createSignedUrl(fall.pdf_storage_path, 300)
+      if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    } catch { /* ignore */ } finally { setPdfLoading(false) }
+  }
 
   const status = fall.widerspruch_status
   const statusCfg = STATUS_CFG[status]
@@ -764,6 +861,20 @@ function FallDossierCard({
               <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: amberL, color: '#b45309' }}>
                 💬 {fall.kommunikationen.length} Nachricht{fall.kommunikationen.length !== 1 ? 'en' : ''}
               </span>
+            )}
+            {fall.pdf_storage_path && (
+              <button
+                onClick={e => { e.stopPropagation(); openKassenbescheidPdf() }}
+                disabled={pdfLoading}
+                style={{
+                  fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 20,
+                  background: '#f1f5f9', color: slate, border: '1px solid #e2e8f0',
+                  cursor: pdfLoading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                }}
+                title="Kassenbescheid-PDF öffnen"
+              >
+                {pdfLoading ? '⏳' : '📄'} Bescheid-PDF
+              </button>
             )}
           </div>
           <div style={{ fontSize: 11, color: slate, marginTop: 3 }}>
@@ -818,8 +929,8 @@ function FallDossierCard({
 
           {/* ── Tab content ── */}
           <div style={{ padding: '16px', background: 'white' }}>
-            {activeTab === 'bescheid' && <BescheidTab fall={fall} />}
-            {activeTab === 'rechnungen' && <RechnungenTab vorgaenge={fall.vorgaenge} />}
+            {activeTab === 'bescheid' && <BescheidTab fall={fall} onSwitchToRechnungen={() => setActiveTab('rechnungen')} />}
+            {activeTab === 'rechnungen' && <RechnungenTab vorgaenge={fall.vorgaenge} onUploaded={() => window.location.reload()} />}
             {activeTab === 'widerspruch' && <WiderspruchThreadTab fall={fall} userName={userName} />}
           </div>
         </>
