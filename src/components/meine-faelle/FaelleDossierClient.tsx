@@ -657,13 +657,18 @@ function WiderspruchBriefNode({
           {showBrief ? '▲ Brief schließen' : '▼ Brief anzeigen'}
         </button>
         {showBrief && (
-          <div style={{ border: `2px solid ${blue}`, borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ background: blueL, padding: '8px 14px', fontSize: 11, fontWeight: 700, color: '#1d4ed8' }}>An: AXA Krankenversicherung AG</div>
-            <div style={{ padding: 12 }}>
-              <input value={editBetreff} onChange={e => setEditBetreff(e.target.value)}
-                style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 12, color: navy, marginBottom: 8, boxSizing: 'border-box' }} />
-              <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={12}
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 11, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box', marginBottom: 10 }} />
+          <div style={{ border: `2px solid ${isSent ? '#86efac' : blue}`, borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ background: isSent ? mintL : blueL, padding: '8px 14px', fontSize: 11, fontWeight: 700, color: isSent ? '#065f46' : '#1d4ed8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>An: AXA Krankenversicherung AG</span>
+              {isSent && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>🔒 Gesendet — schreibgeschützt</span>}
+            </div>
+            <div style={{ padding: 12, background: isSent ? '#f0fdf4' : 'white' }}>
+              <input value={editBetreff} onChange={e => !isSent && setEditBetreff(e.target.value)}
+                disabled={isSent}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: `1px solid ${isSent ? '#86efac' : '#e2e8f0'}`, fontSize: 12, color: isSent ? '#374151' : navy, marginBottom: 8, boxSizing: 'border-box', background: isSent ? '#f0fdf4' : 'white', cursor: isSent ? 'not-allowed' : 'text' }} />
+              <textarea value={editBody} onChange={e => !isSent && setEditBody(e.target.value)} rows={12}
+                disabled={isSent}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: `1px solid ${isSent ? '#86efac' : '#e2e8f0'}`, fontSize: 11, color: isSent ? '#374151' : navy, lineHeight: 1.6, fontFamily: 'monospace', resize: isSent ? 'none' : 'vertical', boxSizing: 'border-box', marginBottom: 10, background: isSent ? '#f0fdf4' : 'white', cursor: isSent ? 'not-allowed' : 'text' }} />
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button onClick={async () => { await navigator.clipboard.writeText(`Betreff: ${editBetreff}\n\n${editBody}`); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
                   style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: copied ? mintL : grey, color: copied ? '#065f46' : navy }}>
@@ -729,13 +734,18 @@ function ArztBriefNode({ fall, userName }: { fall: FallDossier; userName: string
           {showBrief ? '▲ Brief schließen' : '▼ Brief anzeigen'}
         </button>
         {showBrief && (
-          <div style={{ border: `2px solid ${orange}`, borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ background: '#fff7ed', padding: '8px 14px', fontSize: 11, fontWeight: 700, color: '#c2410c' }}>An: Behandelnder Arzt / Rechnungssteller</div>
-            <div style={{ padding: 12 }}>
-              <input value={editBetreff} onChange={e => setEditBetreff(e.target.value)}
-                style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 12, color: navy, marginBottom: 8, boxSizing: 'border-box' }} />
-              <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={12}
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 11, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box', marginBottom: 10 }} />
+          <div style={{ border: `2px solid ${arztSent ? '#86efac' : orange}`, borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ background: arztSent ? mintL : '#fff7ed', padding: '8px 14px', fontSize: 11, fontWeight: 700, color: arztSent ? '#065f46' : '#c2410c', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>An: Behandelnder Arzt / Rechnungssteller</span>
+              {arztSent && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>🔒 Gesendet — schreibgeschützt</span>}
+            </div>
+            <div style={{ padding: 12, background: arztSent ? '#f0fdf4' : 'white' }}>
+              <input value={editBetreff} onChange={e => !arztSent && setEditBetreff(e.target.value)}
+                disabled={arztSent}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: `1px solid ${arztSent ? '#86efac' : '#e2e8f0'}`, fontSize: 12, color: arztSent ? '#374151' : navy, marginBottom: 8, boxSizing: 'border-box', background: arztSent ? '#f0fdf4' : 'white', cursor: arztSent ? 'not-allowed' : 'text' }} />
+              <textarea value={editBody} onChange={e => !arztSent && setEditBody(e.target.value)} rows={12}
+                disabled={arztSent}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: `1px solid ${arztSent ? '#86efac' : '#e2e8f0'}`, fontSize: 11, color: arztSent ? '#374151' : navy, lineHeight: 1.6, fontFamily: 'monospace', resize: arztSent ? 'none' : 'vertical', boxSizing: 'border-box', marginBottom: 10, background: arztSent ? '#f0fdf4' : 'white', cursor: arztSent ? 'not-allowed' : 'text' }} />
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button onClick={async () => { await navigator.clipboard.writeText(`Betreff: ${editBetreff}\n\n${editBody}`); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
                   style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: copied ? '#fff7ed' : grey, color: copied ? '#c2410c' : navy }}>

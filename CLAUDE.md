@@ -2,7 +2,7 @@
 
 # MediRight — Architekturdokumentation & Source of Truth
 
-> Letzte Aktualisierung: 2026-04-28 (Meine Fälle Dossier-Pattern)
+> Letzte Aktualisierung: 2026-04-29 (Matching-Fix, FaelleDossier UX, fall-context vollständig dokumentiert)
 > Diese Datei wird nach jedem Sprint aktualisiert. Sie ist die primäre Referenz für KI-Assistenten und Entwickler.
 
 ---
@@ -34,6 +34,19 @@ Alle KI-Prompts für Widersprüche erhalten denselben strukturierten Kontext aus
 9 Sections, alle fail-silent (geben `''` zurück bei Fehler → kein Break der Pipeline).
 **Warum:** Konsistenz. Jede neue Trainingsdatenquelle wird als Section ergänzt, ohne andere Routen anzufassen.
 
+**Vollständige Section-Übersicht (verifiziert 2026-04-29):**
+| Section | Datenquelle | Inhalt |
+|---|---|---|
+| 1 | `vorgaenge` (JOIN kassenabrechnungen) | Arztrechnungen + GOÄ-Positionen, Einsparpotenzial, Flags |
+| 2 | `kassenabrechnungen.kasse_analyse` | Kassenbescheid, Ablehnungsgründe, Handlungsempfehlung, Beträge |
+| 3 | `widerspruch_kommunikationen` | **Vollständiger Kommunikationsverlauf** chronologisch — Richtung (ein/ausgehend), Kommunikationspartner (Kasse/Arzt), Typ, Datum, Betreff, Inhalt, KI-Analyse. Deckt alle Widerspruchsbriefe, Arzt-Korrekturbriefe, Kasseantworten und Arztantworten ab. |
+| 4 | `tarif_profile` | Vertragsgrundlage / AVB-Analyse des Users (VG-Paragraphen-Zitate) |
+| 5 | `tarif_benchmarks` | Marktvergleich (5 PKV-Versicherer: Debeka, DKV, Allianz, Signal Iduna, Barmenia) |
+| 6 | `pkv_urteile` | BGH + OLG Urteile (~22 Entscheidungen) |
+| 7 | `pkv_ombudsmann_statistik` | Ombudsmann-Statistik (Einigungsquote 33,1%) |
+| 8 | `goae_positionen` | GOÄ-Positionsdaten (908 Ziffern aus Bundesärztekammer-PDF) |
+| 9 | `kassenabrechnungen` + `pkv_ablehnungsmuster` | Ablehnungsmuster: User-History + Cross-User-Statistiken |
+
 ### 2.3 Zweistufige Ablehnungsmuster — per-User UND cross-User
 **Stufe 1 — Per-User-History:** Vollständig in `kassenabrechnungen` (user_id, kasse_analyse JSONB,
 betrag_abgelehnt, bescheiddatum). Keine separate Tabelle nötig — die Information ist bereits
@@ -55,6 +68,21 @@ confidence `'haeufig'` oder `'bestaetigt'`, max. 20 Einträge. Fail-silent: leer
 **Warum:** GOÄ-Pre-Analyse ohne Tarif-Wissen ist blind. Mit den Mustern erkennt Haiku
 tarifspezifische Ablehnungsrisiken bevor der Kassenbescheid überhaupt eintrifft.
 Phase 2 (Auto-Extraktion aus jedem neuen Bescheid → upsert) ist als TODO in `analyze-kasse/route.ts` markiert.
+
+### 2.8 Fuzzy-Matching Arztrechnung ↔ Kassenbescheid (matching.ts)
+`matchVorgangToKasse()` versucht nach jeder Analyse, eine Arztrechnung einem Kassenbescheid zuzuordnen.
+`matchScore()` gewichtet: Arztname 50% · Datum 30% · Betrag 20%. Threshold: 0.45.
+
+**Short-circuit 1:** Identischer Arztname + exakt gleicher Betrag → sofortiger Match.
+**Short-circuit 2:** Arztname-Similarity ≥ 0.90 + kein Rechnungsdatum im Kassenbescheid → Score = max(score, 0.55).
+Hintergrund: AXA-Kassenbescheide enthalten oft nur "Beh-Jahr" statt exakter Rechnungsdaten.
+
+**Stale `matchedVorgangId` Purge:** `POST /api/vorgaenge/rematch` räumt veraltete Referenzen auf
+(Kassenbescheid-Gruppen, die auf gelöschte/nicht-mehr-existierende Vorgänge zeigen) bevor
+es das Matching erneut versucht. Ohne Purge blockieren diese Referenzen neue Matches.
+
+**Debug-Endpoint:** `GET /api/debug/matching` gibt alle matchScores für ungematchte Vorgänge
+× alle Kassenbescheid-Gruppen zurück (nur Development — vor Prod-Hardening entfernen).
 
 ### 2.7 Meine Fälle — Dossier-Pattern (UX-Redesign April 2026)
 Kassenbescheid ist das primäre UI-Objekt. `/meine-faelle` vereint drei vorherige Seiten
@@ -229,6 +257,12 @@ User öffnet Kassenbescheid → PATCH /api/kassenabrechnungen/[id]/widerspruch-s
 | `/api/stripe/checkout` | POST | Checkout-Session erstellen |
 | `/api/stripe/webhook` | POST | Stripe-Events → Credits gutschreiben / Pro aktivieren |
 
+### Matching / Debug
+| Route | Methode | Zweck |
+|---|---|---|
+| `/api/vorgaenge/rematch` | POST | Stale matchedVorgangId-Refs purgen + Matching für alle ungematchten Vorgänge erneut ausführen |
+| `/api/debug/matching` | GET | Raw matchScores für alle ungematchten Vorgänge × Kassenbescheid-Gruppen (nur Dev) |
+
 ### Admin
 | Route | Methode | Zweck |
 |---|---|---|
@@ -351,6 +385,19 @@ Modell pro Analyse-Typ in `app_settings` editierbar (Admin-Panel).
   - ✅ Demo-Modus-Erkennung korrigiert (`isDemo = length === 0`, Auto-Promotion auf Server)
   - ✅ "Nächste Aktion"-Hint unterdrückt wenn User bereits auf letzte Kasse-Antwort reagiert hat (`hasOutgoingAfterLatestIncoming`)
   - ✅ Toggle-Buttons prüfen `res.ok` bevor `setLocalStatus()` (verhindert optimistic-UI-Bug bei 404/500)
+- **Meine Fälle UX-Sprint (April 2026):**
+  - ✅ Status-Toggle für Widerspruch-Status persistent über Tab-Wechsel (State in FallDossierCard)
+  - ✅ Prominente CTA-Buttons in Bescheid-Tab → direkt zum Widerspruch-Thread
+  - ✅ ArztBriefNode mit eigenem Status-Toggle + Outlook-Button im Widerspruch-Thread
+  - ✅ "In Outlook öffnen" Button auf allen Briefentwürfen
+  - ✅ Read-only Mode für gesendete Briefe (disabled Felder + 🔒 Banner)
+- **Matching-Sprint (April 2026):**
+  - ✅ Short-circuit 2 für AXA-Kassenbescheide ohne Rechnungsdatum
+  - ✅ MATCH_THRESHOLD auf 0.45 gesenkt
+  - ✅ POST /api/vorgaenge/rematch mit Purge-Mechanismus für stale Refs
+  - ✅ GET /api/debug/matching für Diagnose (Dev only — vor Prod entfernen!)
+- **fall-context.ts Vollständigkeit (April 2026):**
+  - ✅ Section 3 enthält alle widerspruch_kommunikationen chronologisch inkl. gesendete Briefe, Arzt-Korrekturbriefe, und alle eingegangenen Antworten
 
 ---
 
@@ -395,3 +442,10 @@ INTERNAL_API_SECRET                # für interne Route-zu-Route Calls
 | 2026-04-28 | UX Redesign: "Meine Fälle" Dossier-Pattern — `/meine-faelle` (Server) + `FaelleDossierClient` (Client, ~960 Zeilen) mit SummaryBar, SmartUploadZone, 3-Tab-FallDossierCard, InlineKommunikationForm (Modal-Ersatz). `/api/upload/smart`: classifyPdf() → delegate. Header: Meine Fälle als primary Nav. Commit 1b0b104 |
 | 2026-04-28 | feat(analyse/avb): Benchmark-Cache für AVB-Analyse — Haiku Quick-ID → tariff_benchmarks Lookup → bei Treffer kein Opus-Call (Ergebnis in Sekunden statt Minuten); bei Miss: Opus-Vollanalyse + Auto-Upsert in tariff_benchmarks für künftige User. Commit a1a63d0 |
 | 2026-04-28 | fix(onboarding): Vercel 4.5 MB Limit für AVB-Uploads umgangen — 3-Schritt Client-Direct-Upload: (1) POST /api/upload/avb [JSON only] → signed URL + DB-Reservierung, (2) Browser → Supabase Storage direkt via uploadToSignedUrl(), (3) POST /api/upload/avb/complete → triggert async Analyse. Neue Route: /api/upload/avb/complete. Unterstützt bis 100 MB. Commit 26e9f6a |
+| 2026-04-29 | fix(matching): Short-circuit 2 in matchScore() — AXA-Kassenbescheide ohne Rechnungsdatum (nur "Beh-Jahr") matchen jetzt bei Arztname-Similarity ≥ 0.90. Threshold 0.50 → 0.45 gesenkt. |
+| 2026-04-29 | feat(matching): POST /api/vorgaenge/rematch — purgt stale matchedVorgangId-Referenzen (blockierende verwaiste Vorgänge) + re-run Matching. "🔄 Zuordnung prüfen" Button in UnverarbeitetSection. |
+| 2026-04-29 | feat(debug): GET /api/debug/matching — raw matchScore-Matrix für alle ungematchten Vorgänge × Kassenbescheid-Gruppen (nur Dev). |
+| 2026-04-29 | feat(faelle): FaelleDossierClient — WiderspruchBriefNode + ArztBriefNode: Briefe werden read-only (disabled Felder, grünes "🔒 Gesendet — schreibgeschützt" Banner, mintfarbener Hintergrund) sobald Status = 'gesendet'. Verhindert versehentliche Änderungen nach dem Absenden. |
+| 2026-04-29 | feat(faelle): FaelleDossierClient — Status-Toggle für Widerspruch jetzt persistent über Tab-Wechsel hinweg (State in FallDossierCard gehoben statt in WiderspruchThreadTab). |
+| 2026-04-29 | feat(faelle): Prominente CTA-Buttons in BescheidTab (blau "Widerspruch bei AXA", orange "Arzt um Korrektur bitten") + ArztBriefNode im Widerspruch-Thread mit eigenem Status-Toggle + Outlook-Button. |
+| 2026-04-29 | docs(CLAUDE.md): fall-context.ts 9 Sections vollständig dokumentiert; Matching-Architektur (Section 2.8); neue API-Routen /rematch + /debug/matching ergänzt. |
