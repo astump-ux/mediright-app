@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { matchVorgangToKasse } from '@/lib/matching'
 
@@ -11,7 +11,7 @@ import { matchVorgangToKasse } from '@/lib/matching'
  * or when a Kassenbescheid was uploaded before the corresponding Arztrechnung.
  */
 export async function POST() {
-  const supabase = createSupabaseServerClient()
+  const supabase = createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
