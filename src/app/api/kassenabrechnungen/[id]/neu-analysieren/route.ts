@@ -2,9 +2,9 @@
  * POST /api/kassenabrechnungen/[id]/neu-analysieren
  *
  * Lädt ein weiteres Dokument hoch (z.B. AXA-Begründungsschreiben) und
- * reichert die bestehende Analyse damit an — Delta-Strategie:
- * Claude gibt NUR die geänderten Felder zurück (klein, nie abgeschnitten),
- * der Server merged sie in die bestehende Analyse.
+ * extrahiert daraus NUR Fakten: Ablehnungsgründe + Positions-Begründungen.
+ * Kein langer Widerspruchsbrief — der wird separat per ki-entwurf generiert.
+ * Ziel: schnelle Extraktion in ~15s, kein Timeout.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
@@ -30,20 +30,20 @@ function buildEnrichPrompt(existingAnalyse: Record<string, any>): string {
   }
   const aktuelleGruende = (existingAnalyse.ablehnungsgruende as string[] | null)?.join('\n- ') ?? 'keine'
 
-  return `Lies das beigefügte AXA-Dokument (Begründungsschreiben / Ablehnungsbescheid) und ergänze die bestehende Analyse.
+  return `Lies das beigefügte AXA-Dokument (Begründungsschreiben / Ablehnungsbescheid).
 
-Bereits bekannte Ablehnungsgründe:
-- ${aktuelleGruende}
-
-Abgelehnte / gekürzte Positionen:
+Abgelehnte / gekürzte Positionen aus der bestehenden Analyse:
 ${positionen.map(p => `- ${p}`).join('\n') || '(keine)'}
 
-Gib ein JSON-Objekt mit diesen Feldern zurück:
-- ablehnungsgruende: string[] — präzise Formulierungen aus dem AXA-Schreiben
-- zusammenfassung: string — 2-3 Sätze Gesamtbild
-- widerspruchBegruendung: string — vollständiger Widerspruchstext
-- widerspruchErklaerung: string — kurze Laien-Erklärung
-- positionUpdates: Array<{ goaeZiffer: string, ablehnungsbegruendung: string }>`
+Extrahiere aus dem Dokument folgende Informationen als JSON:
+{
+  "ablehnungsgruende": ["Exakte Formulierung aus AXA-Schreiben 1", "..."],
+  "zusammenfassung": "1-2 Sätze: Was begründet AXA damit konkret?",
+  "widerspruchErklaerung": "1 Satz Laien-Erklärung was diese Ablehnung bedeutet",
+  "positionUpdates": [
+    { "goaeZiffer": "4312", "ablehnungsbegruendung": "Exakte Begründung aus Schreiben" }
+  ]
+}`
 }
 
 export async function POST(
@@ -108,23 +108,23 @@ export async function POST(
       systemPrompt: ENRICH_SYSTEM_PROMPT,
       userPrompt: enrichPrompt,
       pdfBase64: newPdfBuffer.toString('base64'),
-      maxTokens: 8000,        // Widerspruchstext kann sehr lang sein
+      maxTokens: 2000,        // Nur Extraktion, kein langer Widerspruchstext
     })
 
     logKiUsage({ callType: 'kasse_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, userId: user.id }).catch(() => {})
 
-    // raw already starts with '{' (prefill is prepended by callAiWithPdf)
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error(`Keine JSON-Antwort von KI (Rohtext: ${raw.slice(0, 200)})`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const delta = JSON.parse(jsonMatch[0]) as Record<string, any>
 
     // ── Delta in bestehende Analyse mergen ────────────────────────────────
+    // Nur Fakten aus dem neuen Dokument übernehmen.
+    // Widerspruchsbrief bleibt erhalten / wird per ki-entwurf neu generiert.
     const merged = { ...existingAnalyse }
 
     if (delta.ablehnungsgruende?.length)  merged.ablehnungsgruende  = delta.ablehnungsgruende
     if (delta.zusammenfassung)            merged.zusammenfassung    = delta.zusammenfassung
-    if (delta.widerspruchBegruendung)     merged.widerspruchBegruendung = delta.widerspruchBegruendung
     if (delta.widerspruchErklaerung)      merged.widerspruchErklaerung  = delta.widerspruchErklaerung
 
     // Per-Position ablehnungsbegruendung updaten
