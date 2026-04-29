@@ -9,8 +9,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { matchKasseToVorgaenge } from '@/lib/matching'
-import { checkAndDeductAnalysisCredit } from '@/lib/credits'
 import { callAiWithPdf } from '@/lib/ai-client'
 import { logKiUsage } from '@/lib/ki-usage'
 import { randomUUID } from 'crypto'
@@ -18,7 +16,9 @@ import { randomUUID } from 'crypto'
 export const maxDuration = 120
 
 const ENRICH_SYSTEM_PROMPT = `Du bist ein PKV-Experte für AXA ActiveMe-U Kassenstreitigkeiten.
-Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein einleitender Text, keine Erklärungen, kein Markdown.`
+Antworte AUSSCHLIESSLICH mit einem rohen JSON-Objekt.
+Beginne deine Antwort mit { und beende sie mit }.
+Kein einleitender Text, keine Erklärungen, kein Markdown, keine Code-Blöcke.`
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildEnrichPrompt(existingAnalyse: Record<string, any>): string {
@@ -78,12 +78,6 @@ export async function POST(
     return NextResponse.json({ error: 'Noch keine Erstanalyse vorhanden.' }, { status: 400 })
   }
 
-  // ── Credit gate ───────────────────────────────────────────────────────────
-  const creditCheck = await checkAndDeductAnalysisCredit(user.id, 'kasse_analyse', { source: 'neu_analysieren' })
-  if (!creditCheck.allowed) {
-    return NextResponse.json({ error: 'no_credits', message: 'Keine Analyse-Credits verfügbar.' }, { status: 402 })
-  }
-
   // ── Neues PDF aus Form-Data ───────────────────────────────────────────────
   let formData: FormData
   try { formData = await request.formData() }
@@ -107,10 +101,8 @@ export async function POST(
     .upload(newFileName, newPdfBuffer, { contentType: 'application/pdf', upsert: false })
     .catch(() => {})
 
-  // ── Modell laden ──────────────────────────────────────────────────────────
-  const { data: modelRow } = await admin
-    .from('app_settings').select('value').eq('key', 'kasse_analyse_model').single()
-  const model = modelRow?.value || 'claude-sonnet-4-6'
+  // ── Haiku für schnelle Delta-Analyse (kein Credit-Verbrauch) ─────────────
+  const model = 'claude-haiku-4-5-20251001'
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -160,13 +152,6 @@ export async function POST(
 
     // ── Kassenabrechnungen updaten ─────────────────────────────────────────
     await admin.from('kassenabrechnungen').update({ kasse_analyse: merged }).eq('id', id)
-
-    // ── Matching neu ausführen ─────────────────────────────────────────────
-    const updatedRechnungen = await matchKasseToVorgaenge(id, user.id, merged.rechnungen ?? [])
-    await admin
-      .from('kassenabrechnungen')
-      .update({ kasse_analyse: { ...merged, rechnungen: updatedRechnungen } })
-      .eq('id', id)
 
     return NextResponse.json({ success: true })
 

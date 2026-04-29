@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 
-export const maxDuration = 60
+export const maxDuration = 30
 
 export async function POST(request: NextRequest) {
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -53,46 +53,6 @@ export async function POST(request: NextRequest) {
   }
 
   if (!extractedText) {
-    // ── OCR-Fallback: Claude Vision für gescannte PDFs ─────────────────────
-    console.log('[kommunikation-pdf] Kein Text via pdf-parse — versuche Claude OCR-Fallback')
-    try {
-      const Anthropic = (await import('@anthropic-ai/sdk')).default
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-      const base64Pdf = pdfBuffer.toString('base64')
-      const ocrResponse = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4096,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: base64Pdf,
-              },
-            } as { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } },
-            {
-              type: 'text',
-              text: 'Extrahiere den vollständigen Text aus diesem Dokument. Gib nur den reinen Text zurück, ohne Kommentare oder Formatierungshinweise. Behalte die Absatzstruktur bei.',
-            },
-          ],
-        }],
-      })
-      const ocrText = ocrResponse.content
-        .filter(b => b.type === 'text')
-        .map(b => (b as { type: 'text'; text: string }).text)
-        .join('\n')
-        .trim()
-      if (ocrText) {
-        const cleaned = ocrText.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
-        console.log('[kommunikation-pdf] OCR-Fallback erfolgreich, Länge:', cleaned.length)
-        return NextResponse.json({ text: cleaned, ocr: true })
-      }
-    } catch (ocrErr) {
-      console.error('[kommunikation-pdf] Claude OCR-Fallback fehlgeschlagen:', ocrErr)
-    }
     return NextResponse.json(
       { error: 'PDF enthält keinen extrahierbaren Text (möglicherweise gescannt). Bitte Text manuell einfügen.' },
       { status: 422 }
