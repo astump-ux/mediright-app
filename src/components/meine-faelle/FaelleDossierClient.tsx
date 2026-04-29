@@ -265,7 +265,7 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
     setNeuAnalyseLoading(true)
     setNeuAnalyseError(null)
     const controller = new AbortController()
-    const tid = setTimeout(() => controller.abort(), 90_000)
+    const tid = setTimeout(() => controller.abort(), 115_000) // 115s = 2 KI-Calls à ~45s
     try {
       const fd = new FormData()
       fd.append('file', file)
