@@ -252,6 +252,31 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
   onSwitchToRechnungen: () => void
   onSwitchToWiderspruch: () => void
 }) {
+  const [neuAnalyseLoading, setNeuAnalyseLoading] = useState(false)
+  const [neuAnalyseError, setNeuAnalyseError]     = useState<string | null>(null)
+  const [neuAnalysePdfName, setNeuAnalysePdfName] = useState<string | null>(null)
+  const neuAnalyseRef = useRef<HTMLInputElement>(null)
+
+  async function handleNeuAnalyse(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setNeuAnalysePdfName(file.name)
+    setNeuAnalyseLoading(true); setNeuAnalyseError(null)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const res = await fetch(`/api/kassenabrechnungen/${fall.id}/neu-analysieren`, { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message ?? data.error ?? 'Fehler')
+      // Seite neu laden damit die aktualisierte Analyse sichtbar wird
+      window.location.reload()
+    } catch (err) {
+      setNeuAnalyseError(err instanceof Error ? err.message : String(err))
+      setNeuAnalyseLoading(false)
+    } finally {
+      if (neuAnalyseRef.current) neuAnalyseRef.current.value = ''
+    }
+  }
+
   const analyse = fall.kasse_analyse
   const ablehnungsgruende: string[] = (analyse?.ablehnungsgruende as string[] | null) ?? []
   const rechnungen = (analyse?.rechnungen ?? []) as Array<{
@@ -443,6 +468,45 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
           Noch keine KI-Analyse vorhanden. Bitte Kassenbescheid hochladen.
         </div>
       )}
+
+      {/* ── Weiteres Dokument hinzufügen ────────────────────────────────── */}
+      <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 14, marginTop: 4 }}>
+        <input ref={neuAnalyseRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={handleNeuAnalyse} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => neuAnalyseRef.current?.click()}
+            disabled={neuAnalyseLoading}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', borderRadius: 8,
+              border: '1.5px dashed #c4b5fd', background: '#f5f3ff', color: '#6d28d9',
+              fontWeight: 700, fontSize: 12, cursor: neuAnalyseLoading ? 'wait' : 'pointer',
+              opacity: neuAnalyseLoading ? 0.7 : 1,
+            }}
+          >
+            {neuAnalyseLoading
+              ? '⏳ Analyse läuft…'
+              : '📎 Weiteres Dokument hinzufügen & Analyse aktualisieren'}
+          </button>
+          {neuAnalysePdfName && !neuAnalyseLoading && (
+            <span style={{ fontSize: 11, color: slate }}>{neuAnalysePdfName}</span>
+          )}
+        </div>
+        {neuAnalyseLoading && (
+          <div style={{ marginTop: 6, fontSize: 11, color: '#6d28d9' }}>
+            KI liest beide Dokumente gemeinsam — das kann 30–60 Sekunden dauern…
+          </div>
+        )}
+        {neuAnalyseError && (
+          <div style={{ marginTop: 6, padding: '6px 10px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 7, fontSize: 11, color: '#991b1b' }}>
+            {neuAnalyseError}
+          </div>
+        )}
+        <div style={{ marginTop: 6, fontSize: 10, color: '#94a3b8', lineHeight: 1.4 }}>
+          Hast du mehrere AXA-Dokumente zum gleichen Bescheid (z.B. Leistungsabrechnung + Begründungsschreiben)?
+          Lade das zweite Dokument hier hoch — die KI analysiert dann beide gemeinsam und aktualisiert die Handlungsempfehlung.
+        </div>
+      </div>
     </div>
   )
 }

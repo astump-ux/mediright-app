@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getSupabaseAdmin } from './supabase-admin'
 import { logKiUsage } from './ki-usage'
-import { callAiWithPdf } from './ai-client'
+import { callAiWithPdf, callAiWithMultiplePdfs } from './ai-client'
 
 export interface GoaePosition {
   ziffer: string
@@ -707,6 +707,56 @@ export async function analyzeKassePdf(
   if (result.widerspruchErklaerung                 === undefined) result.widerspruchErklaerung                 = null
 
   // Ensure rechnungen array exists (backward compat if Claude omits it)
+  if (!result.rechnungen) result.rechnungen = []
+  if (!result.positionen) result.positionen = []
+
+  return result
+}
+
+/**
+ * Analysiert mehrere AXA-Dokumente (z.B. Leistungsabrechnung + Begründungsschreiben)
+ * gemeinsam als eine Analyse-Anfrage. Gleiche Logik wie analyzeKassePdf, aber sendet
+ * alle PDFs als separate Document-Blöcke an Claude.
+ */
+export async function analyzeKasseMultiplePdfs(
+  pdfBuffers: Buffer[],
+  pkvName?: string | null,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tarifProfil?: Record<string, any> | null
+): Promise<KasseAnalyseResult> {
+  const [baseSystemPrompt, userPrompt, model] = await Promise.all([
+    getSetting('kasse_analyse_prompt', DEFAULT_KASSE_SYSTEM_PROMPT),
+    getSetting('kasse_analyse_user_prompt', DEFAULT_KASSE_USER_PROMPT),
+    getSetting('kasse_analyse_model', 'claude-sonnet-4-6'),
+  ])
+
+  const [tariffContext, tarifProfilContext] = await Promise.all([
+    fetchTariffContext(pkvName),
+    Promise.resolve(buildTarifProfilContext(tarifProfil)),
+  ])
+
+  const systemPrompt = baseSystemPrompt + tariffContext + tarifProfilContext + WIDERSPRUCH_FORMAT_ENFORCEMENT
+
+  const multiUserPrompt = pdfBuffers.length > 1
+    ? `Die folgenden ${pdfBuffers.length} Dokumente gehören zum selben Kassenbescheid (z.B. Leistungsabrechnung + Begründungsschreiben). Bitte analysiere sie gemeinsam als einen zusammenhängenden Fall.\n\n${userPrompt}`
+    : userPrompt
+
+  const { text, usage } = await callAiWithMultiplePdfs({
+    model,
+    systemPrompt,
+    userPrompt: multiUserPrompt,
+    pdfsBase64: pdfBuffers.map(buf => buf.toString('base64')),
+    maxTokens: 8192,
+  })
+  logKiUsage({ callType: 'kasse_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }).catch(() => {})
+  const result = extractJson<KasseAnalyseResult>(text)
+
+  if (result.selbstbehaltAbgezogen                 === undefined) result.selbstbehaltAbgezogen                 = null
+  if (result.selbstbehaltVerbleibend               === undefined) result.selbstbehaltVerbleibend               = null
+  if (result.selbstbehaltJahresgrenze              === undefined) result.selbstbehaltJahresgrenze              = null
+  if (result.widerspruchErfolgswahrscheinlichkeit  === undefined) result.widerspruchErfolgswahrscheinlichkeit  = null
+  if (result.naechsteSchritte                      === undefined) result.naechsteSchritte                      = null
+  if (result.widerspruchErklaerung                 === undefined) result.widerspruchErklaerung                 = null
   if (!result.rechnungen) result.rechnungen = []
   if (!result.positionen) result.positionen = []
 
