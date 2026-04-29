@@ -13,7 +13,7 @@
  *  4. Inline Reveal, not Modal — thread actions appear in-place at end of thread
  */
 
-import { useState, useRef, useCallback, lazy, Suspense, type ComponentProps } from 'react'
+import { useState, useRef, useCallback, lazy, Suspense, type ComponentProps, type ChangeEvent } from 'react'
 import type { FallDossier, FallKommunikation, UnverarbeitetVorgang } from '@/app/meine-faelle/page'
 import type { KassePosition, KasseAnalyseResult, KasseRechnungGruppe } from '@/lib/goae-analyzer'
 import { WIDERSPRUCH_STATUS_CFG } from '@/components/ui/WiderspruchStatus'
@@ -253,6 +253,39 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
   onSwitchToWiderspruch: () => void
 }) {
   const analyse = fall.kasse_analyse
+  const [neuAnalyseLoading, setNeuAnalyseLoading] = useState(false)
+  const [neuAnalyseError, setNeuAnalyseError] = useState<string | null>(null)
+  const [neuAnalysePdfName, setNeuAnalysePdfName] = useState<string | null>(null)
+  const neuAnalyseRef = useRef<HTMLInputElement>(null)
+
+  async function handleNeuAnalyse(e: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setNeuAnalysePdfName(file.name)
+    setNeuAnalyseLoading(true)
+    setNeuAnalyseError(null)
+    const controller = new AbortController()
+    const tid = setTimeout(() => controller.abort(), 90_000)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch(`/api/kassenabrechnungen/${fall.id}/neu-analysieren`, {
+        method: 'POST', body: fd, signal: controller.signal,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message ?? data.error ?? 'Fehler')
+      window.location.reload()
+    } catch (err) {
+      const msg = err instanceof Error
+        ? (err.name === 'AbortError' ? 'Timeout — bitte erneut versuchen' : err.message)
+        : String(err)
+      setNeuAnalyseError(msg)
+      setNeuAnalyseLoading(false)
+    } finally {
+      clearTimeout(tid)
+      if (neuAnalyseRef.current) neuAnalyseRef.current.value = ''
+    }
+  }
   const ablehnungsgruende: string[] = (analyse?.ablehnungsgruende as string[] | null) ?? []
   const rechnungen = (analyse?.rechnungen ?? []) as Array<{
     arztName?: string | null
@@ -435,6 +468,51 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Weiteres Dokument hinzufügen (z.B. AXA-Begründungsschreiben) */}
+      {analyse && (
+        <div style={{
+          marginTop: 8, padding: '12px 14px', borderRadius: 9,
+          border: '1.5px dashed #cbd5e1', background: '#f8fafc',
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: slate, marginBottom: 8 }}>
+            📎 Weiteres AXA-Dokument hinzufügen
+          </div>
+          <div style={{ fontSize: 11, color: slate, marginBottom: 10, lineHeight: 1.5 }}>
+            Hast du ein separates AXA-Begründungsschreiben erhalten? Lade es hier hoch —
+            die Handlungsempfehlung wird damit automatisch verfeinert.
+          </div>
+          <input
+            ref={neuAnalyseRef}
+            type="file"
+            accept="application/pdf"
+            style={{ display: 'none' }}
+            onChange={handleNeuAnalyse}
+          />
+          <button
+            onClick={() => neuAnalyseRef.current?.click()}
+            disabled={neuAnalyseLoading}
+            style={{
+              padding: '8px 16px', borderRadius: 7, border: `1.5px solid ${blue}`,
+              background: neuAnalyseLoading ? '#e2e8f0' : 'white',
+              color: neuAnalyseLoading ? slate : blue,
+              fontWeight: 700, fontSize: 12, cursor: neuAnalyseLoading ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            {neuAnalyseLoading ? (
+              <>⏳ Analyse läuft{neuAnalysePdfName ? ` (${neuAnalysePdfName})` : ''}…</>
+            ) : (
+              <>📄 PDF hochladen &amp; Analyse aktualisieren</>
+            )}
+          </button>
+          {neuAnalyseError && (
+            <div style={{ marginTop: 8, fontSize: 11, color: red, padding: '6px 10px', background: '#fef2f2', borderRadius: 6 }}>
+              ⚠️ {neuAnalyseError}
+            </div>
+          )}
         </div>
       )}
 
