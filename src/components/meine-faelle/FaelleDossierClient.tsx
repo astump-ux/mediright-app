@@ -769,18 +769,30 @@ function ArztBriefNode({ fall, userName }: { fall: FallDossier; userName: string
 }
 
 function ThreadEntry({
-  k, isLast,
+  k, isLast, onDeleted,
 }: {
   k: FallKommunikation
   isLast: boolean
+  onDeleted: (id: string) => void
 }) {
   const [showText, setShowText]   = useState(false)
   const [showReply, setShowReply] = useState(false)
   const [editBetreff, setEditBetreff] = useState(k.ki_vorschlag_betreff ?? '')
   const [editBody, setEditBody]       = useState(k.ki_vorschlag_inhalt ?? '')
   const [copied, setCopied]           = useState(false)
+  const [deleting, setDeleting]       = useState(false)
   const isOutgoing = k.richtung === 'ausgehend'
   const dotColor   = isOutgoing ? blue : k.ki_dringlichkeit === 'hoch' ? red : k.ki_dringlichkeit === 'mittel' ? amber : orange
+
+  async function handleDelete() {
+    if (!confirm('Nachricht wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/widerspruch-kommunikationen/${k.id}`, { method: 'DELETE' })
+      if (res.ok) onDeleted(k.id)
+      else console.error('[ThreadEntry] Delete fehlgeschlagen', await res.text())
+    } catch { /* non-critical */ } finally { setDeleting(false) }
+  }
 
   return (
     <div style={{ display: 'flex', gap: 14 }}>
@@ -806,6 +818,18 @@ function ThreadEntry({
               📅 Frist: {fmtDate(k.ki_naechste_frist)}
             </span>
           )}
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            title="Nachricht löschen"
+            style={{
+              marginLeft: 'auto', padding: '2px 7px', borderRadius: 6, border: '1px solid #fca5a5',
+              background: deleting ? '#fef2f2' : 'white', color: deleting ? '#9ca3af' : '#ef4444',
+              cursor: deleting ? 'wait' : 'pointer', fontSize: 12, lineHeight: 1,
+            }}
+          >
+            {deleting ? '…' : '🗑'}
+          </button>
         </div>
         {k.betreff && <div style={{ fontSize: 12, fontWeight: 600, color: navy, marginBottom: 5 }}>{k.betreff}</div>}
         {!isOutgoing && k.ki_analyse && (
@@ -1026,7 +1050,12 @@ function WiderspruchThreadTab({
 
           {/* Thread entries */}
           {allEntries.map((k, i) => (
-            <ThreadEntry key={k.id} k={k} isLast={i === allEntries.length - 1 && !showInlineForm} />
+            <ThreadEntry
+              key={k.id}
+              k={k}
+              isLast={i === allEntries.length - 1 && !showInlineForm}
+              onDeleted={id => setLokalKommunikationen(prev => prev.filter(e => e.id !== id))}
+            />
           ))}
 
           {/* Inline form — appears at thread end, no modal */}
