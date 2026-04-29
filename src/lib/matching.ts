@@ -87,9 +87,14 @@ export function matchScore(
   const aSim = amountSim(vorgang.betrag_gesamt, gruppe.betragEingereicht)
   score += aSim * 0.2
 
-  // Short-circuit: wenn Betrag sehr nah (≥95%) UND Datum ≤14 Tage → immer matchen,
+  // Short-circuit 1: Betrag sehr nah (≥95%) UND Datum nah (≤14 Tage) → definitiver Match,
   // auch wenn Arztnamen unterschiedlich formatiert sind (häufigster Realfall).
   if (aSim >= 0.95 && days <= 14) score = Math.max(score, 0.60)
+
+  // Short-circuit 2: Kassenbescheid enthält kein Rechnungsdatum (häufig bei AXA).
+  // In diesem Fall ist Betrag das einzig verlässliche Signal — bei ≥90% Übereinstimmung matchen.
+  // Niedrigere Schwelle (0.55) als Short-circuit 1, da kein Datum-Beweis vorhanden.
+  if (aSim >= 0.90 && !gruppe.rechnungsdatum) score = Math.max(score, 0.55)
 
   return score
 }
