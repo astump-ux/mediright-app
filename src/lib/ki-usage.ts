@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from './supabase-admin'
 
-export type KiCallType = 'goae_analyse' | 'kasse_analyse' | 'widerspruch_analyse' | 'chat'
+export type KiCallType = 'goae_analyse' | 'kasse_analyse' | 'widerspruch_analyse' | 'chat' | 'ki_entwurf'
 
 // Pricing per million tokens (USD)
 // Anthropic: https://www.anthropic.com/pricing
