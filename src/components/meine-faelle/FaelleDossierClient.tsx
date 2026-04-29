@@ -1027,6 +1027,24 @@ function FallDossierCard({
 function UnverarbeitetSection({ vorgaenge }: { vorgaenge: UnverarbeitetVorgang[] }) {
   if (vorgaenge.length === 0) return null
   const [expanded, setExpanded] = useState(false)
+  const [rematchLoading, setRematchLoading] = useState(false)
+  const [rematchMsg, setRematchMsg]         = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function handleRematch(e: React.MouseEvent) {
+    e.stopPropagation()
+    setRematchLoading(true)
+    setRematchMsg(null)
+    try {
+      const res  = await fetch('/api/vorgaenge/rematch', { method: 'POST' })
+      const data = await res.json() as { matched: number; message: string }
+      setRematchMsg({ ok: data.matched > 0, text: data.message })
+      if (data.matched > 0) setTimeout(() => window.location.reload(), 1800)
+    } catch {
+      setRematchMsg({ ok: false, text: 'Fehler beim Rematch — bitte erneut versuchen.' })
+    } finally {
+      setRematchLoading(false)
+    }
+  }
 
   return (
     <div style={{ border: '1.5px solid #fde68a', borderRadius: 12, overflow: 'hidden', marginBottom: 14, background: '#fffbeb' }}>
@@ -1038,8 +1056,30 @@ function UnverarbeitetSection({ vorgaenge }: { vorgaenge: UnverarbeitetVorgang[]
           </span>
           <div style={{ fontSize: 11, color: '#b45309', marginTop: 2 }}>Noch kein Kassenbescheid hochgeladen — oder Zuordnung noch ausstehend</div>
         </div>
+        <button
+          onClick={handleRematch}
+          disabled={rematchLoading}
+          title="Zuordnung erneut prüfen"
+          style={{
+            flexShrink: 0, fontSize: 11, fontWeight: 700, padding: '4px 11px', borderRadius: 7,
+            border: '1.5px solid #fbbf24', background: rematchLoading ? '#fffbeb' : '#fef9c3',
+            color: '#78350f', cursor: rematchLoading ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+          }}
+        >
+          {rematchLoading ? '⏳ Prüfe…' : '🔄 Zuordnung prüfen'}
+        </button>
         <span style={{ color: '#b45309', fontSize: 14 }}>{expanded ? '▲' : '▼'}</span>
       </div>
+      {rematchMsg && (
+        <div style={{
+          margin: '0 16px 10px', padding: '7px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+          background: rematchMsg.ok ? '#f0fdf4' : '#fef2f2',
+          color:      rematchMsg.ok ? '#065f46'  : '#991b1b',
+          border: `1px solid ${rematchMsg.ok ? '#86efac' : '#fca5a5'}`,
+        }}>
+          {rematchMsg.ok ? '✅' : 'ℹ️'} {rematchMsg.text}
+        </div>
+      )}
       {expanded && (
         <div style={{ padding: '0 16px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {vorgaenge.map(v => (
