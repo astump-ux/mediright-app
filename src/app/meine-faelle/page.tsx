@@ -117,7 +117,7 @@ export default async function MeineFaellePage() {
   // ── 2. Fetch all linked vorgaenge ───────────────────────────────────────────
   const { data: vorgaengeRaw } = await admin
     .from('vorgaenge')
-    .select('id, arzt_name, rechnungsdatum, rechnungsnummer, betrag_gesamt, kasse_match_status, kassenabrechnung_id, pdf_storage_path, status, goae_analyse')
+    .select('id, arzt_name, rechnungsdatum, rechnungsnummer, betrag_gesamt, kasse_match_status, kassenabrechnung_id, pdf_storage_path, status, claude_analyse')
     .eq('user_id', user.id)
     .order('rechnungsdatum', { ascending: false })
 
@@ -135,7 +135,7 @@ export default async function MeineFaellePage() {
         betrag_gesamt: v.betrag_gesamt,
         kasse_match_status: v.kasse_match_status,
         pdf_storage_path: v.pdf_storage_path,
-        goae_analyse: (v.goae_analyse as Record<string, unknown> | null) ?? null,
+        goae_analyse: (v.claude_analyse as Record<string, unknown> | null) ?? null,
       })
       vorgaengeByKasse.set(v.kassenabrechnung_id, list)
     } else if (v.pdf_storage_path) {
