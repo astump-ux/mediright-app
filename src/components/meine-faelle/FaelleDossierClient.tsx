@@ -673,6 +673,10 @@ function WiderspruchBriefNode({
                   style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: blueL, color: '#1d4ed8' }}>
                   In Gmail öffnen
                 </button>
+                <button onClick={() => window.open(`mailto:?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`)}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: grey, color: navy }}>
+                  In Outlook öffnen
+                </button>
               </div>
             </div>
           </div>
@@ -688,6 +692,18 @@ function ArztBriefNode({ fall, userName }: { fall: FallDossier; userName: string
   const { betreff, body }         = generateArztBrief(fall, userName)
   const [editBetreff, setEditBetreff] = useState(betreff)
   const [editBody, setEditBody]       = useState(body)
+  const [arztSent, setArztSent]       = useState(fall.arzt_reklamation_status === 'gesendet')
+
+  async function toggleArztStatus() {
+    const next = arztSent ? 'erstellt' : 'gesendet'
+    try {
+      const res = await fetch(`/api/kassenabrechnungen/${fall.id}/widerspruch-status`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ arzt_status: next }),
+      })
+      if (res.ok) setArztSent(!arztSent)
+    } catch { /* non-critical */ }
+  }
 
   return (
     <div style={{ display: 'flex', gap: 14 }}>
@@ -701,6 +717,12 @@ function ArztBriefNode({ fall, userName }: { fall: FallDossier; userName: string
           <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>
             Anfrage: Rechnungskorrektur
           </span>
+          <button onClick={toggleArztStatus} style={{
+            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, cursor: 'pointer', border: 'none',
+            background: arztSent ? '#fff7ed' : '#f1f5f9', color: arztSent ? '#c2410c' : slate,
+          }}>
+            {arztSent ? '✅ Gesendet' : '📋 Entwurf'} ✎
+          </button>
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 6 }}>Brief an den behandelnden Arzt</div>
         <button onClick={() => setShowBrief(v => !v)} style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: showBrief ? orange : 'white', color: showBrief ? 'white' : slate, cursor: 'pointer', marginBottom: 8 }}>
@@ -722,6 +744,10 @@ function ArztBriefNode({ fall, userName }: { fall: FallDossier; userName: string
                 <button onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')}
                   style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: '#fff7ed', color: '#c2410c' }}>
                   In Gmail öffnen
+                </button>
+                <button onClick={() => window.open(`mailto:?subject=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`)}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: grey, color: navy }}>
+                  In Outlook öffnen
                 </button>
               </div>
             </div>
