@@ -15,7 +15,8 @@ import { randomUUID } from 'crypto'
 
 export const maxDuration = 120
 
-const ENRICH_SYSTEM_PROMPT = `Du bist ein PKV-Experte für AXA ActiveMe-U Kassenstreitigkeiten.`
+const ENRICH_SYSTEM_PROMPT = `Du bist ein PKV-Experte für AXA ActiveMe-U Kassenstreitigkeiten.
+Antworte ausschließlich mit einem JSON-Objekt, ohne einleitenden Text oder Markdown.`
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildEnrichPrompt(existingAnalyse: Record<string, any>): string {
@@ -108,7 +109,6 @@ export async function POST(
       userPrompt: enrichPrompt,
       pdfBase64: newPdfBuffer.toString('base64'),
       maxTokens: 8000,        // Widerspruchstext kann sehr lang sein
-      assistantPrefill: '{',  // Claude starts with { — guaranteed JSON output
     })
 
     logKiUsage({ callType: 'kasse_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, userId: user.id }).catch(() => {})
