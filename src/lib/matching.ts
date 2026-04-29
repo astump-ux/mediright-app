@@ -69,23 +69,34 @@ export function matchScore(
   let score = 0
 
   // Arzt name — weight 50%
+  // Note: Kassenbescheid and Arztrechnung often use different name formats
+  // (e.g. "Dr. Müller" vs "Gemeinschaftspraxis Müller & Partner"), so name
+  // similarity can be low even for the same doctor. Date + amount are more
+  // reliable signals for the same invoice.
   const nameSim = wordOverlap(vorgang.arzt_name ?? '', gruppe.arztName ?? '')
   score += nameSim * 0.5
 
   // Date proximity — weight 30%
   const days = dateDiff(vorgang.rechnungsdatum, gruppe.rechnungsdatum)
-  if (days <= 7)   score += 0.30
+  if (days <= 7)        score += 0.30
   else if (days <= 30)  score += 0.22
   else if (days <= 60)  score += 0.14
   else if (days <= 90)  score += 0.07
 
   // Amount similarity — weight 20%
-  score += amountSim(vorgang.betrag_gesamt, gruppe.betragEingereicht) * 0.2
+  const aSim = amountSim(vorgang.betrag_gesamt, gruppe.betragEingereicht)
+  score += aSim * 0.2
+
+  // Short-circuit: wenn Betrag sehr nah (≥95%) UND Datum ≤14 Tage → immer matchen,
+  // auch wenn Arztnamen unterschiedlich formatiert sind (häufigster Realfall).
+  if (aSim >= 0.95 && days <= 14) score = Math.max(score, 0.60)
 
   return score
 }
 
-export const MATCH_THRESHOLD = 0.50
+// Threshold deliberately below 0.50 so that a perfect date+amount match (0.50)
+// always succeeds even when name similarity is zero.
+export const MATCH_THRESHOLD = 0.45
 
 // ── Run matching for a new Kassenabrechnung ────────────────────────────────────
 
