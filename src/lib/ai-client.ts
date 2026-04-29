@@ -34,11 +34,13 @@ export const AI_MODELS: { value: string; label: string; provider: 'anthropic' | 
 // ── PDF analysis ──────────────────────────────────────────────────────────────
 
 export async function callAiWithPdf(params: {
-  model:        string
-  systemPrompt: string
-  userPrompt:   string
-  pdfBase64:    string
-  maxTokens?:   number
+  model:             string
+  systemPrompt:      string
+  userPrompt:        string
+  pdfBase64:         string
+  maxTokens?:        number
+  /** Prefill the assistant turn — forces Claude to start from this string (Anthropic only) */
+  assistantPrefill?: string
 }): Promise<AiResponse> {
   return isGeminiModel(params.model)
     ? geminiWithPdf(params)
@@ -60,23 +62,42 @@ export async function callAiText(params: {
 // ── Anthropic implementation ──────────────────────────────────────────────────
 
 async function anthropicWithPdf(params: {
-  model: string; systemPrompt: string; userPrompt: string; pdfBase64: string; maxTokens?: number
+  model: string; systemPrompt: string; userPrompt: string; pdfBase64: string
+  maxTokens?: number; assistantPrefill?: string
 }): Promise<AiResponse> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
-  const res = await client.messages.create({
-    model:      params.model,
-    max_tokens: params.maxTokens ?? 8192,
-    system:     params.systemPrompt,
-    messages: [{
+
+  const messages: Anthropic.MessageParam[] = [
+    {
       role: 'user',
       content: [
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: params.pdfBase64 } },
         { type: 'text', text: params.userPrompt },
       ],
-    }],
+    },
+  ]
+
+  // Assistant prefill: forces Claude to continue from the given string.
+  // The prefill is prepended to the actual response text before returning.
+  if (params.assistantPrefill) {
+    messages.push({ role: 'assistant', content: params.assistantPrefill })
+  }
+
+  const res = await client.messages.create({
+    model:      params.model,
+    max_tokens: params.maxTokens ?? 8192,
+    system:     params.systemPrompt,
+    messages,
   })
+
+  const responseText = res.content[0].type === 'text' ? res.content[0].text : ''
+  // Re-attach the prefill so the caller receives the complete string
+  const fullText = params.assistantPrefill
+    ? params.assistantPrefill + responseText
+    : responseText
+
   return {
-    text:  res.content[0].type === 'text' ? res.content[0].text : '',
+    text:  fullText,
     usage: { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens },
   }
 }

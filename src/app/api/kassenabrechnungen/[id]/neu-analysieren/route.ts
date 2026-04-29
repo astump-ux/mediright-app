@@ -15,10 +15,7 @@ import { randomUUID } from 'crypto'
 
 export const maxDuration = 120
 
-const ENRICH_SYSTEM_PROMPT = `Du bist ein PKV-Experte für AXA ActiveMe-U Kassenstreitigkeiten.
-Antworte AUSSCHLIESSLICH mit einem rohen JSON-Objekt.
-Beginne deine Antwort mit { und beende sie mit }.
-Kein einleitender Text, keine Erklärungen, kein Markdown, keine Code-Blöcke.`
+const ENRICH_SYSTEM_PROMPT = `Du bist ein PKV-Experte für AXA ActiveMe-U Kassenstreitigkeiten.`
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildEnrichPrompt(existingAnalyse: Record<string, any>): string {
@@ -32,25 +29,20 @@ function buildEnrichPrompt(existingAnalyse: Record<string, any>): string {
   }
   const aktuelleGruende = (existingAnalyse.ablehnungsgruende as string[] | null)?.join('\n- ') ?? 'keine'
 
-  return `Lies das beigefügte AXA-Dokument (Begründungsschreiben / Ablehnungsbescheid).
+  return `Lies das beigefügte AXA-Dokument (Begründungsschreiben / Ablehnungsbescheid) und ergänze die bestehende Analyse.
 
-Bereits bekannte Ablehnungsgründe aus der Leistungsabrechnung:
+Bereits bekannte Ablehnungsgründe:
 - ${aktuelleGruende}
 
-Abgelehnte / gekürzte GOÄ-Positionen:
-${positionen.map(p => `- ${p}`).join('\n')}
+Abgelehnte / gekürzte Positionen:
+${positionen.map(p => `- ${p}`).join('\n') || '(keine)'}
 
-Ergänze und verbessere die Analyse basierend auf dem AXA-Dokument.
-Antworte NUR mit diesem JSON (kein Text davor oder danach):
-{
-  "ablehnungsgruende": ["Präzise Formulierung 1 aus AXA-Schreiben", "..."],
-  "zusammenfassung": "2-3 Sätze Gesamtbild mit Infos aus beiden Dokumenten",
-  "widerspruchBegruendung": "Vollständiger Widerspruchstext der konkrete AXA-Formulierungen aufgreift und widerlegt",
-  "widerspruchErklaerung": "Kurze Laien-Erklärung was die AXA-Ablehnung bedeutet",
-  "positionUpdates": [
-    { "goaeZiffer": "4312", "ablehnungsbegruendung": "Konkrete Begründung aus dem Schreiben" }
-  ]
-}`
+Gib ein JSON-Objekt mit diesen Feldern zurück:
+- ablehnungsgruende: string[] — präzise Formulierungen aus dem AXA-Schreiben
+- zusammenfassung: string — 2-3 Sätze Gesamtbild
+- widerspruchBegruendung: string — vollständiger Widerspruchstext
+- widerspruchErklaerung: string — kurze Laien-Erklärung
+- positionUpdates: Array<{ goaeZiffer: string, ablehnungsbegruendung: string }>`
 }
 
 export async function POST(
@@ -109,19 +101,21 @@ export async function POST(
     const existingAnalyse = kasse.kasse_analyse as Record<string, any>
     const enrichPrompt = buildEnrichPrompt(existingAnalyse)
 
-    // ── Delta-Anfrage: kleiner Output, nie abgeschnitten ──────────────────
+    // ── Delta-Anfrage mit Assistant-Prefill → Claude MUSS mit { antworten ──
     const { text: raw, usage } = await callAiWithPdf({
       model,
       systemPrompt: ENRICH_SYSTEM_PROMPT,
       userPrompt: enrichPrompt,
       pdfBase64: newPdfBuffer.toString('base64'),
       maxTokens: 3000,
+      assistantPrefill: '{',  // Claude starts with { — guaranteed JSON output
     })
 
     logKiUsage({ callType: 'kasse_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, userId: user.id }).catch(() => {})
 
+    // raw already starts with '{' (prefill is prepended by callAiWithPdf)
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('Keine JSON-Antwort von KI')
+    if (!jsonMatch) throw new Error(`Keine JSON-Antwort von KI (Rohtext: ${raw.slice(0, 200)})`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const delta = JSON.parse(jsonMatch[0]) as Record<string, any>
 
