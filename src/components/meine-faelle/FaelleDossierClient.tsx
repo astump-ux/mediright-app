@@ -781,8 +781,9 @@ function ThreadEntry({
   const [editBody, setEditBody]       = useState(k.ki_vorschlag_inhalt ?? '')
   const [copied, setCopied]           = useState(false)
   const [deleting, setDeleting]       = useState(false)
-  const isOutgoing = k.richtung === 'ausgehend'
-  const dotColor   = isOutgoing ? blue : k.ki_dringlichkeit === 'hoch' ? red : k.ki_dringlichkeit === 'mittel' ? amber : orange
+  const isOutgoing  = k.richtung === 'ausgehend'
+  const isKiEntwurf = k.typ === 'ki_entwurf'
+  const dotColor    = isKiEntwurf ? '#7c3aed' : isOutgoing ? blue : k.ki_dringlichkeit === 'hoch' ? red : k.ki_dringlichkeit === 'mittel' ? amber : orange
 
   async function handleDelete() {
     if (!confirm('Nachricht wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return
@@ -802,13 +803,15 @@ function ThreadEntry({
       </div>
       <div style={{ flex: 1, paddingBottom: isLast ? 0 : 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: isOutgoing ? blue : amber }}>
-            {isOutgoing
+          <span style={{ fontSize: 12, fontWeight: 700, color: isKiEntwurf ? '#7c3aed' : isOutgoing ? blue : amber }}>
+            {isKiEntwurf
+              ? `🤖 KI-Entwurf → ${k.kommunikationspartner === 'kasse' ? 'AXA' : 'Arzt'}`
+              : isOutgoing
               ? `📤 Du → ${k.kommunikationspartner === 'kasse' ? 'AXA' : 'Arzt'}`
               : `📥 ${k.kommunikationspartner === 'kasse' ? 'AXA' : 'Arzt'} → Du`}
           </span>
           <span style={{ fontSize: 11, color: slate }}>{fmtDate(k.datum)}</span>
-          {k.ki_dringlichkeit && !isOutgoing && (
+          {k.ki_dringlichkeit && (!isOutgoing || isKiEntwurf) && (
             <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: '#fef2f2', color: k.ki_dringlichkeit === 'hoch' ? red : amber }}>
               Dringlichkeit: {k.ki_dringlichkeit}
             </span>
@@ -832,8 +835,8 @@ function ThreadEntry({
           </button>
         </div>
         {k.betreff && <div style={{ fontSize: 12, fontWeight: 600, color: navy, marginBottom: 5 }}>{k.betreff}</div>}
-        {!isOutgoing && k.ki_analyse && (
-          <div style={{ background: blueL, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#1e40af', marginBottom: 8, lineHeight: 1.55 }}>
+        {(!isOutgoing || isKiEntwurf) && k.ki_analyse && (
+          <div style={{ background: isKiEntwurf ? '#f5f3ff' : blueL, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: isKiEntwurf ? '#6d28d9' : '#1e40af', marginBottom: 8, lineHeight: 1.55 }}>
             🤖 {k.ki_analyse}
           </div>
         )}
@@ -845,10 +848,10 @@ function ThreadEntry({
             {k.inhalt}
           </div>
         )}
-        {!isOutgoing && k.ki_vorschlag_inhalt && (
+        {(!isOutgoing || isKiEntwurf) && k.ki_vorschlag_inhalt && (
           <div>
-            <button onClick={() => setShowReply(v => !v)} style={{ fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 8, border: `1.5px solid ${amber}`, background: showReply ? amberL : 'white', color: '#92400e', cursor: 'pointer', marginBottom: 6 }}>
-              {showReply ? '▲ Antwortvorlage schließen' : '✉️ KI-Antwortvorlage öffnen'}
+            <button onClick={() => setShowReply(v => !v)} style={{ fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 8, border: `1.5px solid ${isKiEntwurf ? '#7c3aed' : amber}`, background: showReply ? (isKiEntwurf ? '#f5f3ff' : amberL) : 'white', color: isKiEntwurf ? '#6d28d9' : '#92400e', cursor: 'pointer', marginBottom: 6 }}>
+              {showReply ? '▲ Entwurf schließen' : (isKiEntwurf ? '📝 KI-Entwurf öffnen' : '✉️ KI-Antwortvorlage öffnen')}
             </button>
             {showReply && (
               <div style={{ border: `2px solid ${amber}`, borderRadius: 10, overflow: 'hidden' }}>
@@ -892,6 +895,7 @@ function InlineKommunikationForm({
   onAdded: (k: FallKommunikation) => void
   onClose: () => void
 }) {
+  const [richtung, setRichtung] = useState<'eingehend' | 'ausgehend'>('eingehend')
   const [partner, setPartner] = useState<'kasse' | 'arzt'>('kasse')
   const [inhalt, setInhalt]   = useState('')
   const [betreff, setBetreff] = useState('')
@@ -924,7 +928,7 @@ function InlineKommunikationForm({
     }
   }
 
-  async function handleAnalyse() {
+  async function handleSubmit() {
     if (!inhalt.trim()) return
     setLoading(true); setAnalyseError(null)
     const controller = new AbortController()
@@ -935,9 +939,9 @@ function InlineKommunikationForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kassenabrechnungen_id: fallId,
-          richtung: 'eingehend',
+          richtung,
           kommunikationspartner: partner,
-          typ: 'antwort',
+          typ: richtung === 'ausgehend' ? 'gesendet' : 'antwort',
           datum, betreff, inhalt,
         }),
         signal: controller.signal,
@@ -947,19 +951,34 @@ function InlineKommunikationForm({
       onAdded(data as FallKommunikation)
       onClose()
     } catch (err) {
-      setAnalyseError(err instanceof Error && err.name === 'AbortError' ? 'KI-Analyse Timeout – bitte erneut versuchen' : String(err))
+      setAnalyseError(err instanceof Error && err.name === 'AbortError' ? 'Timeout – bitte erneut versuchen' : String(err))
     } finally {
       clearTimeout(tid); setLoading(false)
     }
   }
 
   return (
-    <div style={{ border: `2px solid ${blue}`, borderRadius: 10, overflow: 'hidden', marginTop: 8 }}>
-      <div style={{ background: blueL, padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#1d4ed8' }}>📥 Neue Kasse- oder Arzt-Kommunikation erfassen</span>
+    <div style={{ border: `2px solid ${richtung === 'ausgehend' ? blue : amber}`, borderRadius: 10, overflow: 'hidden', marginTop: 8 }}>
+      <div style={{ background: richtung === 'ausgehend' ? blueL : amberL, padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: richtung === 'ausgehend' ? '#1d4ed8' : '#92400e' }}>
+          {richtung === 'ausgehend' ? '📤 Gesendete Kommunikation erfassen' : '📥 Eingegangene Kommunikation erfassen'}
+        </span>
         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: slate, fontSize: 16, lineHeight: 1 }}>✕</button>
       </div>
       <div style={{ padding: 14, background: 'white' }}>
+        {/* Richtung toggle */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          {(['eingehend', 'ausgehend'] as const).map(r => (
+            <button key={r} onClick={() => setRichtung(r)} style={{
+              flex: 1, padding: '6px 0', borderRadius: 7, border: `1.5px solid ${richtung === r ? (r === 'ausgehend' ? blue : amber) : '#e2e8f0'}`,
+              background: richtung === r ? (r === 'ausgehend' ? blueL : amberL) : 'white',
+              color: richtung === r ? (r === 'ausgehend' ? '#1d4ed8' : '#92400e') : slate,
+              fontWeight: 700, fontSize: 12, cursor: 'pointer',
+            }}>
+              {r === 'eingehend' ? '📥 Eingegangen (von AXA/Arzt)' : '📤 Gesendet (von mir)'}
+            </button>
+          ))}
+        </div>
         {/* Partner toggle */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
           {(['kasse', 'arzt'] as const).map(p => (
@@ -968,7 +987,9 @@ function InlineKommunikationForm({
               background: partner === p ? blueL : 'white', color: partner === p ? '#1d4ed8' : slate,
               fontWeight: 700, fontSize: 12, cursor: 'pointer',
             }}>
-              {p === 'kasse' ? '📋 Von AXA' : '🩺 Vom Arzt'}
+              {p === 'kasse'
+                ? (richtung === 'ausgehend' ? '📋 An AXA' : '📋 Von AXA')
+                : (richtung === 'ausgehend' ? '🩺 An Arzt' : '🩺 Vom Arzt')}
             </button>
           ))}
         </div>
@@ -992,7 +1013,9 @@ function InlineKommunikationForm({
             style={{ padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 12, color: navy }} />
         </div>
         <textarea value={inhalt} onChange={e => setInhalt(e.target.value)}
-          placeholder="Inhalt der Antwort — oder oben PDF hochladen damit KI den Text extrahiert"
+          placeholder={richtung === 'ausgehend'
+            ? 'Inhalt des gesendeten Schreibens — oder oben PDF hochladen'
+            : 'Inhalt der eingegangenen Antwort — oder oben PDF hochladen damit KI den Text extrahiert'}
           rows={6}
           style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 11, color: navy, lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box', marginBottom: 10 }} />
 
@@ -1002,10 +1025,14 @@ function InlineKommunikationForm({
           </div>
         )}
 
-        <button onClick={handleAnalyse} disabled={loading || !inhalt.trim()}
+        <button onClick={handleSubmit} disabled={loading || !inhalt.trim()}
           style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13, cursor: loading ? 'wait' : 'pointer',
-            background: loading ? '#e2e8f0' : blue, color: loading ? slate : 'white' }}>
-          {loading ? '⏳ KI analysiert…' : '🤖 Erfassen & KI analysieren'}
+            background: loading ? '#e2e8f0' : (richtung === 'ausgehend' ? blue : amber), color: loading ? slate : 'white' }}>
+          {loading
+            ? '⏳ Wird gespeichert…'
+            : richtung === 'ausgehend'
+            ? '📤 Gesendete Kommunikation erfassen'
+            : '🤖 Erfassen & KI analysieren'}
         </button>
       </div>
     </div>
@@ -1021,7 +1048,23 @@ function WiderspruchThreadTab({
   onWiderspruchStatusChange: (s: string) => void
 }) {
   const [lokalKommunikationen, setLokalKommunikationen] = useState<FallKommunikation[]>(fall.kommunikationen)
-  const [showInlineForm, setShowInlineForm] = useState(false)
+  const [showInlineForm, setShowInlineForm]   = useState(false)
+  const [kiEntwurfLoading, setKiEntwurfLoading] = useState(false)
+  const [kiEntwurfError, setKiEntwurfError]     = useState<string | null>(null)
+
+  async function handleKiEntwurf() {
+    setKiEntwurfLoading(true); setKiEntwurfError(null)
+    try {
+      const res = await fetch(`/api/kassenabrechnungen/${fall.id}/ki-entwurf`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'KI-Entwurf fehlgeschlagen')
+      setLokalKommunikationen(prev => [...prev, data as FallKommunikation])
+    } catch (err) {
+      setKiEntwurfError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setKiEntwurfLoading(false)
+    }
+  }
 
   const hasWiderspruch = widerspruchStatus !== 'keiner'
   const allEntries = lokalKommunikationen
@@ -1069,14 +1112,29 @@ function WiderspruchThreadTab({
               onClose={() => setShowInlineForm(false)}
             />
           ) : (
-            <div style={{ display: 'flex', gap: 8, paddingLeft: 38, marginTop: 8 }}>
-              <button onClick={() => setShowInlineForm(true)} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8,
-                border: `1.5px dashed #7dd3fc`, background: '#f0f9ff', color: '#0369a1',
-                fontWeight: 700, fontSize: 12, cursor: 'pointer',
-              }}>
-                <span>📥</span> AXA-Antwort / Arzt-Antwort hinzufügen
-              </button>
+            <div style={{ paddingLeft: 38, marginTop: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={() => setShowInlineForm(true)} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8,
+                  border: '1.5px dashed #7dd3fc', background: '#f0f9ff', color: '#0369a1',
+                  fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                }}>
+                  <span>📨</span> Kommunikation hinzufügen
+                </button>
+                <button onClick={handleKiEntwurf} disabled={kiEntwurfLoading} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8,
+                  border: '1.5px dashed #c4b5fd', background: '#f5f3ff', color: '#6d28d9',
+                  fontWeight: 700, fontSize: 12, cursor: kiEntwurfLoading ? 'wait' : 'pointer',
+                  opacity: kiEntwurfLoading ? 0.7 : 1,
+                }}>
+                  {kiEntwurfLoading ? '⏳ KI analysiert…' : '🤖 Neue KI-Handlungsempfehlung'}
+                </button>
+              </div>
+              {kiEntwurfError && (
+                <div style={{ marginTop: 6, padding: '6px 10px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 7, fontSize: 11, color: '#991b1b' }}>
+                  {kiEntwurfError}
+                </div>
+              )}
             </div>
           )}
         </div>
