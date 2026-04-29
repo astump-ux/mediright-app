@@ -262,17 +262,24 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
     if (!file) return
     setNeuAnalysePdfName(file.name)
     setNeuAnalyseLoading(true); setNeuAnalyseError(null)
+    const controller = new AbortController()
+    const tid = setTimeout(() => controller.abort(), 90_000)
     try {
       const fd = new FormData(); fd.append('file', file)
-      const res = await fetch(`/api/kassenabrechnungen/${fall.id}/neu-analysieren`, { method: 'POST', body: fd })
+      const res = await fetch(`/api/kassenabrechnungen/${fall.id}/neu-analysieren`, {
+        method: 'POST', body: fd, signal: controller.signal,
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message ?? data.error ?? 'Fehler')
-      // Seite neu laden damit die aktualisierte Analyse sichtbar wird
       window.location.reload()
     } catch (err) {
-      setNeuAnalyseError(err instanceof Error ? err.message : String(err))
+      const msg = err instanceof Error
+        ? (err.name === 'AbortError' ? 'Timeout — bitte erneut versuchen' : err.message)
+        : String(err)
+      setNeuAnalyseError(msg)
       setNeuAnalyseLoading(false)
     } finally {
+      clearTimeout(tid)
       if (neuAnalyseRef.current) neuAnalyseRef.current.value = ''
     }
   }

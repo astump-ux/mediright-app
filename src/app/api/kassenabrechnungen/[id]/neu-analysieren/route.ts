@@ -18,27 +18,10 @@ import { randomUUID } from 'crypto'
 export const maxDuration = 120
 
 const ENRICH_SYSTEM_PROMPT = `Du bist ein PKV-Experte für AXA ActiveMe-U Kassenstreitigkeiten.
-
-Du erhältst:
-1. Ein AXA-Begründungsschreiben / Ablehnungsdetail als PDF
-2. Eine Kurzübersicht der bereits analysierten Positionen aus der Leistungsabrechnung
-
-AUFGABE: Lies das PDF-Dokument und gib NUR die verbesserten/ergänzten Felder zurück.
-
-Antworte NUR mit diesem JSON (kein Text davor oder danach):
-{
-  "ablehnungsgruende": ["Konkrete Formulierung aus AXA-Schreiben 1", "..."],
-  "zusammenfassung": "Aktualisierte Zusammenfassung mit Infos aus dem Begründungsschreiben (2-3 Sätze)",
-  "widerspruchBegruendung": "Verbesserter Widerspruchstext der konkrete AXA-Formulierungen aufgreift und widerlegt",
-  "widerspruchErklaerung": "Kurze Laien-Erklärung was die AXA-Ablehnung bedeutet (optional, leer lassen wenn nicht nötig)",
-  "positionUpdates": [
-    { "goaeZiffer": "4312", "ablehnungsbegruendung": "Konkrete Begründung aus dem Schreiben für diese Position" }
-  ]
-}`
+Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein einleitender Text, keine Erklärungen, kein Markdown.`
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildSlimContext(existingAnalyse: Record<string, any>): string {
-  // Nur minimaler Kontext — keine Beträge, nur GOÄ-Ziffern + Status + aktuelle Ablehnungsgründe
+function buildEnrichPrompt(existingAnalyse: Record<string, any>): string {
   const positionen: string[] = []
   for (const rechnung of existingAnalyse.rechnungen ?? []) {
     for (const pos of rechnung.positionen ?? []) {
@@ -49,13 +32,25 @@ function buildSlimContext(existingAnalyse: Record<string, any>): string {
   }
   const aktuelleGruende = (existingAnalyse.ablehnungsgruende as string[] | null)?.join('\n- ') ?? 'keine'
 
-  return `Aktuell bekannte Ablehnungsgründe (aus Leistungsabrechnung):
+  return `Lies das beigefügte AXA-Dokument (Begründungsschreiben / Ablehnungsbescheid).
+
+Bereits bekannte Ablehnungsgründe aus der Leistungsabrechnung:
 - ${aktuelleGruende}
 
-Abgelehnte/gekürzte Positionen:
+Abgelehnte / gekürzte GOÄ-Positionen:
 ${positionen.map(p => `- ${p}`).join('\n')}
 
-Bitte ergänze/präzisiere basierend auf dem AXA-Begründungsschreiben oben.`
+Ergänze und verbessere die Analyse basierend auf dem AXA-Dokument.
+Antworte NUR mit diesem JSON (kein Text davor oder danach):
+{
+  "ablehnungsgruende": ["Präzise Formulierung 1 aus AXA-Schreiben", "..."],
+  "zusammenfassung": "2-3 Sätze Gesamtbild mit Infos aus beiden Dokumenten",
+  "widerspruchBegruendung": "Vollständiger Widerspruchstext der konkrete AXA-Formulierungen aufgreift und widerlegt",
+  "widerspruchErklaerung": "Kurze Laien-Erklärung was die AXA-Ablehnung bedeutet",
+  "positionUpdates": [
+    { "goaeZiffer": "4312", "ablehnungsbegruendung": "Konkrete Begründung aus dem Schreiben" }
+  ]
+}`
 }
 
 export async function POST(
@@ -120,15 +115,15 @@ export async function POST(
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const existingAnalyse = kasse.kasse_analyse as Record<string, any>
-    const slimContext = buildSlimContext(existingAnalyse)
+    const enrichPrompt = buildEnrichPrompt(existingAnalyse)
 
     // ── Delta-Anfrage: kleiner Output, nie abgeschnitten ──────────────────
     const { text: raw, usage } = await callAiWithPdf({
       model,
       systemPrompt: ENRICH_SYSTEM_PROMPT,
-      userPrompt: slimContext,
+      userPrompt: enrichPrompt,
       pdfBase64: newPdfBuffer.toString('base64'),
-      maxTokens: 3000,   // Delta ist klein — 3000 reichen immer
+      maxTokens: 3000,
     })
 
     logKiUsage({ callType: 'kasse_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, userId: user.id }).catch(() => {})
