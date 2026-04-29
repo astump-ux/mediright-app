@@ -87,6 +87,36 @@ function generateBrief(fall: FallDossier, userName: string): { betreff: string; 
   return { betreff, body }
 }
 
+function generateArztBrief(fall: FallDossier, userName: string): { betreff: string; body: string } {
+  const analyse = fall.kasse_analyse
+  const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const rechnungen = ((analyse?.rechnungen ?? []) as RawRech[])
+  const arztPosAll = rechnungen.flatMap(g =>
+    (g.positionen ?? [])
+      .filter(p => p.aktionstyp === 'korrektur_arzt' && (p.status === 'abgelehnt' || p.status === 'gekuerzt'))
+      .map(p => ({ ...p, arztName: g.arztName }))
+  )
+  const arztName = arztPosAll[0]?.arztName ?? '[Arztname]'
+  const betrag = arztPosAll.reduce((s, p) => s + (p.betragEingereicht ?? 0) - (p.betragErstattet ?? 0), 0)
+  const posListe = arztPosAll.map(p =>
+    `- GOÄ ${p.ziffer}: ${p.bezeichnung} (${(p.betragEingereicht ?? 0).toFixed(2).replace('.', ',')} €)\n  Ablehnung: ${p.ablehnungsgrund ?? 'keine Begründung'}`
+  ).join('\n')
+  const betreff = `Bitte um Prüfung / Korrektur Ihrer Rechnung`
+  const body =
+    `${userName}\n\n${heute}\n\n${arztName}\n\n` +
+    `Betreff: ${betreff}\n\n` +
+    `Sehr geehrte Damen und Herren,\n\n` +
+    `meine Krankenversicherung AXA hat in ihrer Leistungsabrechnung vom ${fmtDateShort(fall.bescheiddatum)} ` +
+    `folgende Position(en) aus Ihrer Rechnung nicht anerkannt:\n\n` +
+    `${posListe}\n\n` +
+    `Nicht erstattet: ${betrag.toFixed(2).replace('.', ',')} €\n\n` +
+    `Ich bitte Sie, die abgelehnten Positionen zu prüfen und mir mitzuteilen, ob eine Rechnungskorrektur ` +
+    `möglich ist oder Sie eine ärztliche Begründung zur medizinischen Notwendigkeit bereitstellen können, ` +
+    `die ich für einen Widerspruch bei der AXA nutzen kann.\n\n` +
+    `Mit freundlichen Grüßen\n${userName}`
+  return { betreff, body }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ── SUMMARY BAR ───────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,7 +247,11 @@ function SmartUploadZone({ onSuccess }: { onSuccess: () => void }) {
 // ── TAB 1: BESCHEID & ABLEHNUNGEN ─────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-function BescheidTab({ fall, onSwitchToRechnungen }: { fall: FallDossier; onSwitchToRechnungen: () => void }) {
+function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
+  fall: FallDossier
+  onSwitchToRechnungen: () => void
+  onSwitchToWiderspruch: () => void
+}) {
   const analyse = fall.kasse_analyse
   const ablehnungsgruende: string[] = (analyse?.ablehnungsgruende as string[] | null) ?? []
   const rechnungen = (analyse?.rechnungen ?? []) as Array<{
@@ -233,6 +267,9 @@ function BescheidTab({ fall, onSwitchToRechnungen }: { fall: FallDossier; onSwit
   const arztSent = fall.arzt_reklamation_status === 'gesendet'
   const hasArztAction = rechnungen.some(r =>
     (r.positionen ?? []).some(p => p.aktionstyp === 'korrektur_arzt' && (p.status === 'abgelehnt' || p.status === 'gekuerzt'))
+  )
+  const hasKasseWiderspruch = rechnungen.some(r =>
+    (r.positionen ?? []).some(p => p.aktionstyp === 'widerspruch_kasse' && (p.status === 'abgelehnt' || p.status === 'gekuerzt'))
   )
 
   return (
@@ -300,6 +337,38 @@ function BescheidTab({ fall, onSwitchToRechnungen }: { fall: FallDossier; onSwit
           hasArztAction={hasArztAction}
           defaultOpen={true}
         />
+      )}
+
+      {/* Prominente Aktions-CTAs */}
+      {(hasKasseWiderspruch || hasArztAction) && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {hasKasseWiderspruch && (
+            <button
+              onClick={onSwitchToWiderspruch}
+              style={{
+                flex: 1, minWidth: 200, padding: '11px 18px', borderRadius: 9,
+                border: 'none', cursor: 'pointer',
+                background: blue, color: 'white',
+                fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+              }}
+            >
+              <span>📝</span> Widerspruch bei AXA einlegen →
+            </button>
+          )}
+          {hasArztAction && (
+            <button
+              onClick={onSwitchToWiderspruch}
+              style={{
+                flex: 1, minWidth: 200, padding: '11px 18px', borderRadius: 9,
+                border: 'none', cursor: 'pointer',
+                background: orange, color: 'white',
+                fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+              }}
+            >
+              <span>🩺</span> Arzt um Rechnungskorrektur bitten →
+            </button>
+          )}
+        </div>
       )}
 
       {/* Ablehnungsgründe */}
@@ -613,6 +682,56 @@ function WiderspruchBriefNode({
   )
 }
 
+function ArztBriefNode({ fall, userName }: { fall: FallDossier; userName: string }) {
+  const [showBrief, setShowBrief] = useState(false)
+  const [copied, setCopied]       = useState(false)
+  const { betreff, body }         = generateArztBrief(fall, userName)
+  const [editBetreff, setEditBetreff] = useState(betreff)
+  const [editBody, setEditBody]       = useState(body)
+
+  return (
+    <div style={{ display: 'flex', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 24, flexShrink: 0 }}>
+        <div style={{ width: 14, height: 14, borderRadius: '50%', background: orange, border: '2px solid white', boxShadow: `0 0 0 2px ${orange}`, marginTop: 4, zIndex: 1 }} />
+        <div style={{ width: 2, flex: 1, background: '#e2e8f0', marginTop: 4 }} />
+      </div>
+      <div style={{ flex: 1, paddingBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: orange }}>🩺 Du → Arzt</span>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>
+            Anfrage: Rechnungskorrektur
+          </span>
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: navy, marginBottom: 6 }}>Brief an den behandelnden Arzt</div>
+        <button onClick={() => setShowBrief(v => !v)} style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: showBrief ? orange : 'white', color: showBrief ? 'white' : slate, cursor: 'pointer', marginBottom: 8 }}>
+          {showBrief ? '▲ Brief schließen' : '▼ Brief anzeigen'}
+        </button>
+        {showBrief && (
+          <div style={{ border: `2px solid ${orange}`, borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ background: '#fff7ed', padding: '8px 14px', fontSize: 11, fontWeight: 700, color: '#c2410c' }}>An: Behandelnder Arzt / Rechnungssteller</div>
+            <div style={{ padding: 12 }}>
+              <input value={editBetreff} onChange={e => setEditBetreff(e.target.value)}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 12, color: navy, marginBottom: 8, boxSizing: 'border-box' }} />
+              <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={12}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 11, color: navy, lineHeight: 1.6, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box', marginBottom: 10 }} />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={async () => { await navigator.clipboard.writeText(`Betreff: ${editBetreff}\n\n${editBody}`); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: copied ? '#fff7ed' : grey, color: copied ? '#c2410c' : navy }}>
+                  {copied ? '✓ Kopiert' : '📋 Kopieren'}
+                </button>
+                <button onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(editBetreff)}&body=${encodeURIComponent(editBody)}`, '_blank')}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', background: '#fff7ed', color: '#c2410c' }}>
+                  In Gmail öffnen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ThreadEntry({
   k, isLast,
 }: {
@@ -834,17 +953,25 @@ function InlineKommunikationForm({
 }
 
 function WiderspruchThreadTab({
-  fall, userName,
+  fall, userName, widerspruchStatus, onWiderspruchStatusChange,
 }: {
   fall: FallDossier
   userName: string
+  widerspruchStatus: string
+  onWiderspruchStatusChange: (s: string) => void
 }) {
   const [lokalKommunikationen, setLokalKommunikationen] = useState<FallKommunikation[]>(fall.kommunikationen)
   const [showInlineForm, setShowInlineForm] = useState(false)
-  const [wStatus, setWStatus] = useState(fall.widerspruch_status)
 
-  const hasWiderspruch = wStatus !== 'keiner'
+  const hasWiderspruch = widerspruchStatus !== 'keiner'
   const allEntries = lokalKommunikationen
+
+  // Detect whether an Arzt-Korrektur brief is needed
+  const rechnungen = ((fall.kasse_analyse?.rechnungen ?? []) as Array<{ arztName?: string | null; positionen?: KassePosition[] }>)
+  const hasArztAction = rechnungen.some(r =>
+    (r.positionen ?? []).some(p => (p as { aktionstyp?: string | null; status?: string }).aktionstyp === 'korrektur_arzt' &&
+      (['abgelehnt', 'gekuerzt'].includes((p as { status?: string }).status ?? '')))
+  )
 
   return (
     <div>
@@ -855,8 +982,11 @@ function WiderspruchThreadTab({
       )}
       {hasWiderspruch && (
         <div style={{ position: 'relative' }}>
-          {/* Initial brief */}
-          <WiderspruchBriefNode fall={{ ...fall, widerspruch_status: wStatus }} userName={userName} onStatusChange={setWStatus} />
+          {/* AXA Widerspruchsbrief */}
+          <WiderspruchBriefNode fall={{ ...fall, widerspruch_status: widerspruchStatus }} userName={userName} onStatusChange={onWiderspruchStatusChange} />
+
+          {/* Arzt-Korrekturbrief — wenn Positionen mit aktionstyp=korrektur_arzt vorhanden */}
+          {hasArztAction && <ArztBriefNode fall={fall} userName={userName} />}
 
           {/* Thread entries */}
           {allEntries.map((k, i) => (
@@ -903,6 +1033,8 @@ function FallDossierCard({
   const [activeTab, setActiveTab] = useState<'bescheid' | 'rechnungen' | 'widerspruch'>('bescheid')
   const [expanded, setExpanded]   = useState(true)
   const [pdfLoading, setPdfLoading] = useState(false)
+  // Lifted from WiderspruchThreadTab so tab-switches don't reset it
+  const [localWStatus, setLocalWStatus] = useState(fall.widerspruch_status)
 
   async function openKassenbescheidPdf() {
     if (!fall.pdf_storage_path) return
@@ -915,7 +1047,7 @@ function FallDossierCard({
     } catch { /* ignore */ } finally { setPdfLoading(false) }
   }
 
-  const status = fall.widerspruch_status
+  const status = localWStatus
   const statusCfg = STATUS_CFG[status]
   const quote = fall.betrag_eingereicht > 0 ? (fall.betrag_erstattet / fall.betrag_eingereicht) * 100 : 0
   const hasKomm = fall.kommunikationen.length > 0
@@ -1010,9 +1142,9 @@ function FallDossierCard({
 
           {/* ── Tab content ── */}
           <div style={{ padding: '16px', background: 'white' }}>
-            {activeTab === 'bescheid' && <BescheidTab fall={fall} onSwitchToRechnungen={() => setActiveTab('rechnungen')} />}
+            {activeTab === 'bescheid' && <BescheidTab fall={fall} onSwitchToRechnungen={() => setActiveTab('rechnungen')} onSwitchToWiderspruch={() => setActiveTab('widerspruch')} />}
             {activeTab === 'rechnungen' && <RechnungenTab fall={fall} onUploaded={() => window.location.reload()} />}
-            {activeTab === 'widerspruch' && <WiderspruchThreadTab fall={fall} userName={userName} />}
+            {activeTab === 'widerspruch' && <WiderspruchThreadTab fall={fall} userName={userName} widerspruchStatus={localWStatus} onWiderspruchStatusChange={setLocalWStatus} />}
           </div>
         </>
       )}
