@@ -93,8 +93,8 @@ export async function POST(
     .upload(newFileName, newPdfBuffer, { contentType: 'application/pdf', upsert: false })
     .catch(() => {})
 
-  // ── Haiku für schnelle Delta-Analyse (kein Credit-Verbrauch) ─────────────
-  const model = 'claude-haiku-4-5-20251001'
+  // ── Sonnet für qualitativ hochwertige Analyse (gerichtsfeste Argumente) ──
+  const model = 'claude-sonnet-4-6'
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,7 +107,7 @@ export async function POST(
       systemPrompt: ENRICH_SYSTEM_PROMPT,
       userPrompt: enrichPrompt,
       pdfBase64: newPdfBuffer.toString('base64'),
-      maxTokens: 3000,
+      maxTokens: 8000,        // Widerspruchstext kann sehr lang sein
       assistantPrefill: '{',  // Claude starts with { — guaranteed JSON output
     })
 
