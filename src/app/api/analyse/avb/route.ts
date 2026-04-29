@@ -280,7 +280,7 @@ Wichtige Anweisungen:
 - Selbstbehalt-Ausnahmen sind besonders wichtig – welche Leistungen zählen NICHT zur Jahresobergrenze?`
 
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 8192,
       messages: [
         {

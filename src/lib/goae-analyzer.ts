@@ -282,7 +282,7 @@ export async function classifyPdf(
   pkvName?: string | null
 ): Promise<DocumentType> {
   try {
-    const model = await getSetting('claude_model', 'claude-sonnet-4-5')
+    const model = await getSetting('claude_model', 'claude-sonnet-4-6')
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
     const base64Pdf = pdfBuffer.toString('base64')
 
