@@ -153,6 +153,9 @@ export async function POST(
       merged.naechsteSchritte = delta.naechsteSchritte
     }
 
+    // Persist the path of the new PDF so the case header can link to it
+    merged.neuAnalysePdfPath = newFileName
+
     // Timestamp so UI can prove freshness after reload
     merged.neuAnalysiertAm = new Date().toISOString()
 

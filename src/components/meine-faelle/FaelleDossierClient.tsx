@@ -61,7 +61,7 @@ function quoteColor(q: number) {
 }
 
 // ── Widerspruchsbrief generator (adapted from WiderspruchClient) ───────────────
-type RawPos  = { ziffer?: string; bezeichnung?: string; betragEingereicht?: number; betragErstattet?: number; ablehnungsgrund?: string | null; status?: string; aktionstyp?: string | null }
+type RawPos  = { ziffer?: string; bezeichnung?: string; betragEingereicht?: number; betragErstattet?: number; ablehnungsgrund?: string | null; ablehnungsbegruendung?: string | null; status?: string; aktionstyp?: string | null }
 type RawRech = { arztName?: string | null; positionen?: RawPos[] }
 
 function generateBrief(fall: FallDossier, userName: string): { betreff: string; body: string } {
@@ -99,21 +99,51 @@ function generateArztBrief(fall: FallDossier, userName: string): { betreff: stri
   )
   const arztName = arztPosAll[0]?.arztName ?? '[Arztname]'
   const betrag = arztPosAll.reduce((s, p) => s + (p.betragEingereicht ?? 0) - (p.betragErstattet ?? 0), 0)
-  const posListe = arztPosAll.map(p =>
-    `- GOÄ ${p.ziffer}: ${p.bezeichnung} (${(p.betragEingereicht ?? 0).toFixed(2).replace('.', ',')} €)\n  Ablehnung: ${p.ablehnungsgrund ?? 'keine Begründung'}`
-  ).join('\n')
-  const betreff = `Bitte um Prüfung / Korrektur Ihrer Rechnung`
+
+  // Build per-position text using ablehnungsbegruendung (from Begründungsschreiben) when available,
+  // falling back to ablehnungsgrund (from initial Kassenbescheid analysis).
+  // Each position gets a specific ask rather than a generic closing.
+  const posLines = arztPosAll.map(p => {
+    const begruendung = p.ablehnungsbegruendung ?? p.ablehnungsgrund ?? null
+    const betragStr = `${(p.betragEingereicht ?? 0).toFixed(2).replace('.', ',')} €`
+    let lines = `- GOÄ ${p.ziffer}: ${p.bezeichnung} (${betragStr})`
+    if (begruendung) lines += `\n  AXA-Begründung: ${begruendung}`
+    return lines
+  }).join('\n')
+
+  // Derive a specific closing ask per position, if any position has an ablehnungsbegruendung.
+  // If the rejection mentions missing documentation (Anamnese, Befund, Nachweise etc.),
+  // ask specifically for that — otherwise ask for a written medical necessity statement.
+  const spezifischeAnfragen = arztPosAll
+    .filter(p => p.ablehnungsbegruendung)
+    .map(p => {
+      const b = (p.ablehnungsbegruendung ?? '').toLowerCase()
+      const ziffer = `GOÄ ${p.ziffer}`
+      if (b.includes('anamnese') || b.includes('repertoris'))
+        return `  • ${ziffer}: Bitte reichen Sie die schriftliche Anamnese und Repertorisation nach.`
+      if (b.includes('befund') || b.includes('dokumentation') || b.includes('nachweis'))
+        return `  • ${ziffer}: Bitte übermitteln Sie die entsprechende Befunddokumentation / den Behandlungsnachweis.`
+      if (b.includes('analog') || b.includes('analogziffer'))
+        return `  • ${ziffer}: Bitte bestätigen Sie schriftlich die Analogabrechnung und legen Sie die medizinische Begründung bei.`
+      if (b.includes('faktor') || b.includes('steigerungsfaktor'))
+        return `  • ${ziffer}: Bitte begründen Sie den angesetzten Steigerungsfaktor in einem kurzen Schreiben.`
+      return `  • ${ziffer}: Bitte stellen Sie eine ärztliche Begründung zur medizinischen Notwendigkeit dieser Leistung bereit.`
+    })
+
+  const schluss = spezifischeAnfragen.length > 0
+    ? `Ich bitte Sie konkret um folgende Unterlagen / Korrekturen, damit ich Widerspruch bei der AXA einlegen kann:\n\n${spezifischeAnfragen.join('\n')}`
+    : `Ich bitte Sie, die abgelehnten Positionen zu prüfen und mir mitzuteilen, ob eine Rechnungskorrektur möglich ist oder Sie eine ärztliche Begründung zur medizinischen Notwendigkeit bereitstellen können, die ich für einen Widerspruch bei der AXA nutzen kann.`
+
+  const betreff = `Bitte um Prüfung / Unterlagen zu Ihrer Rechnung`
   const body =
     `${userName}\n\n${heute}\n\n${arztName}\n\n` +
     `Betreff: ${betreff}\n\n` +
     `Sehr geehrte Damen und Herren,\n\n` +
     `meine Krankenversicherung AXA hat in ihrer Leistungsabrechnung vom ${fmtDateShort(fall.bescheiddatum)} ` +
     `folgende Position(en) aus Ihrer Rechnung nicht anerkannt:\n\n` +
-    `${posListe}\n\n` +
+    `${posLines}\n\n` +
     `Nicht erstattet: ${betrag.toFixed(2).replace('.', ',')} €\n\n` +
-    `Ich bitte Sie, die abgelehnten Positionen zu prüfen und mir mitzuteilen, ob eine Rechnungskorrektur ` +
-    `möglich ist oder Sie eine ärztliche Begründung zur medizinischen Notwendigkeit bereitstellen können, ` +
-    `die ich für einen Widerspruch bei der AXA nutzen kann.\n\n` +
+    `${schluss}\n\n` +
     `Mit freundlichen Grüßen\n${userName}`
   return { betreff, body }
 }
@@ -498,7 +528,7 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
               Abgelehnte / Gekürzte Positionen
             </div>
             <div style={{ fontSize: 10, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 4, padding: '2px 7px' }}>
-              💡 Einzelbeträge erscheinen sobald du die Arztrechnung im Tab &quot;Rechnungen&quot; hochlädst
+              💡 Einzelbeträge erscheinen sobald du die zugehörigen Arztrechnung(en) im Tab &quot;Rechnungen&quot; hochlädst
             </div>
           </div>
           <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid #e2e8f0' }}>
@@ -937,18 +967,29 @@ function ArztBriefNode({ fall, userName }: { fall: FallDossier; userName: string
 }
 
 function ThreadEntry({
-  k, isLast,
+  k, isLast, onDelete,
 }: {
   k: FallKommunikation
   isLast: boolean
+  onDelete?: () => void
 }) {
   const [showText, setShowText]   = useState(false)
   const [showReply, setShowReply] = useState(false)
   const [editBetreff, setEditBetreff] = useState(k.ki_vorschlag_betreff ?? '')
   const [editBody, setEditBody]       = useState(k.ki_vorschlag_inhalt ?? '')
   const [copied, setCopied]           = useState(false)
+  const [deleting, setDeleting]       = useState(false)
   const isOutgoing = k.richtung === 'ausgehend'
   const dotColor   = isOutgoing ? blue : k.ki_dringlichkeit === 'hoch' ? red : k.ki_dringlichkeit === 'mittel' ? amber : orange
+
+  async function handleDelete() {
+    if (!onDelete) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/widerspruch-kommunikationen/${k.id}`, { method: 'DELETE' })
+      if (res.ok) onDelete()
+    } catch { /* ignore */ } finally { setDeleting(false) }
+  }
 
   return (
     <div style={{ display: 'flex', gap: 14 }}>
@@ -973,6 +1014,19 @@ function ThreadEntry({
             <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: '#fef2f2', color: red }}>
               📅 Frist: {fmtDate(k.ki_naechste_frist)}
             </span>
+          )}
+          {onDelete && (
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              title="Eintrag entfernen"
+              style={{
+                marginLeft: 'auto', background: 'none', border: 'none', cursor: deleting ? 'wait' : 'pointer',
+                color: '#94a3b8', fontSize: 14, lineHeight: 1, padding: '2px 4px', borderRadius: 4,
+              }}
+            >
+              {deleting ? '⏳' : '✕'}
+            </button>
           )}
         </div>
         {k.betreff && <div style={{ fontSize: 12, fontWeight: 600, color: navy, marginBottom: 5 }}>{k.betreff}</div>}
@@ -1194,7 +1248,12 @@ function WiderspruchThreadTab({
 
           {/* Thread entries */}
           {allEntries.map((k, i) => (
-            <ThreadEntry key={k.id} k={k} isLast={i === allEntries.length - 1 && !showInlineForm} />
+            <ThreadEntry
+              key={k.id}
+              k={k}
+              isLast={i === allEntries.length - 1 && !showInlineForm}
+              onDelete={() => setLokalKommunikationen(prev => prev.filter(x => x.id !== k.id))}
+            />
           ))}
 
           {/* Inline form — appears at thread end, no modal */}
@@ -1251,6 +1310,19 @@ function FallDossierCard({
     } catch { /* ignore */ } finally { setPdfLoading(false) }
   }
 
+  async function openBegruendungPdf() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const path = (fall.kasse_analyse as any)?.neuAnalysePdfPath as string | null | undefined
+    if (!path) return
+    setPdfLoading(true)
+    try {
+      const { getSupabaseClient } = await import('@/lib/supabase')
+      const sb = getSupabaseClient()
+      const { data } = await sb.storage.from('rechnungen').createSignedUrl(path, 300)
+      if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    } catch { /* ignore */ } finally { setPdfLoading(false) }
+  }
+
   const status = localWStatus
   const statusCfg = STATUS_CFG[status]
   const quote = fall.betrag_eingereicht > 0 ? (fall.betrag_erstattet / fall.betrag_eingereicht) * 100 : 0
@@ -1291,6 +1363,21 @@ function FallDossierCard({
                 title="Kassenbescheid-PDF öffnen"
               >
                 {pdfLoading ? '⏳' : '📄'} Bescheid-PDF
+              </button>
+            )}
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            {(fall.kasse_analyse as any)?.neuAnalysePdfPath && (
+              <button
+                onClick={e => { e.stopPropagation(); openBegruendungPdf() }}
+                disabled={pdfLoading}
+                style={{
+                  fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 20,
+                  background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d',
+                  cursor: pdfLoading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                }}
+                title="AXA-Begründungsschreiben öffnen"
+              >
+                {pdfLoading ? '⏳' : '📋'} Begründungs-PDF
               </button>
             )}
           </div>
