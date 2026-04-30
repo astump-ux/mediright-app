@@ -265,7 +265,7 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
     setNeuAnalyseLoading(true)
     setNeuAnalyseError(null)
     const controller = new AbortController()
-    const tid = setTimeout(() => controller.abort(), 115_000) // 115s = 2 KI-Calls à ~45s
+    const tid = setTimeout(() => controller.abort(), 60_000)
     try {
       const fd = new FormData()
       fd.append('file', file)
@@ -274,7 +274,10 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message ?? data.error ?? 'Fehler')
-      window.location.reload()
+      // Kurze Pause damit der User die Erfolgsmeldung sieht, dann reload
+      setNeuAnalyseError(null)
+      setNeuAnalysePdfName('✅ Ablehnungsgründe aktualisiert — Seite lädt neu…')
+      setTimeout(() => window.location.reload(), 1500)
     } catch (err) {
       const msg = err instanceof Error
         ? (err.name === 'AbortError' ? 'Timeout — bitte erneut versuchen' : err.message)

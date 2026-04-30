@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { callAiWithPdf, callAiText } from '@/lib/ai-client'
+import { callAiWithPdf } from '@/lib/ai-client'
 import { logKiUsage } from '@/lib/ki-usage'
 import { randomUUID } from 'crypto'
 
@@ -154,54 +154,8 @@ export async function POST(
       }
     }
 
-    // ── Stufe 1 speichern ─────────────────────────────────────────────────
+    // ── Speichern ─────────────────────────────────────────────────────────
     await admin.from('kassenabrechnungen').update({ kasse_analyse: merged }).eq('id', id)
-
-    // ── Stufe 2: Widerspruchsbrief neu generieren ─────────────────────────
-    // Auf Basis der jetzt aktualisierten Fakten einen präzisen Widerspruch schreiben.
-    const ablehnungsgruende = (merged.ablehnungsgruende as string[] ?? []).map((g: string) => `- ${g}`).join('\n')
-    const positionen2: string[] = []
-    for (const rechnung of merged.rechnungen ?? []) {
-      for (const pos of (rechnung.positionen ?? []) as Array<Record<string, unknown>>) {
-        if (pos.status === 'abgelehnt' || pos.status === 'gekuerzt') {
-          const begruendung = pos.ablehnungsbegruendung ? ` — AXA: "${pos.ablehnungsbegruendung}"` : ''
-          positionen2.push(`GOÄ ${pos.goaeZiffer ?? pos.ziffer ?? '?'}: ${pos.leistung ?? pos.bezeichnung ?? ''}${begruendung}`)
-        }
-      }
-    }
-
-    const widerspruchPrompt = `Du bist ein PKV-Anwalt der für den Versicherten einen schriftlichen Widerspruch verfasst.
-
-AXA Ablehnungsgründe:
-${ablehnungsgruende || '(keine expliziten Gründe)'}
-
-Abgelehnte/gekürzte GOÄ-Positionen:
-${positionen2.map(p => `- ${p}`).join('\n') || '(keine)'}
-
-Schreibe einen vollständigen, juristisch fundierten Widerspruchsbrief der:
-- Jeden AXA-Ablehnungsgrund konkret widerlegt
-- GOÄ-konforme Argumente für jede abgelehnte Position liefert
-- Auf BGH-Rechtsprechung zu PKV-Ablehnungen verweist wo relevant
-- Professionell und sachlich formuliert ist
-
-Antworte NUR mit dem Brieftext, ohne JSON, ohne Erklärungen.`
-
-    try {
-      const { text: widerspruchText, usage: u2 } = await callAiText({
-        model,
-        prompt: widerspruchPrompt,
-        maxTokens: 4000,
-      })
-      logKiUsage({ callType: 'kasse_analyse', model, inputTokens: u2.inputTokens, outputTokens: u2.outputTokens, userId: user.id }).catch(() => {})
-
-      if (widerspruchText.length > 100) {
-        merged.widerspruchBegruendung = widerspruchText
-        await admin.from('kassenabrechnungen').update({ kasse_analyse: merged }).eq('id', id)
-      }
-    } catch (wErr) {
-      // Stufe 2 Fehler sind nicht kritisch — Fakten wurden bereits in Stufe 1 gespeichert
-      console.error('[neu-analysieren] Widerspruch-Generierung fehlgeschlagen:', wErr)
-    }
 
     return NextResponse.json({ success: true })
 
