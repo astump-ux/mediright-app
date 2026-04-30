@@ -14,6 +14,7 @@
  */
 
 import { useState, useRef, useCallback, lazy, Suspense, type ComponentProps, type ChangeEvent } from 'react'
+import { useRouter } from 'next/navigation'
 import type { FallDossier, FallKommunikation, UnverarbeitetVorgang } from '@/app/meine-faelle/page'
 import type { KassePosition, KasseAnalyseResult, KasseRechnungGruppe } from '@/lib/goae-analyzer'
 import { WIDERSPRUCH_STATUS_CFG } from '@/components/ui/WiderspruchStatus'
@@ -253,6 +254,7 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
   onSwitchToWiderspruch: () => void
 }) {
   const analyse = fall.kasse_analyse
+  const router = useRouter()
   const [neuAnalyseLoading, setNeuAnalyseLoading] = useState(false)
   const [neuAnalyseStatus, setNeuAnalyseStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [neuAnalyseMsg, setNeuAnalyseMsg] = useState<string | null>(null)
@@ -520,7 +522,7 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
             }}>
               {neuAnalyseMsg}
               {neuAnalyseStatus === 'success' && (
-                <button onClick={() => window.location.reload()} style={{
+                <button onClick={() => router.refresh()} style={{
                   marginLeft: 12, padding: '3px 10px', borderRadius: 5, border: 'none',
                   background: '#16a34a', color: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer',
                 }}>
