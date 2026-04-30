@@ -15,6 +15,14 @@ import { randomUUID } from 'crypto'
 
 export const maxDuration = 120
 
+/** Extrahiert JSON aus einer KI-Antwort — toleriert Markdown-Fences und führenden Text */
+function extractJson(raw: string): string | null {
+  // Markdown-Fences entfernen: ```json ... ``` oder ``` ... ```
+  const stripped = raw.replace(/^```(?:json)?\s*/im, '').replace(/\s*```\s*$/m, '').trim()
+  const m = stripped.match(/\{[\s\S]*\}/)
+  return m ? m[0] : null
+}
+
 const ENRICH_SYSTEM_PROMPT = `Du bist ein PKV-Experte für AXA ActiveMe-U Kassenstreitigkeiten.
 Antworte ausschließlich mit einem JSON-Objekt, ohne einleitenden Text oder Markdown.`
 
@@ -108,15 +116,15 @@ export async function POST(
       systemPrompt: ENRICH_SYSTEM_PROMPT,
       userPrompt: enrichPrompt,
       pdfBase64: newPdfBuffer.toString('base64'),
-      maxTokens: 2000,        // Nur Extraktion, kein langer Widerspruchstext
+      maxTokens: 3500,
     })
 
     logKiUsage({ callType: 'kasse_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, userId: user.id }).catch(() => {})
 
-    const jsonMatch = raw.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error(`Keine JSON-Antwort von KI (Rohtext: ${raw.slice(0, 200)})`)
+    const jsonStr = extractJson(raw)
+    if (!jsonStr) throw new Error(`Keine JSON-Antwort von KI (Rohtext: ${raw.slice(0, 200)})`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const delta = JSON.parse(jsonMatch[0]) as Record<string, any>
+    const delta = JSON.parse(jsonStr) as Record<string, any>
 
     // ── Delta in bestehende Analyse mergen ────────────────────────────────
     // Nur Fakten aus dem neuen Dokument übernehmen.
