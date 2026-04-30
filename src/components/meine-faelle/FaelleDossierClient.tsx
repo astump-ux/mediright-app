@@ -265,7 +265,7 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
     setNeuAnalyseStatus('idle')
     setNeuAnalyseMsg(`⏳ Analysiere "${file.name}"…`)
     const controller = new AbortController()
-    const tid = setTimeout(() => controller.abort(), 60_000)
+    const tid = setTimeout(() => controller.abort(), 90_000)
     try {
       const fd = new FormData()
       fd.append('file', file)
@@ -275,8 +275,10 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       let data: Record<string, unknown> = {}
       try { data = await res.json() } catch { /* non-JSON response */ }
       if (!res.ok) throw new Error((data.message ?? data.error ?? `HTTP ${res.status}`) as string)
+      const count = (data.ablehnungsgruendeCount as number | undefined) ?? 0
+      const countLabel = count > 0 ? ` (${count} Grund${count === 1 ? '' : 'e'} gespeichert)` : ' (0 Gründe — evtl. kein Begründungsschreiben erkannt)'
       setNeuAnalyseStatus('success')
-      setNeuAnalyseMsg('✅ Ablehnungsgründe aktualisiert! Klicke unten um die Seite neu zu laden.')
+      setNeuAnalyseMsg(`✅ Ablehnungsgründe aktualisiert${countLabel}! Klicke auf "Neu laden" um die Änderungen zu sehen.`)
     } catch (err) {
       const msg = err instanceof Error
         ? (err.name === 'AbortError' ? 'Timeout nach 60s — bitte erneut versuchen' : err.message)

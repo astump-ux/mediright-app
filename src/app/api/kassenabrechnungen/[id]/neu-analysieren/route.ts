@@ -155,9 +155,23 @@ export async function POST(
     }
 
     // ── Speichern ─────────────────────────────────────────────────────────
-    await admin.from('kassenabrechnungen').update({ kasse_analyse: merged }).eq('id', id)
+    const { error: updateError, data: updateData } = await admin
+      .from('kassenabrechnungen')
+      .update({ kasse_analyse: merged })
+      .eq('id', id)
+      .select('id, kasse_analyse')
+      .maybeSingle()
 
-    return NextResponse.json({ success: true })
+    if (updateError) throw new Error(`DB-Update fehlgeschlagen: ${updateError.message}`)
+
+    // Verify the write actually landed
+    const savedGruende = (updateData?.kasse_analyse as Record<string, unknown> | null)?.ablehnungsgruende
+    const gruendeCount = Array.isArray(savedGruende) ? savedGruende.length : 0
+
+    return NextResponse.json({
+      success: true,
+      ablehnungsgruendeCount: gruendeCount,
+    })
 
   } catch (err) {
     console.error('[neu-analysieren] Fehler:', err)
