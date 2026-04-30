@@ -13,7 +13,7 @@
  *  4. Inline Reveal, not Modal — thread actions appear in-place at end of thread
  */
 
-import { useState, useRef, useCallback, lazy, Suspense, type ComponentProps, type ChangeEvent } from 'react'
+import { useState, useRef, useCallback, useMemo, useEffect, lazy, Suspense, type ComponentProps, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import type { FallDossier, FallKommunikation, UnverarbeitetVorgang } from '@/app/meine-faelle/page'
 import type { KassePosition, KasseAnalyseResult, KasseRechnungGruppe } from '@/lib/goae-analyzer'
@@ -88,7 +88,7 @@ function generateBrief(fall: FallDossier, userName: string): { betreff: string; 
   return { betreff, body }
 }
 
-function generateArztBrief(fall: FallDossier, userName: string): { betreff: string; body: string } {
+function generateArztBrief(fall: FallDossier, userName: string, liveBegruendungen?: Map<string, string>): { betreff: string; body: string } {
   const analyse = fall.kasse_analyse
   const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const rechnungen = ((analyse?.rechnungen ?? []) as RawRech[])
@@ -100,24 +100,24 @@ function generateArztBrief(fall: FallDossier, userName: string): { betreff: stri
   const arztName = arztPosAll[0]?.arztName ?? '[Arztname]'
   const betrag = arztPosAll.reduce((s, p) => s + (p.betragEingereicht ?? 0) - (p.betragErstattet ?? 0), 0)
 
-  // Build per-position text using ablehnungsbegruendung (from Begründungsschreiben) when available,
-  // falling back to ablehnungsgrund (from initial Kassenbescheid analysis).
-  // Each position gets a specific ask rather than a generic closing.
+  // Build per-position text. Priority: live map (from latest PDF upload) > DB ablehnungsbegruendung > ablehnungsgrund.
   const posLines = arztPosAll.map(p => {
-    const begruendung = p.ablehnungsbegruendung ?? p.ablehnungsgrund ?? null
+    const ziffer = String(p.ziffer ?? '')
+    const begruendung = liveBegruendungen?.get(ziffer) ?? p.ablehnungsbegruendung ?? p.ablehnungsgrund ?? null
     const betragStr = `${(p.betragEingereicht ?? 0).toFixed(2).replace('.', ',')} €`
     let lines = `- GOÄ ${p.ziffer}: ${p.bezeichnung} (${betragStr})`
     if (begruendung) lines += `\n  AXA-Begründung: ${begruendung}`
     return lines
   }).join('\n')
 
-  // Derive a specific closing ask per position, if any position has an ablehnungsbegruendung.
-  // If the rejection mentions missing documentation (Anamnese, Befund, Nachweise etc.),
-  // ask specifically for that — otherwise ask for a written medical necessity statement.
   const spezifischeAnfragen = arztPosAll
-    .filter(p => p.ablehnungsbegruendung)
     .map(p => {
-      const b = (p.ablehnungsbegruendung ?? '').toLowerCase()
+      const ziffer = String(p.ziffer ?? '')
+      return { p, resolved: liveBegruendungen?.get(ziffer) ?? p.ablehnungsbegruendung ?? null }
+    })
+    .filter(({ resolved }) => !!resolved)
+    .map(({ p, resolved }) => {
+      const b = (resolved ?? '').toLowerCase()
       const ziffer = `GOÄ ${p.ziffer}`
       if (b.includes('anamnese') || b.includes('repertoris'))
         return `  • ${ziffer}: Bitte reichen Sie die schriftliche Anamnese und Repertorisation nach.`
@@ -278,10 +278,11 @@ function SmartUploadZone({ onSuccess }: { onSuccess: () => void }) {
 // ── TAB 1: BESCHEID & ABLEHNUNGEN ─────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
+function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch, onPositionUpdates }: {
   fall: FallDossier
   onSwitchToRechnungen: () => void
   onSwitchToWiderspruch: () => void
+  onPositionUpdates?: (updates: { goaeZiffer: string; ablehnungsbegruendung: string }[]) => void
 }) {
   const analyse = fall.kasse_analyse
   // Local state for ablehnungsgruende and per-position begruendungen —
@@ -360,6 +361,7 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
           for (const u of newPositionUpdates) next.set(String(u.goaeZiffer), u.ablehnungsbegruendung)
           return next
         })
+        onPositionUpdates?.(newPositionUpdates)
       }
 
       const countLabel = count > 0 ? ` (${count} Grund${count === 1 ? '' : 'e'})` : ' — kein Begründungsschreiben erkannt, keine neuen Gründe'
@@ -889,13 +891,16 @@ function WiderspruchBriefNode({
   )
 }
 
-function ArztBriefNode({ fall, userName }: { fall: FallDossier; userName: string }) {
+function ArztBriefNode({ fall, userName, livePositionBegruendungen }: { fall: FallDossier; userName: string; livePositionBegruendungen?: Map<string, string> }) {
   const [showBrief, setShowBrief] = useState(false)
   const [copied, setCopied]       = useState(false)
-  const { betreff, body }         = generateArztBrief(fall, userName)
+  const [arztSent, setArztSent]   = useState(fall.arzt_reklamation_status === 'gesendet')
+  // Recompute brief whenever live position data changes (e.g. after Begründungsschreiben upload)
+  const { betreff, body }         = useMemo(() => generateArztBrief(fall, userName, livePositionBegruendungen), [fall, userName, livePositionBegruendungen])
   const [editBetreff, setEditBetreff] = useState(betreff)
   const [editBody, setEditBody]       = useState(body)
-  const [arztSent, setArztSent]       = useState(fall.arzt_reklamation_status === 'gesendet')
+  // Sync edit state when computed brief updates (only if user hasn't sent yet)
+  useEffect(() => { if (!arztSent) { setEditBetreff(betreff); setEditBody(body) } }, [betreff, body, arztSent])
 
   async function toggleArztStatus() {
     const next = arztSent ? 'erstellt' : 'gesendet'
@@ -1211,12 +1216,13 @@ function InlineKommunikationForm({
 }
 
 function WiderspruchThreadTab({
-  fall, userName, widerspruchStatus, onWiderspruchStatusChange,
+  fall, userName, widerspruchStatus, onWiderspruchStatusChange, livePositionBegruendungen,
 }: {
   fall: FallDossier
   userName: string
   widerspruchStatus: string
   onWiderspruchStatusChange: (s: string) => void
+  livePositionBegruendungen?: Map<string, string>
 }) {
   const [lokalKommunikationen, setLokalKommunikationen] = useState<FallKommunikation[]>(fall.kommunikationen)
   const [showInlineForm, setShowInlineForm] = useState(false)
@@ -1244,7 +1250,7 @@ function WiderspruchThreadTab({
           <WiderspruchBriefNode fall={{ ...fall, widerspruch_status: widerspruchStatus }} userName={userName} onStatusChange={onWiderspruchStatusChange} />
 
           {/* Arzt-Korrekturbrief — wenn Positionen mit aktionstyp=korrektur_arzt vorhanden */}
-          {hasArztAction && <ArztBriefNode fall={fall} userName={userName} />}
+          {hasArztAction && <ArztBriefNode fall={fall} userName={userName} livePositionBegruendungen={livePositionBegruendungen} />}
 
           {/* Thread entries */}
           {allEntries.map((k, i) => (
@@ -1298,6 +1304,18 @@ function FallDossierCard({
   const [pdfLoading, setPdfLoading] = useState(false)
   // Lifted from WiderspruchThreadTab so tab-switches don't reset it
   const [localWStatus, setLocalWStatus] = useState(fall.widerspruch_status)
+  // Live position begruendungen from Begründungsschreiben — shared between BescheidTab and WiderspruchThreadTab
+  const [livePositionBegruendungen, setLivePositionBegruendungen] = useState<Map<string, string>>(() => {
+    const map = new Map<string, string>()
+    const rechnungen = ((fall.kasse_analyse?.rechnungen ?? []) as Array<{ positionen?: Array<{ goaeZiffer?: string; ziffer?: string; ablehnungsbegruendung?: string }> }>)
+    for (const r of rechnungen) {
+      for (const p of r.positionen ?? []) {
+        const z = String(p.goaeZiffer ?? p.ziffer ?? '')
+        if (z && p.ablehnungsbegruendung) map.set(z, p.ablehnungsbegruendung)
+      }
+    }
+    return map
+  })
 
   async function openKassenbescheidPdf() {
     if (!fall.pdf_storage_path) return
@@ -1433,9 +1451,9 @@ function FallDossierCard({
 
           {/* ── Tab content ── */}
           <div style={{ padding: '16px', background: 'white' }}>
-            {activeTab === 'bescheid' && <BescheidTab fall={fall} onSwitchToRechnungen={() => setActiveTab('rechnungen')} onSwitchToWiderspruch={() => setActiveTab('widerspruch')} />}
+            {activeTab === 'bescheid' && <BescheidTab fall={fall} onSwitchToRechnungen={() => setActiveTab('rechnungen')} onSwitchToWiderspruch={() => setActiveTab('widerspruch')} onPositionUpdates={updates => setLivePositionBegruendungen(prev => { const next = new Map(prev); for (const u of updates) next.set(String(u.goaeZiffer), u.ablehnungsbegruendung); return next })} />}
             {activeTab === 'rechnungen' && <RechnungenTab fall={fall} onUploaded={() => window.location.reload()} />}
-            {activeTab === 'widerspruch' && <WiderspruchThreadTab fall={fall} userName={userName} widerspruchStatus={localWStatus} onWiderspruchStatusChange={setLocalWStatus} />}
+            {activeTab === 'widerspruch' && <WiderspruchThreadTab fall={fall} userName={userName} widerspruchStatus={localWStatus} onWiderspruchStatusChange={setLocalWStatus} livePositionBegruendungen={livePositionBegruendungen} />}
           </div>
         </>
       )}
