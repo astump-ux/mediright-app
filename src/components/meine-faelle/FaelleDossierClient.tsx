@@ -254,16 +254,16 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
 }) {
   const analyse = fall.kasse_analyse
   const [neuAnalyseLoading, setNeuAnalyseLoading] = useState(false)
-  const [neuAnalyseError, setNeuAnalyseError] = useState<string | null>(null)
-  const [neuAnalysePdfName, setNeuAnalysePdfName] = useState<string | null>(null)
+  const [neuAnalyseStatus, setNeuAnalyseStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [neuAnalyseMsg, setNeuAnalyseMsg] = useState<string | null>(null)
   const neuAnalyseRef = useRef<HTMLInputElement>(null)
 
   async function handleNeuAnalyse(e: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = e.target.files?.[0]
     if (!file) return
-    setNeuAnalysePdfName(file.name)
     setNeuAnalyseLoading(true)
-    setNeuAnalyseError(null)
+    setNeuAnalyseStatus('idle')
+    setNeuAnalyseMsg(`⏳ Analysiere "${file.name}"…`)
     const controller = new AbortController()
     const tid = setTimeout(() => controller.abort(), 60_000)
     try {
@@ -272,19 +272,19 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       const res = await fetch(`/api/kassenabrechnungen/${fall.id}/neu-analysieren`, {
         method: 'POST', body: fd, signal: controller.signal,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message ?? data.error ?? 'Fehler')
-      // Kurze Pause damit der User die Erfolgsmeldung sieht, dann reload
-      setNeuAnalyseError(null)
-      setNeuAnalysePdfName('✅ Ablehnungsgründe aktualisiert — Seite lädt neu…')
-      setTimeout(() => window.location.reload(), 1500)
+      let data: Record<string, unknown> = {}
+      try { data = await res.json() } catch { /* non-JSON response */ }
+      if (!res.ok) throw new Error((data.message ?? data.error ?? `HTTP ${res.status}`) as string)
+      setNeuAnalyseStatus('success')
+      setNeuAnalyseMsg('✅ Ablehnungsgründe aktualisiert! Klicke unten um die Seite neu zu laden.')
     } catch (err) {
       const msg = err instanceof Error
-        ? (err.name === 'AbortError' ? 'Timeout — bitte erneut versuchen' : err.message)
+        ? (err.name === 'AbortError' ? 'Timeout nach 60s — bitte erneut versuchen' : err.message)
         : String(err)
-      setNeuAnalyseError(msg)
-      setNeuAnalyseLoading(false)
+      setNeuAnalyseStatus('error')
+      setNeuAnalyseMsg(msg)
     } finally {
+      setNeuAnalyseLoading(false)
       clearTimeout(tid)
       if (neuAnalyseRef.current) neuAnalyseRef.current.value = ''
     }
@@ -494,26 +494,37 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
             style={{ display: 'none' }}
             onChange={handleNeuAnalyse}
           />
-          <button
-            onClick={() => neuAnalyseRef.current?.click()}
-            disabled={neuAnalyseLoading}
-            style={{
-              padding: '8px 16px', borderRadius: 7, border: `1.5px solid ${blue}`,
-              background: neuAnalyseLoading ? '#e2e8f0' : 'white',
-              color: neuAnalyseLoading ? slate : blue,
-              fontWeight: 700, fontSize: 12, cursor: neuAnalyseLoading ? 'not-allowed' : 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}
-          >
-            {neuAnalyseLoading ? (
-              <>⏳ Analyse läuft{neuAnalysePdfName ? ` (${neuAnalysePdfName})` : ''}…</>
-            ) : (
-              <>📄 PDF hochladen &amp; Analyse aktualisieren</>
-            )}
-          </button>
-          {neuAnalyseError && (
-            <div style={{ marginTop: 8, fontSize: 11, color: red, padding: '6px 10px', background: '#fef2f2', borderRadius: 6 }}>
-              ⚠️ {neuAnalyseError}
+          {neuAnalyseStatus !== 'success' && (
+            <button
+              onClick={() => neuAnalyseRef.current?.click()}
+              disabled={neuAnalyseLoading}
+              style={{
+                padding: '8px 16px', borderRadius: 7, border: `1.5px solid ${blue}`,
+                background: neuAnalyseLoading ? '#e2e8f0' : 'white',
+                color: neuAnalyseLoading ? slate : blue,
+                fontWeight: 700, fontSize: 12, cursor: neuAnalyseLoading ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              {neuAnalyseLoading ? <>⏳ {neuAnalyseMsg}</> : <>📄 PDF hochladen &amp; Analyse aktualisieren</>}
+            </button>
+          )}
+          {neuAnalyseMsg && !neuAnalyseLoading && (
+            <div style={{
+              marginTop: 8, fontSize: 12, padding: '8px 12px', borderRadius: 6, fontWeight: 600,
+              background: neuAnalyseStatus === 'success' ? '#f0fdf4' : '#fef2f2',
+              color: neuAnalyseStatus === 'success' ? '#15803d' : red,
+              border: `1px solid ${neuAnalyseStatus === 'success' ? '#86efac' : '#fca5a5'}`,
+            }}>
+              {neuAnalyseMsg}
+              {neuAnalyseStatus === 'success' && (
+                <button onClick={() => window.location.reload()} style={{
+                  marginLeft: 12, padding: '3px 10px', borderRadius: 5, border: 'none',
+                  background: '#16a34a', color: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                }}>
+                  🔄 Jetzt neu laden
+                </button>
+              )}
             </div>
           )}
         </div>
