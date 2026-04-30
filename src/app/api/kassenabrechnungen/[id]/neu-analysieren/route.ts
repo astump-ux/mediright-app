@@ -38,18 +38,20 @@ function buildEnrichPrompt(existingAnalyse: Record<string, any>): string {
   }
   const aktuelleGruende = (existingAnalyse.ablehnungsgruende as string[] | null)?.join('\n- ') ?? 'keine'
 
-  return `Lies das beigefügte AXA-Dokument (Begründungsschreiben / Ablehnungsbescheid).
+  return `Lies das beigefügte AXA-Dokument und extrahiere die Ablehnungsgründe.
 
-Abgelehnte / gekürzte Positionen aus der bestehenden Analyse:
+Abgelehnte / gekürzte Positionen:
 ${positionen.map(p => `- ${p}`).join('\n') || '(keine)'}
 
-Extrahiere aus dem Dokument folgende Informationen als JSON:
+WICHTIG: Halte alle Texte kurz (max. 1 Satz pro Feld).
+
+JSON-Ausgabe (nur diese Felder, keine weiteren):
 {
-  "ablehnungsgruende": ["Exakte Formulierung aus AXA-Schreiben 1", "..."],
-  "zusammenfassung": "1-2 Sätze: Was begründet AXA damit konkret?",
-  "widerspruchErklaerung": "1 Satz Laien-Erklärung was diese Ablehnung bedeutet",
+  "ablehnungsgruende": ["Grund 1 — max 20 Wörter", "Grund 2 — max 20 Wörter"],
+  "zusammenfassung": "Max 2 Sätze.",
+  "widerspruchErklaerung": "Max 1 Satz.",
   "positionUpdates": [
-    { "goaeZiffer": "4312", "ablehnungsbegruendung": "Exakte Begründung aus Schreiben" }
+    { "goaeZiffer": "3561", "ablehnungsbegruendung": "Max 1 Satz aus AXA-Schreiben" }
   ]
 }`
 }
@@ -116,7 +118,7 @@ export async function POST(
       systemPrompt: ENRICH_SYSTEM_PROMPT,
       userPrompt: enrichPrompt,
       pdfBase64: newPdfBuffer.toString('base64'),
-      maxTokens: 3500,
+      maxTokens: 5000,
     })
 
     logKiUsage({ callType: 'kasse_analyse', model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, userId: user.id }).catch(() => {})
