@@ -254,7 +254,12 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
   onSwitchToWiderspruch: () => void
 }) {
   const analyse = fall.kasse_analyse
-  const router = useRouter()
+  // Local state for ablehnungsgruende — gets updated instantly after upload
+  // without needing a page reload
+  const [lokalGruende, setLokalGruende] = useState<string[] | null>(null)
+  const [neuAnalysiertAm, setNeuAnalysiertAm] = useState<string | null>(
+    (analyse?.neuAnalysiertAm as string | null) ?? null
+  )
   const [neuAnalyseLoading, setNeuAnalyseLoading] = useState(false)
   const [neuAnalyseStatus, setNeuAnalyseStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [neuAnalyseMsg, setNeuAnalyseMsg] = useState<string | null>(null)
@@ -278,12 +283,19 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       try { data = await res.json() } catch { /* non-JSON response */ }
       if (!res.ok) throw new Error((data.message ?? data.error ?? `HTTP ${res.status}`) as string)
       const count = (data.ablehnungsgruendeCount as number | undefined) ?? 0
-      const countLabel = count > 0 ? ` (${count} Grund${count === 1 ? '' : 'e'} gespeichert)` : ' (0 Gründe — evtl. kein Begründungsschreiben erkannt)'
+      const newGruende = (data.ablehnungsgruende as string[] | undefined) ?? []
+      const ts = (data.neuAnalysiertAm as string | undefined) ?? null
+
+      // Update local state immediately — no reload needed
+      if (newGruende.length > 0) setLokalGruende(newGruende)
+      if (ts) setNeuAnalysiertAm(ts)
+
+      const countLabel = count > 0 ? ` (${count} Grund${count === 1 ? '' : 'e'})` : ' — kein Begründungsschreiben erkannt, keine neuen Gründe'
       setNeuAnalyseStatus('success')
-      setNeuAnalyseMsg(`✅ Ablehnungsgründe aktualisiert${countLabel}! Klicke auf "Neu laden" um die Änderungen zu sehen.`)
+      setNeuAnalyseMsg(`✅ Ablehnungsgründe aktualisiert${countLabel} — Ansicht wurde sofort aktualisiert.`)
     } catch (err) {
       const msg = err instanceof Error
-        ? (err.name === 'AbortError' ? 'Timeout nach 60s — bitte erneut versuchen' : err.message)
+        ? (err.name === 'AbortError' ? 'Timeout nach 90s — bitte erneut versuchen' : err.message)
         : String(err)
       setNeuAnalyseStatus('error')
       setNeuAnalyseMsg(msg)
@@ -293,7 +305,8 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       if (neuAnalyseRef.current) neuAnalyseRef.current.value = ''
     }
   }
-  const ablehnungsgruende: string[] = (analyse?.ablehnungsgruende as string[] | null) ?? []
+  // Show lokalGruende if we just updated, otherwise fall back to server data
+  const ablehnungsgruende: string[] = lokalGruende ?? ((analyse?.ablehnungsgruende as string[] | null) ?? [])
   const rechnungen = (analyse?.rechnungen ?? []) as Array<{
     arztName?: string | null
     positionen?: KassePosition[]
@@ -414,8 +427,15 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       {/* Ablehnungsgründe */}
       {ablehnungsgruende.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: slate, marginBottom: 8 }}>
-            Ablehnungsgründe AXA
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: slate }}>
+              Ablehnungsgründe AXA
+            </div>
+            {neuAnalysiertAm && (
+              <div style={{ fontSize: 10, color: '#16a34a', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 4, padding: '1px 6px' }}>
+                ✓ aktualisiert {new Date(neuAnalysiertAm).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             {ablehnungsgruende.map((g, i) => (
@@ -521,14 +541,7 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
               border: `1px solid ${neuAnalyseStatus === 'success' ? '#86efac' : '#fca5a5'}`,
             }}>
               {neuAnalyseMsg}
-              {neuAnalyseStatus === 'success' && (
-                <button onClick={() => router.refresh()} style={{
-                  marginLeft: 12, padding: '3px 10px', borderRadius: 5, border: 'none',
-                  background: '#16a34a', color: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                }}>
-                  🔄 Jetzt neu laden
-                </button>
-              )}
+              {/* No reload needed — list updates in-place via React state */}
             </div>
           )}
         </div>

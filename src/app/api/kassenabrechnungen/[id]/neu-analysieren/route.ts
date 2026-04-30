@@ -133,9 +133,16 @@ export async function POST(
     // Widerspruchsbrief bleibt erhalten / wird per ki-entwurf neu generiert.
     const merged = { ...existingAnalyse }
 
-    if (delta.ablehnungsgruende?.length)  merged.ablehnungsgruende  = delta.ablehnungsgruende
-    if (delta.zusammenfassung)            merged.zusammenfassung    = delta.zusammenfassung
-    if (delta.widerspruchErklaerung)      merged.widerspruchErklaerung  = delta.widerspruchErklaerung
+    // Always replace ablehnungsgruende — even if delta has 0 entries (means PDF
+    // contained no new reasons; preserve existing ones in that case).
+    if (Array.isArray(delta.ablehnungsgruende) && delta.ablehnungsgruende.length > 0) {
+      merged.ablehnungsgruende = delta.ablehnungsgruende
+    }
+    if (delta.zusammenfassung)       merged.zusammenfassung      = delta.zusammenfassung
+    if (delta.widerspruchErklaerung) merged.widerspruchErklaerung = delta.widerspruchErklaerung
+
+    // Timestamp so UI can prove freshness after reload
+    merged.neuAnalysiertAm = new Date().toISOString()
 
     // Per-Position ablehnungsbegruendung updaten
     if (Array.isArray(delta.positionUpdates) && delta.positionUpdates.length > 0) {
@@ -164,13 +171,17 @@ export async function POST(
 
     if (updateError) throw new Error(`DB-Update fehlgeschlagen: ${updateError.message}`)
 
-    // Verify the write actually landed
-    const savedGruende = (updateData?.kasse_analyse as Record<string, unknown> | null)?.ablehnungsgruende
+    // Return the full updated analyse so the client can update React state
+    // without needing a page reload at all
+    const updatedAnalyse = (updateData?.kasse_analyse as Record<string, unknown> | null) ?? merged
+    const savedGruende = updatedAnalyse?.ablehnungsgruende
     const gruendeCount = Array.isArray(savedGruende) ? savedGruende.length : 0
 
     return NextResponse.json({
       success: true,
       ablehnungsgruendeCount: gruendeCount,
+      ablehnungsgruende: Array.isArray(savedGruende) ? savedGruende : [],
+      neuAnalysiertAm: merged.neuAnalysiertAm,
     })
 
   } catch (err) {
