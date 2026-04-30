@@ -38,20 +38,23 @@ function buildEnrichPrompt(existingAnalyse: Record<string, any>): string {
   }
   const aktuelleGruende = (existingAnalyse.ablehnungsgruende as string[] | null)?.join('\n- ') ?? 'keine'
 
-  return `Lies das beigefügte AXA-Dokument und extrahiere die Ablehnungsgründe.
+  return `Lies das beigefügte AXA-Dokument (Kassenbescheid oder Begründungsschreiben) und extrahiere alle relevanten Informationen.
 
 Abgelehnte / gekürzte Positionen:
 ${positionen.map(p => `- ${p}`).join('\n') || '(keine)'}
 
-WICHTIG: Halte alle Texte kurz (max. 1 Satz pro Feld).
+WICHTIG: Alle Texte kurz halten (max. 1 Satz pro Feld, max. 20 Wörter pro Listeneintrag).
 
-JSON-Ausgabe (nur diese Felder, keine weiteren):
+JSON-Ausgabe (exakt diese Felder, kein Text davor/danach):
 {
   "ablehnungsgruende": ["Grund 1 — max 20 Wörter", "Grund 2 — max 20 Wörter"],
-  "zusammenfassung": "Max 2 Sätze.",
-  "widerspruchErklaerung": "Max 1 Satz.",
+  "zusammenfassung": "Max 2 Sätze zur Kernaussage des Dokuments.",
+  "widerspruchEmpfohlen": true,
+  "widerspruchErklaerung": "Max 1 Satz warum Widerspruch Erfolg hat.",
+  "widerspruchErfolgswahrscheinlichkeit": 65,
+  "naechsteSchritte": ["Schritt 1 — max 12 Wörter", "Schritt 2 — max 12 Wörter", "Schritt 3 — max 12 Wörter"],
   "positionUpdates": [
-    { "goaeZiffer": "3561", "ablehnungsbegruendung": "Max 1 Satz aus AXA-Schreiben" }
+    { "goaeZiffer": "3561", "ablehnungsbegruendung": "Max 1 Satz aus AXA-Schreiben." }
   ]
 }`
 }
@@ -141,6 +144,15 @@ export async function POST(
     if (delta.zusammenfassung)       merged.zusammenfassung      = delta.zusammenfassung
     if (delta.widerspruchErklaerung) merged.widerspruchErklaerung = delta.widerspruchErklaerung
 
+    // Handlungsempfehlung fields — update from Begründungsschreiben
+    if (typeof delta.widerspruchEmpfohlen === 'boolean') merged.widerspruchEmpfohlen = delta.widerspruchEmpfohlen
+    if (typeof delta.widerspruchErfolgswahrscheinlichkeit === 'number') {
+      merged.widerspruchErfolgswahrscheinlichkeit = delta.widerspruchErfolgswahrscheinlichkeit
+    }
+    if (Array.isArray(delta.naechsteSchritte) && delta.naechsteSchritte.length > 0) {
+      merged.naechsteSchritte = delta.naechsteSchritte
+    }
+
     // Timestamp so UI can prove freshness after reload
     merged.neuAnalysiertAm = new Date().toISOString()
 
@@ -188,6 +200,12 @@ export async function POST(
       ablehnungsgruende: Array.isArray(savedGruende) ? savedGruende : [],
       positionUpdates: positionUpdatesForClient,
       neuAnalysiertAm: merged.neuAnalysiertAm,
+      // Handlungsempfehlung fields for live UI update
+      widerspruchEmpfohlen:                merged.widerspruchEmpfohlen ?? null,
+      widerspruchErklaerung:               merged.widerspruchErklaerung ?? null,
+      widerspruchErfolgswahrscheinlichkeit: merged.widerspruchErfolgswahrscheinlichkeit ?? null,
+      naechsteSchritte:                    merged.naechsteSchritte ?? null,
+      zusammenfassung:                     merged.zusammenfassung ?? null,
     })
 
   } catch (err) {

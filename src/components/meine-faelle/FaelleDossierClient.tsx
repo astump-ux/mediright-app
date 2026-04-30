@@ -273,6 +273,17 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
   const [neuAnalysiertAm, setNeuAnalysiertAm] = useState<string | null>(
     (analyse?.neuAnalysiertAm as string | null) ?? null
   )
+  // Live-updated Handlungsempfehlung fields (override server data after upload)
+  const [lokalHandlung, setLokalHandlung] = useState<{
+    widerspruchEmpfohlen?: boolean | null
+    widerspruchErklaerung?: string | null
+    widerspruchErfolgswahrscheinlichkeit?: number | null
+    naechsteSchritte?: string[] | null
+    zusammenfassung?: string | null
+  } | null>(null)
+
+  // Effective analyse: merge server data with live updates
+  const analyseEffektiv = lokalHandlung ? { ...analyse, ...lokalHandlung } : analyse
   const [neuAnalyseLoading, setNeuAnalyseLoading] = useState(false)
   const [neuAnalyseStatus, setNeuAnalyseStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [neuAnalyseMsg, setNeuAnalyseMsg] = useState<string | null>(null)
@@ -303,6 +314,16 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       // Update local state immediately — no reload needed
       if (newGruende.length > 0) setLokalGruende(newGruende)
       if (ts) setNeuAnalysiertAm(ts)
+
+      // Update Handlungsempfehlung fields live
+      setLokalHandlung({
+        widerspruchEmpfohlen:                (data.widerspruchEmpfohlen as boolean | null | undefined) ?? null,
+        widerspruchErklaerung:               (data.widerspruchErklaerung as string | null | undefined) ?? null,
+        widerspruchErfolgswahrscheinlichkeit: (data.widerspruchErfolgswahrscheinlichkeit as number | null | undefined) ?? null,
+        naechsteSchritte:                    (data.naechsteSchritte as string[] | null | undefined) ?? null,
+        zusammenfassung:                     (data.zusammenfassung as string | null | undefined) ?? null,
+      })
+
       if (newPositionUpdates.length > 0) {
         setPositionBegruendungen(prev => {
           const next = new Map(prev)
@@ -403,9 +424,9 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       )}
 
       {/* KI-Handlungsempfehlung */}
-      {analyse && (
+      {analyseEffektiv && (
         <HandlungsempfehlungPanel
-          analyse={analyse as Parameters<typeof HandlungsempfehlungPanel>[0]['analyse']}
+          analyse={analyseEffektiv as Parameters<typeof HandlungsempfehlungPanel>[0]['analyse']}
           widerspruchStatus={fall.widerspruch_status}
           arztSent={arztSent}
           hasArztAction={hasArztAction}
@@ -472,8 +493,13 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       {/* Positions table */}
       {abgelehntePositionen.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: slate, marginBottom: 8 }}>
-            Abgelehnte / Gekürzte Positionen
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: slate }}>
+              Abgelehnte / Gekürzte Positionen
+            </div>
+            <div style={{ fontSize: 10, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 4, padding: '2px 7px' }}>
+              💡 Einzelbeträge erscheinen sobald du die Arztrechnung im Tab &quot;Rechnungen&quot; hochlädst
+            </div>
           </div>
           <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid #e2e8f0' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
