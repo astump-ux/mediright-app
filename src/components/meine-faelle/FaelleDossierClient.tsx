@@ -254,9 +254,22 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
   onSwitchToWiderspruch: () => void
 }) {
   const analyse = fall.kasse_analyse
-  // Local state for ablehnungsgruende — gets updated instantly after upload
-  // without needing a page reload
+  // Local state for ablehnungsgruende and per-position begruendungen —
+  // updated instantly after upload without needing a page reload
   const [lokalGruende, setLokalGruende] = useState<string[] | null>(null)
+  // Map of GOÄ-Ziffer → ablehnungsbegruendung, populated by neu-analysieren response
+  const [positionBegruendungen, setPositionBegruendungen] = useState<Map<string, string>>(() => {
+    // Pre-populate from existing DB data if available
+    const map = new Map<string, string>()
+    const rechnungen = (analyse?.rechnungen ?? []) as Array<{ positionen?: Array<{ goaeZiffer?: string; ziffer?: string; ablehnungsbegruendung?: string }> }>
+    for (const r of rechnungen) {
+      for (const p of r.positionen ?? []) {
+        const z = String(p.goaeZiffer ?? p.ziffer ?? '')
+        if (z && p.ablehnungsbegruendung) map.set(z, p.ablehnungsbegruendung)
+      }
+    }
+    return map
+  })
   const [neuAnalysiertAm, setNeuAnalysiertAm] = useState<string | null>(
     (analyse?.neuAnalysiertAm as string | null) ?? null
   )
@@ -285,10 +298,18 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
       const count = (data.ablehnungsgruendeCount as number | undefined) ?? 0
       const newGruende = (data.ablehnungsgruende as string[] | undefined) ?? []
       const ts = (data.neuAnalysiertAm as string | undefined) ?? null
+      const newPositionUpdates = (data.positionUpdates as { goaeZiffer: string; ablehnungsbegruendung: string }[] | undefined) ?? []
 
       // Update local state immediately — no reload needed
       if (newGruende.length > 0) setLokalGruende(newGruende)
       if (ts) setNeuAnalysiertAm(ts)
+      if (newPositionUpdates.length > 0) {
+        setPositionBegruendungen(prev => {
+          const next = new Map(prev)
+          for (const u of newPositionUpdates) next.set(String(u.goaeZiffer), u.ablehnungsbegruendung)
+          return next
+        })
+      }
 
       const countLabel = count > 0 ? ` (${count} Grund${count === 1 ? '' : 'e'})` : ' — kein Begründungsschreiben erkannt, keine neuen Gründe'
       setNeuAnalyseStatus('success')
@@ -467,22 +488,34 @@ function BescheidTab({ fall, onSwitchToRechnungen, onSwitchToWiderspruch }: {
                 {abgelehntePositionen.map((p, i) => {
                   const diff = (p.betragEingereicht ?? 0) - (p.betragErstattet ?? 0)
                   const isKasse = p.aktionstyp !== 'korrektur_arzt'
+                  const ziffer = String((p as { goaeZiffer?: string; ziffer?: string }).goaeZiffer ?? p.ziffer ?? '')
+                  // AXA-Begründung: from live state (after upload) or from initial DB data
+                  const begruendung = positionBegruendungen.get(ziffer)
+                    ?? (p as { ablehnungsbegruendung?: string }).ablehnungsbegruendung
+                    ?? null
                   return (
                     <tr key={i} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: 700, color: navy }}>{p.ziffer ?? '—'}</td>
-                      <td style={{ padding: '6px 10px', color: navy, maxWidth: 200 }}>{p.bezeichnung ?? '—'}</td>
-                      <td style={{ padding: '6px 10px', color: slate, whiteSpace: 'nowrap' }}>{(p as { arztName?: string | null }).arztName ?? '—'}</td>
-                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: navy, whiteSpace: 'nowrap' }}>{fmt(p.betragEingereicht)}</td>
-                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: mint, whiteSpace: 'nowrap' }}>{fmt(p.betragErstattet)}</td>
-                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: 700, color: diff > 0 ? red : slate, whiteSpace: 'nowrap' }}>{diff > 0 ? `−${fmt(diff)}` : '—'}</td>
-                      <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: 700, color: navy, verticalAlign: 'top' }}>{ziffer || '—'}</td>
+                      <td style={{ padding: '6px 10px', color: navy, maxWidth: 200, verticalAlign: 'top' }}>
+                        <div>{p.bezeichnung ?? '—'}</div>
+                        {begruendung && (
+                          <div style={{ fontSize: 10, color: '#92400e', marginTop: 2, lineHeight: 1.4, fontStyle: 'italic' }}>
+                            ↳ {begruendung}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '6px 10px', color: slate, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{(p as { arztName?: string | null }).arztName ?? '—'}</td>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: navy, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{fmt(p.betragEingereicht)}</td>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: mint, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{fmt(p.betragErstattet)}</td>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: 700, color: diff > 0 ? red : slate, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{diff > 0 ? `−${fmt(diff)}` : '—'}</td>
+                      <td style={{ padding: '6px 10px', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
                         <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
                           background: p.status === 'abgelehnt' ? '#fef2f2' : '#fffbeb',
                           color: p.status === 'abgelehnt' ? red : amber }}>
                           {p.status === 'abgelehnt' ? 'Abgelehnt' : 'Gekürzt'}
                         </span>
                       </td>
-                      <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '6px 10px', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
                         <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
                           background: isKasse ? blueL : '#fff7ed',
                           color: isKasse ? '#1d4ed8' : '#9a3412' }}>

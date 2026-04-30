@@ -177,10 +177,16 @@ export async function POST(
     const savedGruende = updatedAnalyse?.ablehnungsgruende
     const gruendeCount = Array.isArray(savedGruende) ? savedGruende.length : 0
 
+    // Return positionUpdates so the UI can show per-position ablehnungsbegruendung inline
+    const positionUpdatesForClient = Array.isArray(delta.positionUpdates)
+      ? delta.positionUpdates as { goaeZiffer: string; ablehnungsbegruendung: string }[]
+      : []
+
     return NextResponse.json({
       success: true,
       ablehnungsgruendeCount: gruendeCount,
       ablehnungsgruende: Array.isArray(savedGruende) ? savedGruende : [],
+      positionUpdates: positionUpdatesForClient,
       neuAnalysiertAm: merged.neuAnalysiertAm,
     })
 
