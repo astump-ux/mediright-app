@@ -348,6 +348,12 @@ export interface KassePosition {
    * High = clear-cut case, low = ambiguous/context-dependent.
    */
   confidence?: number | null
+  /**
+   * Detailed per-position rejection explanation extracted from AXA's Anmerkungen/footnotes
+   * section of the Kassenbescheid (longer than ablehnungsgrund — may cite specific contract
+   * clauses, GOÄ paragraphs, or medical necessity assessments). Null when not available.
+   */
+  ablehnungsbegruendung?: string | null
 }
 
 /**
@@ -450,6 +456,14 @@ Jede Position mit status "gekuerzt" oder "abgelehnt" MUSS ein aktionstyp-Feld er
     * Rechnung formal fehlerhaft (falsche Nummer, fehlendes Datum etc.)
 Für "erstattet"-Positionen: aktionstyp = null.
 
+ABLEHNUNGSBEGRUENDUNG PRO POSITION:
+AXA-Bescheide enthalten oft auf der Rückseite oder in einem separaten Begründungsabschnitt ("Anmerkungen")
+eine ausführlichere Erklärung je Position. Extrahiere diese als "ablehnungsbegruendung":
+- Enthält häufig: Vertragsparagraph (z.B. "§5 Abs.1 AVB"), medizinische Begründung, GOÄ-Hinweis, konkrete Ablehnungsformel
+- Länger und präziser als "ablehnungsgrund" (der nur die kurze Kernaussage enthält)
+- Null wenn nur ein kurzer Ablehnungstext ohne ausführliche Begründung vorhanden ist
+- Beispiel: "ablehnungsbegruendung": "Nach §5 Abs. 1 unserer Allgemeinen Versicherungsbedingungen sind Leistungen für Behandlungen, die nicht dem allgemein anerkannten Stand der medizinischen Wissenschaft entsprechen, vom Versicherungsschutz ausgenommen. Bei der homöopathischen Behandlung handelt es sich um eine Therapiemethode, deren wissenschaftliche Wirksamkeit nicht nachgewiesen ist."
+
 WIDERSPRUCHSWAHRSCHEINLICHKEIT + CONFIDENCE PRO POSITION:
 Für jede Position mit aktionstyp "widerspruch_kasse" MUSS ein widerspruchWahrscheinlichkeit-Wert (0–100) gesetzt werden:
   * 70–90: Formaler Fehler der Kasse (falsche GOÄ-Anwendung, fehlende Begründung)
@@ -504,6 +518,7 @@ Antworte NUR mit diesem JSON-Objekt (kein Text davor oder danach):
           "betragErstattet": 0.00,
           "status": "abgelehnt",
           "ablehnungsgrund": "Keine medizinische Notwendigkeit erkennbar bzw. keine medizinisch notwendige Heilbehandlung",
+          "ablehnungsbegruendung": "Nach §5 Abs. 1 AVB sind Leistungen nur erstattungsfähig wenn sie medizinisch notwendig und auf eine Krankheit zurückzuführen sind. Ernährungsberatung ohne ärztliche Diagnose gilt als präventive Maßnahme und fällt nicht unter den Versicherungsschutz.",
           "aktionstyp": "widerspruch_kasse",
           "widerspruchWahrscheinlichkeit": 65,
           "confidence": 72
@@ -539,7 +554,8 @@ WICHTIG:
 - Status-Werte für positionen: "erstattet" | "gekuerzt" | "abgelehnt"
 - aktionstyp für gekuerzt/abgelehnt: "widerspruch_kasse" | "korrektur_arzt" (null für erstattet)
 - widerspruchWahrscheinlichkeit: 0–100 nur wenn aktionstyp="widerspruch_kasse", sonst null
-- confidence: 0–100 für JEDE Position (Sicherheit der KI-Einschätzung)`
+- confidence: 0–100 für JEDE Position (Sicherheit der KI-Einschätzung)
+- ablehnungsbegruendung: ausführlicher Ablehnungstext aus den Anmerkungen/Begründungsabschnitten des Bescheids, null wenn nicht vorhanden`
 
 // This rule is always appended to whatever system prompt is active (DB override or default),
 // to guarantee widerspruchBegruendung is always written as a direct 1st-person argument.

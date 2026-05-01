@@ -269,6 +269,18 @@ Das JSON muss exakt diesem Schema entsprechen:
       "seiten": "z.B. 37-44"
     }
   ],
+  "goae_ausschluesse": [
+    {
+      "ziffer_pattern": "725-728",
+      "ziffern_liste": ["725", "726", "727", "728"],
+      "bezeichnung": "Hypnose / Entspannungsverfahren",
+      "klausel": "§3 Abs. 2 — IGeL-Ausschluss",
+      "erstattungsrate_pct": 0,
+      "einschraenkung": "Nicht erstattungsfähig ohne nachgewiesene medizinische Indikation",
+      "angreifbar_wenn": "Ärztlich verordnet mit ICD-10 Diagnose (z.B. F40.x Angststörung)",
+      "quelle": "AVB §3, Seite 12"
+    }
+  ],
   "wichtige_hinweise": ["Liste besonderer Punkte die für den Versicherten relevant sind"]
 }
 
@@ -277,7 +289,13 @@ Wichtige Anweisungen:
 - Bei Sonderklauseln: vollständigen Wortlaut des Vertragstextes angeben
 - Wenn eine Information nicht im Dokument steht: null verwenden, nicht raten
 - Besonders achten auf: Leistungsausschlüsse, Sondervereinbarungen (LE/X, sI/X), Selbstbehalt-Ausnahmen
-- Selbstbehalt-Ausnahmen sind besonders wichtig – welche Leistungen zählen NICHT zur Jahresobergrenze?`
+- Selbstbehalt-Ausnahmen sind besonders wichtig – welche Leistungen zählen NICHT zur Jahresobergrenze?
+- goae_ausschluesse: Extrahiere für JEDE GOÄ-Ziffer oder Zifferngruppe die im Vertrag explizit eingeschränkt oder ausgeschlossen wird:
+  * Häufige Beispiele: IGeL-Leistungen (Homöopathie GOÄ 30/31, Akupunktur, Naturheilkunde), Analogziffern, kosmetische OPs
+  * ziffern_liste: explizite Liste aller betroffenen GOÄ-Nummern als Strings
+  * erstattungsrate_pct: 0 wenn komplett ausgeschlossen, z.B. 50 wenn nur teilweise
+  * angreifbar_wenn: kurze Formulierung unter welchen Bedingungen die Klausel rechtlich anfechtbar ist
+  * Leere Liste wenn keine GOÄ-spezifischen Ausschlüsse im Vertrag gefunden`
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',

@@ -10,7 +10,7 @@
  */
 import { getSupabaseAdmin } from './supabase-admin'
 import { buildBenchmarkContext } from './benchmark-context'
-import { searchPkvPrecedents } from './legal-search'
+import { searchPkvPrecedents, searchPkvPrecedentsByZiffer } from './legal-search'
 import { getOmbudsmannContext } from './ombudsmann-context'
 import { getGoaeContext } from './goae-context'
 import { getRejectionPatternContext } from './rejection-pattern-context'
@@ -106,8 +106,59 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
 
   const ablehnungsgruende = (kasseAnalyse?.ablehnungsgruende as string[] | null) ?? []
   if (ablehnungsgruende.length > 0) {
-    lines.push('Ablehnungsgründe der Kasse:')
+    lines.push('Ablehnungsgründe der Kasse (Zusammenfassung):')
     for (const g of ablehnungsgruende) lines.push(`  - ${g}`)
+  }
+
+  // ── Per-Position Breakdown (Phase 1: ziffer-scharfe Ablehnungsanalyse) ──────
+  // This is the critical enrichment: each rejected/reduced position with its specific
+  // AXA reasoning, aktionstyp, and estimated success probability — the AI uses this
+  // to generate per-position arguments in the Widerspruchsbrief instead of generic text.
+  type RawKassePos = {
+    ziffer?: string; bezeichnung?: string; betragEingereicht?: number; betragErstattet?: number
+    status?: string; ablehnungsgrund?: string | null; ablehnungsbegruendung?: string | null
+    aktionstyp?: string | null; widerspruchWahrscheinlichkeit?: number | null; confidence?: number | null
+  }
+  const kasseRechnungen = (kasseAnalyse?.rechnungen as Array<{ arztName?: string | null; positionen?: RawKassePos[] }> | null) ?? []
+  const abgelehntePositionen: Array<{ arzt: string; pos: RawKassePos }> = []
+  for (const rechnung of kasseRechnungen) {
+    for (const pos of rechnung.positionen ?? []) {
+      if (pos.status === 'abgelehnt' || pos.status === 'gekuerzt') {
+        abgelehntePositionen.push({ arzt: rechnung.arztName ?? 'Unbekannt', pos })
+      }
+    }
+  }
+
+  if (abgelehntePositionen.length > 0) {
+    lines.push('')
+    lines.push('⚡ ABGELEHNTE POSITIONEN — ZIFFERNSCHARFE ANALYSE (für Widerspruchsbrief verwenden):')
+    lines.push('─────────────────────────────────────────────────────────')
+    for (const { arzt, pos } of abgelehntePositionen) {
+      const ziffer      = pos.ziffer ?? '?'
+      const bezeichnung = pos.bezeichnung ?? ''
+      const eingereicht = pos.betragEingereicht != null ? `${pos.betragEingereicht.toFixed(2)} €` : '?'
+      const erstattet   = pos.betragErstattet != null   ? `${pos.betragErstattet.toFixed(2)} €`   : '?'
+      const status      = pos.status === 'abgelehnt' ? '✗ ABGELEHNT' : '⚠ GEKÜRZT'
+      const aktion      = pos.aktionstyp === 'widerspruch_kasse' ? '→ Widerspruch bei Kasse'
+                        : pos.aktionstyp === 'korrektur_arzt'    ? '→ Korrektur beim Arzt'
+                        : '→ Aktion unklar'
+      const prob        = pos.widerspruchWahrscheinlichkeit != null ? `Erfolgschance: ${pos.widerspruchWahrscheinlichkeit}%` : ''
+
+      lines.push(`GOÄ ${ziffer} | ${bezeichnung} | Arzt: ${arzt}`)
+      lines.push(`  Status: ${status} | Eingereicht: ${eingereicht} | Erstattet: ${erstattet}`)
+      lines.push(`  Aktion: ${aktion}${prob ? ' | ' + prob : ''}`)
+      if (pos.ablehnungsgrund) {
+        lines.push(`  AXA-Ablehnungsgrund: "${pos.ablehnungsgrund}"`)
+      }
+      if (pos.ablehnungsbegruendung) {
+        lines.push(`  AXA-Begründung (detailliert): "${pos.ablehnungsbegruendung}"`)
+      }
+      lines.push('')
+    }
+    lines.push('─────────────────────────────────────────────────────────')
+    lines.push('⚡ ANWEISUNG: Generiere für JEDE oben aufgeführte Position einen eigenen Absatz im')
+    lines.push('   Widerspruchsbrief. Zitiere AXA\'s eigene Begründung und konterargumentiere spezifisch.')
+    lines.push('')
   }
 
   if (kasseAnalyse?.widerspruchEmpfohlen != null) {
@@ -200,6 +251,62 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
         lines.push('')
       }
     }
+
+    // ── Phase 2: GOÄ-Ziffer × Vertragsklausel-Cross-Reference ─────────────────
+    // goae_ausschluesse links specific GOÄ codes to contract clauses that restrict them.
+    // Cross-reference with abgelehnte Positionen to surface contract-based arguments.
+    type GoaeAusschluss = {
+      ziffer_pattern?: string; ziffern_liste?: string[]; bezeichnung?: string
+      klausel?: string; erstattungsrate_pct?: number; einschraenkung?: string
+      angreifbar_wenn?: string; quelle?: string
+    }
+    const goaeAusschluesse = tarifProfilJson.goae_ausschluesse as GoaeAusschluss[] | undefined
+    if (Array.isArray(goaeAusschluesse) && goaeAusschluesse.length > 0 && abgelehntePositionen.length > 0) {
+      const abgelehnteZiffern = new Set(abgelehntePositionen.map(({ pos }) => String(pos.ziffer ?? '')))
+      const treffer: Array<{ ausschluss: GoaeAusschluss; matchedZiffer: string }> = []
+
+      for (const ausschluss of goaeAusschluesse) {
+        const ziffernListe = ausschluss.ziffern_liste ?? []
+        for (const z of ziffernListe) {
+          if (abgelehnteZiffern.has(String(z))) {
+            treffer.push({ ausschluss, matchedZiffer: String(z) })
+            break
+          }
+        }
+        // Also check ziffer_pattern as range (e.g. "725-728")
+        if (ausschluss.ziffer_pattern && treffer.every(t => t.ausschluss !== ausschluss)) {
+          const rangeMatch = ausschluss.ziffer_pattern.match(/^(\d+)-(\d+)$/)
+          if (rangeMatch) {
+            const [lo, hi] = [parseInt(rangeMatch[1]), parseInt(rangeMatch[2])]
+            for (const z of abgelehnteZiffern) {
+              const n = parseInt(z)
+              if (!isNaN(n) && n >= lo && n <= hi) {
+                treffer.push({ ausschluss, matchedZiffer: z })
+                break
+              }
+            }
+          }
+        }
+      }
+
+      if (treffer.length > 0) {
+        lines.push('VERTRAGSBASIERTE ZIFFERN-PRÜFUNG (Phase 2 — Ausschlüsse vs. abgelehnte Positionen):')
+        lines.push('⚡ Diese abgelehnten GOÄ-Ziffern sind direkt durch Vertragsklauseln betroffen:')
+        for (const { ausschluss, matchedZiffer } of treffer) {
+          const erstattung = ausschluss.erstattungsrate_pct != null
+            ? `Erstattung laut Vertrag: ${ausschluss.erstattungsrate_pct}%`
+            : ''
+          lines.push(`  GOÄ ${matchedZiffer} (${ausschluss.bezeichnung ?? ''}) → ${ausschluss.klausel ?? '?'}`)
+          if (erstattung)                lines.push(`    ${erstattung}`)
+          if (ausschluss.einschraenkung) lines.push(`    Einschränkung: ${ausschluss.einschraenkung}`)
+          if (ausschluss.angreifbar_wenn) lines.push(`    ⚡ Angreifbar wenn: ${ausschluss.angreifbar_wenn}`)
+          if (ausschluss.quelle)         lines.push(`    Quelle: ${ausschluss.quelle}`)
+        }
+        lines.push('⚡ ANWEISUNG: Nutze die obigen Vertragsklauseln als Grundlage für die rechtliche Argumentation.')
+        lines.push('   Wenn "Angreifbar wenn" zutrifft, argumentiere explizit gegen den Ausschluss.')
+        lines.push('')
+      }
+    }
   }
 
   // ── Section 5: Marktvergleich (tarif_benchmarks) ───────────────────────────
@@ -210,15 +317,27 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
     }
   } catch { /* Benchmark-Tabelle noch nicht verfügbar */ }
 
-  // ── Section 6: Relevante Rechtsprechung (BGH pkv_urteile) ─────────────────
-  if (ablehnungsgruende.length > 0) {
-    try {
-      const legalBlock = await searchPkvPrecedents(ablehnungsgruende)
-      if (legalBlock) {
-        lines.push(legalBlock)
-      }
-    } catch { /* Tabelle noch nicht verfügbar — kein Fehler */ }
-  }
+  // ── Section 6: Relevante Rechtsprechung ────────────────────────────────────
+  // Two-axis search: (a) by rejection category (existing) + (b) by specific GOÄ ziffern (Phase 3)
+  // This ensures we find both general PKV case law AND position-specific BGH/OLG precedents.
+  const zifferSearchTargets = abgelehntePositionen
+    .filter(({ pos }) => pos.aktionstyp === 'widerspruch_kasse')
+    .map(({ pos }) => String(pos.ziffer ?? ''))
+    .filter(Boolean)
+
+  await Promise.all([
+    ablehnungsgruende.length > 0
+      ? searchPkvPrecedents(ablehnungsgruende)
+          .then(block => { if (block) lines.push(block) })
+          .catch(() => {})
+      : Promise.resolve(),
+
+    zifferSearchTargets.length > 0
+      ? searchPkvPrecedentsByZiffer(zifferSearchTargets)
+          .then(block => { if (block) lines.push(block) })
+          .catch(() => {})
+      : Promise.resolve(),
+  ])
 
   // ── Section 7: Ombudsmann-Kalibrierung (Erfolgsquoten 2025) ────────────────
   // Gibt der KI empirische Daten darüber, wie häufig welche Beschwerdekategorien
@@ -245,13 +364,17 @@ export async function buildFallContext(kassenabrechnungenId: string): Promise<st
   // Höchstsatz, §12-Begründungspflicht und typische PKV-Ablehnungsgründe.
   // Aktiviert wenn GOÄ-Ziffern in der Rechnung oder Ablehnungstext erkennbar sind.
   try {
-    // Sammle explizite Ziffern aus den strukturierten Rechnungsdaten
+    // Sammle explizite Ziffern aus den strukturierten Rechnungsdaten + abgelehnten Positionen
     const explicitZiffern: string[] = []
     for (const v of vorgaenge) {
       const positionen = (v.goae_positionen as Array<{ ziffer: string }> | null) ?? []
       for (const p of positionen) {
         if (p.ziffer) explicitZiffern.push(String(p.ziffer))
       }
+    }
+    // Also include abgelehnte Ziffern from kasse_analyse for targeted GOÄ reference lookup
+    for (const { pos } of abgelehntePositionen) {
+      if (pos.ziffer) explicitZiffern.push(String(pos.ziffer))
     }
 
     // Rechnungstext + Ablehnungstext für Ziffer-Erkennung aus Freitext

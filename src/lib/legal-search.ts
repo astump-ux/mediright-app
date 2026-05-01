@@ -263,6 +263,63 @@ export async function searchPkvPrecedents(
 }
 
 /**
+ * Ziffer-spezifische Rechtsprechungs-Suche.
+ *
+ * Sucht Urteile, die explizit für eine der übergebenen GOÄ-Ziffern relevant sind.
+ * Nutzt den GIN-Index auf pkv_urteile.goae_ziffern (Array-Overlap).
+ * Gibt formatierten Kontext-Block für Widerspruchs-KI zurück — ergänzend zu searchPkvPrecedents().
+ */
+export async function searchPkvPrecedentsByZiffer(
+  ziffern: string[],
+  limit = 6
+): Promise<string> {
+  if (!ziffern.length) return ''
+
+  try {
+    const admin = getSupabaseAdmin()
+    // Postgres @> / && operator: goae_ziffern overlaps with any of the given ziffern
+    const { data, error } = await admin
+      .from('pkv_urteile')
+      .select('aktenzeichen, datum, gericht, kategorie, schlagwoerter, leitsatz, relevanz_pkv, quelle_url, goae_ziffern')
+      .overlaps('goae_ziffern', ziffern)
+      .eq('verified', true)
+      .order('datum', { ascending: false })
+      .limit(limit)
+
+    if (error || !data?.length) return ''
+
+    const lines = [
+      '──────────────────────────────────────────────────────',
+      'ZIFFER-SPEZIFISCHE RECHTSPRECHUNG (je abgelehnter GOÄ-Ziffer)',
+      '──────────────────────────────────────────────────────',
+      `⚡ Gefunden für GOÄ-Ziffern: ${ziffern.join(', ')}`,
+      '   Diese Urteile betreffen exakt die abgelehnten Positionen.',
+      '   Im Widerspruchsbrief direkt pro Position zitieren.',
+      '',
+    ]
+
+    for (const u of data as (PkvUrteil & { gericht?: string; goae_ziffern?: string[] })[]) {
+      const datum = new Date(u.datum).toLocaleDateString('de-DE', {
+        day: '2-digit', month: '2-digit', year: 'numeric'
+      })
+      const matchedZiffern = (u.goae_ziffern ?? []).filter(z => ziffern.includes(z))
+      lines.push(`  ▸ Az. ${u.aktenzeichen} (${u.gericht ?? u.kategorie}, ${datum})`)
+      if (matchedZiffern.length > 0) {
+        lines.push(`    Relevant für GOÄ: ${matchedZiffern.map(z => `Nr. ${z}`).join(', ')}`)
+      }
+      lines.push(`    Kernaussage: ${u.leitsatz.slice(0, 200)}${u.leitsatz.length > 200 ? '…' : ''}`)
+      lines.push(`    PKV-Relevanz: ${u.relevanz_pkv.slice(0, 200)}${u.relevanz_pkv.length > 200 ? '…' : ''}`)
+      if (u.quelle_url) lines.push(`    Quelle: ${u.quelle_url}`)
+      lines.push('')
+    }
+
+    return lines.join('\n')
+  } catch {
+    return ''
+  }
+}
+
+/**
  * Direktsuche für /api/legal/search Route.
  */
 export async function searchLegalCases(
