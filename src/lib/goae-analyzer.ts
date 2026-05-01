@@ -255,7 +255,7 @@ export async function analyzeRechnungPdf(pdfBuffer: Buffer, pkvName?: string | n
   const { text, usage } = await callAiWithPdf({
     model: HAIKU_MODEL, systemPrompt, userPrompt,
     pdfBase64: pdfBuffer.toString('base64'),
-    maxTokens: 4096,
+    maxTokens: 8192,
   })
   logKiUsage({ callType: 'goae_analyse', model: HAIKU_MODEL, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }).catch(() => {})
   return extractJson<AnalyseResult>(text)

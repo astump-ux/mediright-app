@@ -743,8 +743,52 @@ function RechnungenTab({ fall, onUploaded }: { fall: FallDossier; onUploaded: ()
     ? (fall.rechnungen.find(r => r.matchedVorgangId === activeVorgang.id) ?? null)
     : null
 
+  // Delta-check: Kassenbescheid references doctors we don't have invoices for yet
+  const unmatchedKasseRechnungen = fall.rechnungen.filter(r => !r.matchedVorgangId)
+
   return (
     <>
+      {/* Missing invoices hint — shown when Kassenbescheid references doctors with no uploaded invoice */}
+      {unmatchedKasseRechnungen.length > 0 && (
+        <div style={{
+          border: '1.5px solid #fde68a', background: '#fffbeb', borderRadius: 9,
+          padding: '12px 14px', marginBottom: 10, fontSize: 12,
+        }}>
+          <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 5 }}>
+            📋 {unmatchedKasseRechnungen.length} Rechnung{unmatchedKasseRechnungen.length !== 1 ? 'en' : ''} noch nicht hochgeladen
+          </div>
+          <div style={{ color: '#78350f', lineHeight: 1.55, marginBottom: 8 }}>
+            Laut AXA-Bescheid wurden Rechnungen folgender Ärzte abgerechnet — diese fehlen noch:
+            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {unmatchedKasseRechnungen.map((r, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span style={{ fontSize: 10, color: '#b45309' }}>•</span>
+                  <span style={{ fontWeight: 600 }}>{r.arztName ?? 'Arzt unbekannt'}</span>
+                  {r.rechnungsdatum && <span style={{ color: '#b45309', fontSize: 11 }}>{fmtDate(r.rechnungsdatum)}</span>}
+                  {r.betragEingereicht > 0 && <span style={{ color: '#b45309', fontSize: 11 }}>{fmt(r.betragEingereicht)}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: '#92400e', marginBottom: 8, lineHeight: 1.5 }}>
+            💡 Mit den Originalrechnungen kann die KI die GOÄ-Positionen prüfen, Abrechnungsfehler erkennen
+            und präzisere Widerspruchsargumente generieren.
+          </div>
+          <button
+            onClick={() => !uploading && fileRef.current?.click()}
+            disabled={uploading}
+            style={{
+              padding: '6px 14px', borderRadius: 7, border: 'none', cursor: uploading ? 'wait' : 'pointer',
+              background: '#f59e0b', color: 'white', fontWeight: 700, fontSize: 11,
+            }}
+          >
+            {uploading ? '⏳ KI analysiert…' : '📤 Fehlende Rechnung hochladen'}
+          </button>
+          {uploadErr && <div style={{ marginTop: 8, fontSize: 11, color: '#991b1b', fontWeight: 600 }}>❌ {uploadErr}</div>}
+          {uploadOk && <div style={{ marginTop: 8, fontSize: 11, color: '#065f46', fontWeight: 600 }}>✅ Hochgeladen — Seite wird aktualisiert…</div>}
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {vorgaenge.map(v => {
           const einsparpotenzial = (v.goae_analyse?.einsparpotenzial as number | null) ?? 0
