@@ -601,11 +601,12 @@ async function startWiderspruchCase(kassenbescheidId: string | undefined) {
 }
 
 function KassenbescheidSection({
-  gruppe, analyse, bescheid,
+  gruppe, analyse, bescheid, goaePositionen,
 }: {
   gruppe: KasseRechnungGruppe | null | undefined
   analyse: KasseAnalyseResult | null | undefined
   bescheid: KassenbescheidSummary | null | undefined
+  goaePositionen?: GoaePosition[]
 }) {
   const [showWiderspruchPanel, setShowWiderspruchPanel] = useState(false)
   const [showArztPanel, setShowArztPanel]               = useState(false)
@@ -613,6 +614,11 @@ function KassenbescheidSection({
   const [showSchritte, setShowSchritte]                 = useState(true)
   const [arztPanelEverOpened, setArztPanelEverOpened]   = useState(false)
   const userName = useUserFullName()
+
+  // Build GOÄ betrag lookup for betragEingereicht fallback (when kasse PDF didn't include amounts)
+  const goaeBetragByZiffer: Map<string, number> | undefined = goaePositionen && goaePositionen.length > 0
+    ? new Map(goaePositionen.map(p => [String(p.ziffer), p.betrag]))
+    : undefined
 
   const erstattet  = gruppe?.betragErstattet ?? bescheid?.betragErstattet ?? 0
   const abgelehnt  = gruppe?.betragAbgelehnt ?? bescheid?.betragAbgelehnt ?? 0
@@ -728,7 +734,7 @@ function KassenbescheidSection({
               </thead>
               <tbody>
                 {abgelehntePos.map((pos, i) => (
-                  <AbgelehnteRow key={i} pos={pos} even={i % 2 === 0} />
+                  <AbgelehnteRow key={i} pos={pos} even={i % 2 === 0} goaeBetragByZiffer={goaeBetragByZiffer} />
                 ))}
               </tbody>
             </table>
@@ -887,9 +893,34 @@ function ProbabilityPill({ wahrscheinlichkeit, confidence }: { wahrscheinlichkei
     </span>
   )
 }
-function AbgelehnteRow({ pos, even }: { pos: KassePosition; even: boolean }) {
+/** Per-position next step badge derived from aktionstyp + widerspruch probability */
+function NextStepBadge({ aktionstyp, wProb }: { aktionstyp?: string | null; wProb?: number | null }) {
+  const isKasse = aktionstyp === 'widerspruch_kasse'
+  const isArzt  = aktionstyp === 'korrektur_arzt'
+  const veryLowProb = wProb != null && wProb < 20
+  let label: string, emoji: string, color: string, bg: string, border: string
+  if (isArzt && isKasse) {
+    label = 'Klärung Arzt & Widerspruch'; emoji = '🔄'; color = '#92400e'; bg = '#fef3c7'; border = '#fcd34d'
+  } else if (isArzt || (isKasse && veryLowProb)) {
+    label = 'Klärung Arzt'; emoji = '🩺'; color = '#9a3412'; bg = '#fff7ed'; border = '#fed7aa'
+  } else if (isKasse || (wProb != null && wProb >= 25)) {
+    label = 'Widerspruch Kasse'; emoji = '⚖️'; color = '#1d4ed8'; bg = '#eff6ff'; border = '#93c5fd'
+  } else {
+    return null
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: bg, color, border: `1px solid ${border}`, whiteSpace: 'nowrap' }}>
+      {emoji} {label}
+    </span>
+  )
+}
+function AbgelehnteRow({ pos, even, goaeBetragByZiffer }: { pos: KassePosition; even: boolean; goaeBetragByZiffer?: Map<string, number> }) {
   const [showErkl, setShowErkl] = useState(false)
   const erklaerung = pos.ablehnungsgrund ? laiensatzFor(pos.ablehnungsgrund) : null
+  // Fallback to GOÄ betrag when kasse analysis didn't extract individual eingereicht amounts
+  const eingereicht = (pos.betragEingereicht && pos.betragEingereicht > 0)
+    ? pos.betragEingereicht
+    : goaeBetragByZiffer?.get(String(pos.ziffer)) ?? null
   return (
     <tr style={{ borderTop: '1px solid #fecaca', background: even ? 'white' : '#fff5f5' }}>
       <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#991b1b', fontWeight: 600 }}>{pos.ziffer}</td>
@@ -914,13 +945,16 @@ function AbgelehnteRow({ pos, even }: { pos: KassePosition; even: boolean }) {
             )}
           </div>
         )}
-        {pos.aktionstyp === 'widerspruch_kasse' && (
-          <div style={{ marginTop: 4 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4, alignItems: 'center' }}>
+          <NextStepBadge aktionstyp={pos.aktionstyp} wProb={pos.widerspruchWahrscheinlichkeit} />
+          {pos.widerspruchWahrscheinlichkeit != null && (
             <ProbabilityPill wahrscheinlichkeit={pos.widerspruchWahrscheinlichkeit} confidence={pos.confidence} />
-          </div>
-        )}
+          )}
+        </div>
       </td>
-      <td style={{ padding: '6px 10px', textAlign: 'right', color: slate }}>{pos.betragEingereicht?.toFixed(2)} €</td>
+      <td style={{ padding: '6px 10px', textAlign: 'right', color: slate }}>
+        {eingereicht != null ? `${eingereicht.toFixed(2)} €` : '–'}
+      </td>
       <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: pos.betragErstattet > 0 ? amber : red }}>
         {pos.betragErstattet?.toFixed(2)} €
       </td>
@@ -1018,96 +1052,16 @@ export default function AnalyseModal({ type, data, kasseGruppe, kasseAnalyseNew,
           )}
           {isRechnung && (
             <>
-              <SectionHeader num={1} title="Ist die Rechnung korrekt?" sub="GOÄ-Prüfung: Faktoren, Kumulationsverbote, Analogziffern, Formalien" accent={navy} />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-                <KpiBox label="Rechnungsbetrag" value={`${rData.betragGesamt?.toFixed(2) ?? '–'} €`} />
-                <KpiBox label="Max. Faktor" value={`${rData.maxFaktor ?? '–'}×`} warn={rData.flagFaktorUeberSchwellenwert} sub={rData.maxFaktor && rData.maxFaktor > 2.3 ? '§12 GOÄ — Begründung prüfen' : undefined} />
-                <KpiBox label="Korrektur-Potenzial (Arzt)" value={arztKorrekturPot > 0 ? `${arztKorrekturPot.toFixed(2)} €` : '–'} warn={arztKorrekturPot > 0} sub={arztKorrekturPot > 0 ? (kasseArztPot > 0 ? 'Arzt Reklamation (Kasse)' : 'GOÄ-Beanstandung') : 'Keine Beanstandung'} />
-              </div>
-              {(rData.flagFehlendeBegrundung || rData.flagFaktorUeberSchwellenwert) && (
-                <div style={{ background: redLight, border: `1px solid ${red}`, borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#991b1b' }}>
-                  {rData.flagFehlendeBegrundung && (
-                    <div>⚠ Faktor über 2,3× ohne schriftliche Begründung — der Arzt muss das nachliefern (§12 Abs. 3 GOÄ).
-                      <span style={{ display: 'block', fontSize: 12, color: '#7f1d1d', marginTop: 3 }}>
-                        👉 Fordern Sie die Begründung beim Arzt an. Ohne sie kann die Kasse kürzen.
-                      </span>
-                    </div>
-                  )}
-                  {rData.flagFaktorUeberSchwellenwert && !rData.flagFehlendeBegrundung && (
-                    <div>⚠ Faktor über dem 2,3-fachen Schwellenwert — nur mit schriftlicher Begründung zulässig.</div>
-                  )}
-                </div>
-              )}
-              {/* Formale Unvollständigkeit */}
-              {rData.flagRechnungUnvollstaendig && (rData.fehlendePflichtangaben ?? []).length > 0 && (
-                <div style={{ background: redLight, border: `1px solid ${red}`, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#991b1b' }}>
-                  <strong>⚠ Formale Pflichtangaben fehlen (§12 GOÄ)</strong>
-                  <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                    {(rData.fehlendePflichtangaben ?? []).map((f, i) => <li key={i}>{f}</li>)}
-                  </ul>
-                  <div style={{ fontSize: 11, marginTop: 4, color: '#7f1d1d' }}>Eine unvollständige Rechnung kann von der Kasse formell abgelehnt werden — fordern Sie vom Arzt eine korrigierte Version an.</div>
-                </div>
-              )}
-              {/* GOÄ-Positionen Tabelle */}
-              {(() => {
-                const positionen = rData.goaePositionen ?? []
-                const risikoCount = positionen.filter(p =>
-                  p.flag === 'pruefe' || p.flag === 'hoch' || p.analog || p.kumulationsrisiko ||
-                  p.begruendungsqualitaet === 'generisch' || p.begruendungsqualitaet === 'fehlend' ||
-                  p.fachgebietAbweichung || p.axaRisiko
-                ).length
-                return (
-                  <>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: navy }}>GOÄ-Positionen ({positionen.length})</div>
-                      {risikoCount > 0 && (
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: amberLight, color: '#92400e', border: `1px solid #fde68a` }}>
-                          {risikoCount} Position{risikoCount !== 1 ? 'en' : ''} mit Hinweis
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                        <thead>
-                          <tr style={{ background: '#f8fafc' }}>
-                            <th style={{ padding: '8px 12px', textAlign: 'left', color: slate, fontWeight: 600, width: 65 }}>Ziffer</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'left', color: slate, fontWeight: 600 }}>Bezeichnung</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: slate, fontWeight: 600, width: 55 }}>Faktor</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: slate, fontWeight: 600, width: 70 }}>Betrag</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', color: slate, fontWeight: 600, width: 140 }}>Hinweise</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {positionen.map((pos, i) => {
-                            const hasRisk = pos.flag === 'pruefe' || pos.flag === 'hoch' || pos.analog || pos.kumulationsrisiko ||
-                              pos.begruendungsqualitaet === 'generisch' || pos.begruendungsqualitaet === 'fehlend' ||
-                              pos.fachgebietAbweichung || pos.axaRisiko
-                            return (
-                              <tr key={i} style={{ borderTop: '1px solid #f1f5f9', background: hasRisk ? '#fffbeb' : (i % 2 === 0 ? 'white' : '#fafafa') }}>
-                                <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 11, color: navy }}>{pos.ziffer}</td>
-                                <td style={{ padding: '8px 12px', color: '#334155' }}>{pos.bezeichnung}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: (pos.faktor ?? 0) > 2.3 ? red : navy }}>{pos.faktor}×</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: navy }}>{pos.betrag?.toFixed(2)} €</td>
-                                <td style={{ padding: '6px 10px' }}><RisikoTags pos={pos} /></td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )
-              })()}
-              <SectionHeader num={2} title="Muss die Kasse zahlen?" sub="Erstattungs-Check: Was hat AXA erstattet, was abgelehnt — und warum?" accent="#b45309" />
+              {/* KPI row: only shown when there is an active Kassenbescheid with rejected amounts */}
               {kassePotenzial > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
-                  <KpiBox label="Eingereicht bei Kasse" value={`${kasseGruppe?.betragEingereicht?.toFixed(2) ?? '–'} €`} />
+                  <KpiBox label="Eingereicht bei Kasse" value={`${kasseGruppe?.betragEingereicht?.toFixed(2) ?? rData.betragGesamt?.toFixed(2) ?? '–'} €`} />
                   <KpiBox label="Erstattet" value={`${(kasseGruppe?.betragErstattet ?? kassenbescheid?.betragErstattet ?? 0).toFixed(2)} €`} good />
-                  <KpiBox label="Widerspruch-Potenzial (Kasse)" value={`${kassePotenzial.toFixed(2)} €`} warn sub="Kann angefochten werden" />
+                  <KpiBox label="Widerspruch-Potenzial" value={`${kassePotenzial.toFixed(2)} €`} warn sub="Kann angefochten werden" />
                 </div>
               )}
               {(kassenbescheid || kasseGruppe)
-                ? <KassenbescheidSection gruppe={kasseGruppe} analyse={kasseAnalyseNew} bescheid={kassenbescheid} />
+                ? <KassenbescheidSection gruppe={kasseGruppe} analyse={kasseAnalyseNew} bescheid={kassenbescheid} goaePositionen={rData.goaePositionen} />
                 : (
                   <div style={{ background: '#f8fafc', borderRadius: 10, padding: '20px', fontSize: 13, color: slate, textAlign: 'center' }}>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>📬</div>
