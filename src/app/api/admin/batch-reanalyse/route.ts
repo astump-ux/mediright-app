@@ -149,21 +149,40 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Felder, die durch Begründungsschreiben angereichert wurden, zurückübertragen
-      // (neuAnalysePdfPath, neuAnalysiertAm, ablehnungsgruende aus Begründungsschreiben)
+      // Felder aus Begründungsschreiben (neu-analysieren) zurückübertragen.
+      // Erkennungsmerkmal: existingAnalyse.neuAnalysiertAm ist gesetzt.
+      // Diese Felder kommen NIE aus dem Haupt-PDF — nur aus dem separat hochgeladenen
+      // Begründungsschreiben. Sie würden sonst bei jeder Neuanalyse verloren gehen.
+      const hatBegruendungsschreiben = Boolean(existingAnalyse?.neuAnalysiertAm)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const analyseAny = analyse as any
+
       if (existingAnalyse?.neuAnalysePdfPath) {
-        (analyse as unknown as Record<string, unknown>).neuAnalysePdfPath = existingAnalyse.neuAnalysePdfPath
+        analyseAny.neuAnalysePdfPath = existingAnalyse.neuAnalysePdfPath
       }
       if (existingAnalyse?.neuAnalysiertAm) {
-        (analyse as unknown as Record<string, unknown>).neuAnalysiertAm = existingAnalyse.neuAnalysiertAm
+        analyseAny.neuAnalysiertAm = existingAnalyse.neuAnalysiertAm
       }
-      // Ablehnungsgründe: wenn Begründungsschreiben bessere hatte, behalten
-      if (
-        Array.isArray(existingAnalyse?.ablehnungsgruende) &&
-        existingAnalyse.ablehnungsgruende.length > 0 &&
-        existingAnalyse.neuAnalysiertAm  // ← nur wenn wirklich durch Begründungsschreiben gesetzt
-      ) {
-        (analyse as unknown as Record<string, unknown>).ablehnungsgruende = existingAnalyse.ablehnungsgruende
+      if (hatBegruendungsschreiben) {
+        // Ablehnungsgründe — aus Begründungsschreiben immer besser als aus Haupt-PDF
+        if (Array.isArray(existingAnalyse?.ablehnungsgruende) && existingAnalyse.ablehnungsgruende.length > 0) {
+          analyseAny.ablehnungsgruende = existingAnalyse.ablehnungsgruende
+        }
+        // Zusammenfassung — Begründungsschreiben liefert vollständige Aussage;
+        // Haupt-PDF sagt nur "Gründe folgen separat"
+        if (existingAnalyse?.zusammenfassung) {
+          analyseAny.zusammenfassung = existingAnalyse.zusammenfassung
+        }
+        // Widerspruchsempfehlung + Erklärung aus Begründungsschreiben
+        if (existingAnalyse?.widerspruchErklaerung) {
+          analyseAny.widerspruchErklaerung = existingAnalyse.widerspruchErklaerung
+        }
+        if (typeof existingAnalyse?.widerspruchErfolgswahrscheinlichkeit === 'number') {
+          analyseAny.widerspruchErfolgswahrscheinlichkeit = existingAnalyse.widerspruchErfolgswahrscheinlichkeit
+        }
+        if (Array.isArray(existingAnalyse?.naechsteSchritte) && existingAnalyse.naechsteSchritte.length > 0) {
+          analyseAny.naechsteSchritte = existingAnalyse.naechsteSchritte
+        }
       }
 
       // Einsparpotenzial-Split neu berechnen
