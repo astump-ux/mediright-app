@@ -11,6 +11,7 @@ import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { callAiWithPdf } from '@/lib/ai-client'
 import { logKiUsage } from '@/lib/ki-usage'
+import { searchPkvPrecedentsByZiffer } from '@/lib/legal-search'
 import { randomUUID } from 'crypto'
 
 export const maxDuration = 120
@@ -23,38 +24,65 @@ function extractJson(raw: string): string | null {
   return m ? m[0] : null
 }
 
-const ENRICH_SYSTEM_PROMPT = `Du bist ein PKV-Experte für AXA ActiveMe-U Kassenstreitigkeiten.
+const ENRICH_SYSTEM_PROMPT = `Du bist ein PKV-Experte für AXA Kassenstreitigkeiten und GOÄ-Abrechnungsrecht.
+Du analysierst konkrete Ablehnungsbegründungen gegen Tarif-Klauseln und Rechtsprechung.
 Antworte ausschließlich mit einem JSON-Objekt, ohne einleitenden Text oder Markdown.`
 
+interface EnrichContext {
+  tarifAusschluesse: string   // GOÄ-Ausschluss-Klauseln aus dem Versicherungsvertrag
+  rechtsprechung: string       // Relevante BGH/OLG-Urteile zu den abgelehnten Ziffern
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildEnrichPrompt(existingAnalyse: Record<string, any>): string {
+function buildEnrichPrompt(existingAnalyse: Record<string, any>, ctx: EnrichContext): string {
   const positionen: string[] = []
   for (const rechnung of existingAnalyse.rechnungen ?? []) {
     for (const pos of rechnung.positionen ?? []) {
       if (pos.status === 'abgelehnt' || pos.status === 'gekuerzt') {
-        positionen.push(`GOÄ ${pos.goaeZiffer ?? pos.ziffer ?? '?'}: ${pos.leistung ?? pos.bezeichnung ?? ''} (${pos.status})`)
+        positionen.push(
+          `GOÄ ${pos.goaeZiffer ?? pos.ziffer ?? '?'}: ${pos.leistung ?? pos.bezeichnung ?? ''} ` +
+          `(${pos.status}, Kürzung: ${((pos.betragEingereicht ?? 0) - (pos.betragErstattet ?? 0)).toFixed(2)} €)`
+        )
       }
     }
   }
-  const aktuelleGruende = (existingAnalyse.ablehnungsgruende as string[] | null)?.join('\n- ') ?? 'keine'
 
-  return `Lies das beigefügte AXA-Dokument (Kassenbescheid oder Begründungsschreiben) und extrahiere alle relevanten Informationen.
+  const tarifBlock = ctx.tarifAusschluesse
+    ? `\n## Relevante Vertragsklauseln (Tarif-Ausschlüsse)\n${ctx.tarifAusschluesse}`
+    : ''
 
-Abgelehnte / gekürzte Positionen:
+  const rechtsBlock = ctx.rechtsprechung
+    ? `\n## Relevante Rechtsprechung (BGH/OLG)\n${ctx.rechtsprechung}`
+    : ''
+
+  return `Lies das beigefügte AXA-Dokument (Begründungsschreiben zur Ablehnung).
+
+## Abgelehnte / gekürzte Positionen aus dem Kassenbescheid
 ${positionen.map(p => `- ${p}`).join('\n') || '(keine)'}
+${tarifBlock}${rechtsBlock}
 
-WICHTIG: Alle Texte kurz halten (max. 1 Satz pro Feld, max. 20 Wörter pro Listeneintrag).
+## Deine Aufgabe
+1. Extrahiere die konkreten Ablehnungsbegründungen pro GOÄ-Ziffer aus dem Begründungsschreiben.
+2. Prüfe jede Ablehnung gegen die Vertragsklauseln: Ist die Ablehnung vertragskonform oder angreifbar?
+3. Prüfe ob BGH/OLG-Urteile die Versichertenposition stützen.
+4. Erstelle eine präzise "zusammenfassung" die klar benennt:
+   - Welche Positionen mit welcher Begründung abgelehnt wurden
+   - Welche davon angreifbar sind (und warum: Klausel greift nicht / BGH-Urteil)
+   - Welche Positionen eher nicht erfolgreich anfechtbar sind
+5. Setze "widerspruchErfolgswahrscheinlichkeit" basierend auf Klausel-Analyse + Rechtsprechung (nicht pauschal).
+
+WICHTIG: "zusammenfassung" darf 3-4 Sätze sein wenn nötig. Konkret, nicht generisch — echte Ziffern und Gründe nennen.
 
 JSON-Ausgabe (exakt diese Felder, kein Text davor/danach):
 {
-  "ablehnungsgruende": ["Grund 1 — max 20 Wörter", "Grund 2 — max 20 Wörter"],
-  "zusammenfassung": "Max 2 Sätze zur Kernaussage des Dokuments.",
+  "ablehnungsgruende": ["Konkrete Ablehnung GOÄ ZZZ: [Grund aus Schreiben] — max 25 Wörter"],
+  "zusammenfassung": "Positions-scharfe Analyse: Welche Ablehnungen sind angreifbar und warum (Klausel/BGH), welche nicht.",
   "widerspruchEmpfohlen": true,
-  "widerspruchErklaerung": "Max 1 Satz warum Widerspruch Erfolg hat.",
-  "widerspruchErfolgswahrscheinlichkeit": 65,
-  "naechsteSchritte": ["Schritt 1 — max 12 Wörter", "Schritt 2 — max 12 Wörter", "Schritt 3 — max 12 Wörter"],
+  "widerspruchErklaerung": "Konkreter Grund warum Widerspruch Erfolg hat — Klausel oder Urteil nennen.",
+  "widerspruchErfolgswahrscheinlichkeit": 70,
+  "naechsteSchritte": ["Schritt 1 konkret", "Schritt 2 konkret", "Schritt 3 konkret"],
   "positionUpdates": [
-    { "goaeZiffer": "3561", "ablehnungsbegruendung": "Max 1 Satz aus AXA-Schreiben." }
+    { "goaeZiffer": "3561", "ablehnungsbegruendung": "Exakte Begründung aus AXA-Schreiben, max 2 Sätze." }
   ]
 }`
 }
@@ -107,13 +135,64 @@ export async function POST(
     .upload(newFileName, newPdfBuffer, { contentType: 'application/pdf', upsert: false })
     .catch(() => {})
 
+  // ── Tarif-Klauseln + BGH-Urteile für abgelehnte Ziffern laden ───────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const existingAnalyse = kasse.kasse_analyse as Record<string, any>
+
+  // Abgelehnte GOÄ-Ziffern sammeln
+  const abgelehnteZiffern: string[] = []
+  for (const rechnung of existingAnalyse.rechnungen ?? []) {
+    for (const pos of rechnung.positionen ?? []) {
+      if (pos.status === 'abgelehnt' || pos.status === 'gekuerzt') {
+        const z = String(pos.goaeZiffer ?? pos.ziffer ?? '')
+        if (z && !abgelehnteZiffern.includes(z)) abgelehnteZiffern.push(z)
+      }
+    }
+  }
+
+  // Tarif-Klauseln für abgelehnte Ziffern aus tarif_profile laden
+  let tarifAusschluesse = ''
+  try {
+    const { data: tp } = await admin
+      .from('tarif_profile')
+      .select('profil_json')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ausschluesse = (tp?.profil_json as any)?.goae_ausschluesse as any[] | undefined
+    if (ausschluesse?.length) {
+      const relevante = ausschluesse.filter((a: { ziffern_liste?: string[]; ziffer_pattern?: string }) => {
+        if (a.ziffern_liste?.some((z: string) => abgelehnteZiffern.includes(z))) return true
+        if (a.ziffer_pattern) {
+          try { return abgelehnteZiffern.some(z => new RegExp(a.ziffer_pattern as string).test(z)) }
+          catch { return false }
+        }
+        return false
+      })
+      if (relevante.length) {
+        tarifAusschluesse = relevante.map((a: {
+          bezeichnung?: string; klausel?: string; einschraenkung?: string; angreifbar_wenn?: string
+        }) =>
+          `- ${a.bezeichnung ?? ''}: ${a.klausel ?? ''}\n  Einschränkung: ${a.einschraenkung ?? ''}\n  Angreifbar wenn: ${a.angreifbar_wenn ?? '—'}`
+        ).join('\n')
+      }
+    }
+  } catch { /* tarif_profile optional */ }
+
+  // BGH/OLG-Urteile für abgelehnte Ziffern laden
+  let rechtsprechung = ''
+  try {
+    if (abgelehnteZiffern.length) {
+      rechtsprechung = await searchPkvPrecedentsByZiffer(abgelehnteZiffern, 5)
+    }
+  } catch { /* Rechtsprechung optional */ }
+
   // ── Sonnet für qualitativ hochwertige Analyse (gerichtsfeste Argumente) ──
   const model = 'claude-sonnet-4-6'
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existingAnalyse = kasse.kasse_analyse as Record<string, any>
-    const enrichPrompt = buildEnrichPrompt(existingAnalyse)
+    const enrichPrompt = buildEnrichPrompt(existingAnalyse, { tarifAusschluesse, rechtsprechung })
 
     // ── Delta-Anfrage mit Assistant-Prefill → Claude MUSS mit { antworten ──
     const { text: raw, usage } = await callAiWithPdf({
