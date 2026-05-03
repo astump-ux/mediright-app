@@ -115,19 +115,55 @@ export async function POST(req: NextRequest) {
         userId: targetUserId,
       }).catch(() => {})
 
-      // Bestehende matchedVorgangId-Links aus alten Daten übernehmen
-      // damit Verknüpfungen zu Vorgängen nicht verloren gehen
+      // Bestehende matchedVorgangId-Links + ablehnungsbegruendung aus alten Daten übernehmen.
+      // matchedVorgangId: Verknüpfungen zu Vorgängen nicht überschreiben.
+      // ablehnungsbegruendung: wurde durch Begründungsschreiben (neu-analysieren) gesetzt
+      //   und muss nach Neuanalyse wieder eingesetzt werden — sie steckt nicht im Haupt-PDF.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const existingAnalyse = kasse.kasse_analyse as Record<string, any> | null
-      const matchMap = new Map<string, string>()
+      const matchMap       = new Map<string, string>()   // arztName → matchedVorgangId
+      const begruendungMap = new Map<string, string>()   // goaeZiffer → ablehnungsbegruendung
+
       for (const r of existingAnalyse?.rechnungen ?? []) {
         if (r.matchedVorgangId && r.arztName) {
           matchMap.set(r.arztName, r.matchedVorgangId)
         }
+        for (const pos of r.positionen ?? []) {
+          const ziffer = String(pos.goaeZiffer ?? pos.ziffer ?? '')
+          if (ziffer && pos.ablehnungsbegruendung) {
+            begruendungMap.set(ziffer, pos.ablehnungsbegruendung)
+          }
+        }
       }
+
       for (const r of analyse.rechnungen ?? []) {
         const linked = matchMap.get(r.arztName ?? '')
         if (linked) (r as unknown as Record<string, unknown>).matchedVorgangId = linked
+
+        for (const pos of r.positionen ?? []) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const posAny = pos as any
+          const ziffer = String(posAny.goaeZiffer ?? posAny.ziffer ?? '')
+          const begruendung = begruendungMap.get(ziffer)
+          if (begruendung) posAny.ablehnungsbegruendung = begruendung
+        }
+      }
+
+      // Felder, die durch Begründungsschreiben angereichert wurden, zurückübertragen
+      // (neuAnalysePdfPath, neuAnalysiertAm, ablehnungsgruende aus Begründungsschreiben)
+      if (existingAnalyse?.neuAnalysePdfPath) {
+        (analyse as unknown as Record<string, unknown>).neuAnalysePdfPath = existingAnalyse.neuAnalysePdfPath
+      }
+      if (existingAnalyse?.neuAnalysiertAm) {
+        (analyse as unknown as Record<string, unknown>).neuAnalysiertAm = existingAnalyse.neuAnalysiertAm
+      }
+      // Ablehnungsgründe: wenn Begründungsschreiben bessere hatte, behalten
+      if (
+        Array.isArray(existingAnalyse?.ablehnungsgruende) &&
+        existingAnalyse.ablehnungsgruende.length > 0 &&
+        existingAnalyse.neuAnalysiertAm  // ← nur wenn wirklich durch Begründungsschreiben gesetzt
+      ) {
+        (analyse as unknown as Record<string, unknown>).ablehnungsgruende = existingAnalyse.ablehnungsgruende
       }
 
       // Einsparpotenzial-Split neu berechnen
