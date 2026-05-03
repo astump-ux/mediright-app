@@ -226,6 +226,102 @@ function TokenUsageSection() {
   )
 }
 
+// ── Batch Re-Analyse Section ──────────────────────────────────────────────────
+
+interface ReanalyseReport {
+  kassenbescheide_gesamt: number
+  kassenbescheide_ok: number
+  kassenbescheide_fehler: number
+  avb: string
+}
+
+function BatchReanalyseSection() {
+  const [userId, setUserId] = useState('')
+  const [running, setRunning] = useState(false)
+  const [report, setReport] = useState<ReanalyseReport | null>(null)
+  const [error, setError] = useState('')
+
+  async function runReanalyse() {
+    if (!userId.trim()) { setError('User-ID eingeben'); return }
+    setRunning(true); setError(''); setReport(null)
+    try {
+      const res = await fetch('/api/admin/batch-reanalyse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: userId.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? `Fehler ${res.status}`); return }
+      setReport(data.summary)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const avbLabel: Record<string, string> = {
+    ok:                  '✅ Neu analysiert',
+    aktuell:             '✓ Bereits aktuell',
+    kein_tarif_profil:   '— Kein Tarif-Profil',
+    kein_avb_dokument:   '— Kein AVB-Dokument',
+    error:               '❌ Fehler',
+    skipped:             '—',
+  }
+
+  return (
+    <div style={{ marginBottom: 40 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 10, borderBottom: '2px solid #e2e8f0' }}>
+        <span style={{ fontSize: 20 }}>🔄</span>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: navy, margin: 0 }}>Analyse aktualisieren</h2>
+      </div>
+      <div style={{ background: 'white', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1.5px solid #e2e8f0' }}>
+        <p style={{ fontSize: 13, color: slate, marginTop: 0, marginBottom: 14 }}>
+          Analysiert alle Kassenbescheide eines Users mit dem aktuellen KI-Prompt neu (inkl. <code>ablehnungsbegruendung</code> pro Position)
+          und triggert AVB-Neu-Analyse wenn <code>goae_ausschluesse</code> fehlt.
+          Bestehende Vorgangs-Verknüpfungen bleiben erhalten.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            placeholder="User-ID (UUID)"
+            value={userId}
+            onChange={e => setUserId(e.target.value)}
+            style={{ flex: 1, minWidth: 280, padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'monospace', color: navy, background: '#f8fafc', outline: 'none' }}
+          />
+          <button
+            onClick={runReanalyse}
+            disabled={running}
+            style={{ padding: '9px 20px', borderRadius: 8, border: 'none', cursor: running ? 'wait' : 'pointer', background: running ? '#e2e8f0' : mintDark, color: running ? slate : 'white', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}
+          >
+            {running ? '⏳ Analysiert…' : '▶ Neu analysieren'}
+          </button>
+        </div>
+
+        {error && (
+          <div style={{ marginTop: 14, padding: '10px 14px', background: '#fee2e2', color: '#dc2626', borderRadius: 8, fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+
+        {report && (
+          <div style={{ marginTop: 14, padding: '14px 16px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 10, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, color: '#065f46', marginBottom: 8 }}>✅ Abgeschlossen</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 24px' }}>
+              <span><b style={{ color: navy }}>{report.kassenbescheide_gesamt}</b> <span style={{ color: slate }}>Kassenbescheide gesamt</span></span>
+              <span><b style={{ color: '#16a34a' }}>{report.kassenbescheide_ok} ✓</b> <span style={{ color: slate }}>erfolgreich</span></span>
+              {report.kassenbescheide_fehler > 0 && (
+                <span><b style={{ color: '#dc2626' }}>{report.kassenbescheide_fehler} ✗</b> <span style={{ color: slate }}>fehlerhaft</span></span>
+              )}
+              <span><b style={{ color: navy }}>AVB:</b> <span style={{ color: slate }}>{avbLabel[report.avb] ?? report.avb}</span></span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Admin page shows only model selectors and operational config.
 // KI-Prompts and WhatsApp texts are managed under /system (admin-only).
 // Deprecated and hidden categories are excluded.
@@ -324,6 +420,9 @@ export default function AdminPage() {
 
         {/* User management */}
         <UserManagementSection />
+
+        {/* Batch re-analyse */}
+        <BatchReanalyseSection />
 
         {/* Token usage */}
         <TokenUsageSection />
