@@ -226,6 +226,64 @@ function TokenUsageSection() {
   )
 }
 
+// ── Tarif-Profil Seed Section ─────────────────────────────────────────────────
+
+function TarifProfileSeedSection() {
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<{ action?: string; goae_ausschluesse_count?: number; sonderklauseln_count?: number } | null>(null)
+  const [error, setError] = useState('')
+
+  async function seedProfile() {
+    setRunning(true); setError(''); setResult(null)
+    try {
+      const res = await fetch('/api/tarif-profile/seed-from-context', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? `Fehler ${res.status}`); return }
+      setResult(data)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div style={{ marginBottom: 40 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 10, borderBottom: '2px solid #e2e8f0' }}>
+        <span style={{ fontSize: 20 }}>📋</span>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: navy, margin: 0 }}>Tarif-Profil anlegen (AXA ActiveMe-U)</h2>
+      </div>
+      <div style={{ background: 'white', borderRadius: 12, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1.5px solid #e2e8f0' }}>
+        <p style={{ fontSize: 13, color: slate, marginTop: 0, marginBottom: 14 }}>
+          Legt ein <code>tarif_profil</code> aus den vorbereiteten AXA-Kontext-Daten an (Versicherungsschein 000919707K, Stand 01.01.2026).
+          Enthält Erstattungssätze, Jahreslimits, Sonderklauseln (LE/3) und 11 GOÄ-spezifische Ausschlüsse inkl. Angriffspunkten.
+        </p>
+        <button
+          onClick={seedProfile}
+          disabled={running}
+          style={{ padding: '9px 20px', borderRadius: 8, border: 'none', cursor: running ? 'wait' : 'pointer', background: running ? '#e2e8f0' : mintDark, color: running ? slate : 'white', fontWeight: 600, fontSize: 13 }}
+        >
+          {running ? '⏳ Wird angelegt…' : '▶ Tarif-Profil jetzt anlegen / aktualisieren'}
+        </button>
+
+        {error && (
+          <div style={{ marginTop: 14, padding: '10px 14px', background: '#fee2e2', color: '#dc2626', borderRadius: 8, fontSize: 13 }}>{error}</div>
+        )}
+        {result && (
+          <div style={{ marginTop: 14, padding: '14px 16px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 10, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, color: '#065f46', marginBottom: 6 }}>
+              ✅ {result.action === 'created' ? 'Neu angelegt' : 'Aktualisiert'}
+            </div>
+            <div style={{ color: slate }}>
+              {result.goae_ausschluesse_count} GOÄ-Ausschlüsse · {result.sonderklauseln_count} Sonderklauseln eingetragen
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Batch Re-Analyse Section ──────────────────────────────────────────────────
 
 interface ReanalyseReport {
@@ -420,6 +478,9 @@ export default function AdminPage() {
 
         {/* User management */}
         <UserManagementSection />
+
+        {/* Tarif-Profil aus Kontext seeden */}
+        <TarifProfileSeedSection />
 
         {/* Batch re-analyse */}
         <BatchReanalyseSection />
