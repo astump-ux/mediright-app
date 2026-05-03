@@ -77,7 +77,15 @@ export async function POST(req: NextRequest) {
   const pkvName = (profile as { pkv_name?: string | null } | null)?.pkv_name ?? null
 
   const report: {
-    kassenbescheide: { id: string; status: 'ok' | 'error'; error?: string }[]
+    kassenbescheide: {
+      id: string
+      status: 'ok' | 'error'
+      error?: string
+      enrichment?: 'ran' | 'skipped_no_pdf' | 'skipped_no_bs' | 'failed'
+      enrichment_error?: string
+      tarif_klauseln_count?: number
+      rechtsprechung_gefunden?: boolean
+    }[]
     avb: { status: string; error?: string }
   } = {
     kassenbescheide: [],
@@ -168,6 +176,13 @@ export async function POST(req: NextRequest) {
       // Begründungsschreiben liegt bereits in Storage → verbesserte Anreicherung laufen lassen.
       // Das neue Prompt enthält jetzt Tarif-Klauseln + BGH-Urteile, also neu durchführen
       // statt nur die alten (schwächeren) Felder zu kopieren.
+      // Track enrichment status for response
+      let enrichmentStatus: 'ran' | 'skipped_no_pdf' | 'skipped_no_bs' | 'failed' =
+        hatBegruendungsschreiben ? 'skipped_no_pdf' : 'skipped_no_bs'
+      let enrichmentError: string | undefined
+      let tarifKlauselnCount = 0
+      let rechtsprechungGefunden = false
+
       if (hatBegruendungsschreiben && existingAnalyse?.neuAnalysePdfPath) {
         try {
           const { data: bsFile } = await admin.storage
@@ -212,6 +227,7 @@ export async function POST(req: NextRequest) {
                 tarifAusschluesse = relevante.map(a =>
                   `- ${a.bezeichnung ?? ''}: ${a.klausel ?? ''}\n  Einschränkung: ${a.einschraenkung ?? ''}\n  Angreifbar wenn: ${a.angreifbar_wenn ?? '—'}`
                 ).join('\n')
+                tarifKlauselnCount = relevante.length
               }
             }
 
@@ -219,6 +235,7 @@ export async function POST(req: NextRequest) {
             let rechtsprechung = ''
             if (abgelehnteZiffern.length) {
               rechtsprechung = await searchPkvPrecedentsByZiffer(abgelehnteZiffern, 5).catch(() => '')
+              rechtsprechungGefunden = rechtsprechung.length > 50
             }
 
             // Positionen-Liste für Prompt
@@ -298,10 +315,13 @@ JSON-Ausgabe (kein Text davor/danach):
                   }
                 }
               }
+              enrichmentStatus = 'ran'
             }
           }
         } catch (enrichErr) {
           console.error(`[batch-reanalyse] Begründungsschreiben-Anreicherung fehlgeschlagen:`, enrichErr)
+          enrichmentStatus = 'failed'
+          enrichmentError = String(enrichErr)
           // Fallback: alte Felder übernehmen wie bisher
           if (Array.isArray(existingAnalyse?.ablehnungsgruende) && existingAnalyse.ablehnungsgruende.length > 0) analyseAny.ablehnungsgruende = existingAnalyse.ablehnungsgruende
           if (existingAnalyse?.zusammenfassung) analyseAny.zusammenfassung = existingAnalyse.zusammenfassung
@@ -347,7 +367,14 @@ JSON-Ausgabe (kein Text davor/danach):
 
       if (updateError) throw new Error(`DB-Update fehlgeschlagen: ${updateError.message}`)
 
-      report.kassenbescheide.push({ id: kasse.id as string, status: 'ok' })
+      report.kassenbescheide.push({
+        id: kasse.id as string,
+        status: 'ok',
+        enrichment: enrichmentStatus,
+        ...(enrichmentError ? { enrichment_error: enrichmentError } : {}),
+        tarif_klauseln_count: tarifKlauselnCount,
+        rechtsprechung_gefunden: rechtsprechungGefunden,
+      })
     } catch (err) {
       console.error(`[batch-reanalyse] kasse ${kasse.id} fehlgeschlagen:`, err)
       report.kassenbescheide.push({
