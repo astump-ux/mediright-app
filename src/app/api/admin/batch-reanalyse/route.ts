@@ -19,6 +19,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { analyzeKassePdf } from '@/lib/goae-analyzer'
+import { callAiWithPdf } from '@/lib/ai-client'
+import { searchPkvPrecedentsByZiffer } from '@/lib/legal-search'
 import { logKiUsage } from '@/lib/ki-usage'
 
 export const maxDuration = 300
@@ -163,26 +165,157 @@ export async function POST(req: NextRequest) {
       if (existingAnalyse?.neuAnalysiertAm) {
         analyseAny.neuAnalysiertAm = existingAnalyse.neuAnalysiertAm
       }
-      if (hatBegruendungsschreiben) {
-        // Ablehnungsgründe — aus Begründungsschreiben immer besser als aus Haupt-PDF
-        if (Array.isArray(existingAnalyse?.ablehnungsgruende) && existingAnalyse.ablehnungsgruende.length > 0) {
-          analyseAny.ablehnungsgruende = existingAnalyse.ablehnungsgruende
+      // Begründungsschreiben liegt bereits in Storage → verbesserte Anreicherung laufen lassen.
+      // Das neue Prompt enthält jetzt Tarif-Klauseln + BGH-Urteile, also neu durchführen
+      // statt nur die alten (schwächeren) Felder zu kopieren.
+      if (hatBegruendungsschreiben && existingAnalyse?.neuAnalysePdfPath) {
+        try {
+          const { data: bsFile } = await admin.storage
+            .from('rechnungen')
+            .download(existingAnalyse.neuAnalysePdfPath as string)
+
+          if (bsFile) {
+            const bsPdfBuffer = Buffer.from(await bsFile.arrayBuffer())
+
+            // Abgelehnte Ziffern aus neu analysierter Hauptbescheid-Analyse sammeln
+            const abgelehnteZiffern: string[] = []
+            for (const r of analyse.rechnungen ?? []) {
+              for (const pos of r.positionen ?? []) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const posAny3 = pos as any
+                if (posAny3.status === 'abgelehnt' || posAny3.status === 'gekuerzt') {
+                  const z = String(posAny3.goaeZiffer ?? posAny3.ziffer ?? '')
+                  if (z && !abgelehnteZiffern.includes(z)) abgelehnteZiffern.push(z)
+                }
+              }
+            }
+
+            // Tarif-Klauseln laden
+            let tarifAusschluesse = ''
+            const { data: tp } = await admin
+              .from('tarif_profile')
+              .select('profil_json')
+              .eq('user_id', targetUserId)
+              .eq('is_active', true)
+              .maybeSingle()
+            const ausschluesse = (tp?.profil_json as Record<string, unknown> | null)
+              ?.goae_ausschluesse as Array<Record<string, unknown>> | undefined
+            if (ausschluesse?.length) {
+              const relevante = ausschluesse.filter(a => {
+                const zl = a.ziffern_liste as string[] | undefined
+                if (zl?.some(z => abgelehnteZiffern.includes(z))) return true
+                const zp = a.ziffer_pattern as string | undefined
+                if (zp) { try { return abgelehnteZiffern.some(z => new RegExp(zp).test(z)) } catch { return false } }
+                return false
+              })
+              if (relevante.length) {
+                tarifAusschluesse = relevante.map(a =>
+                  `- ${a.bezeichnung ?? ''}: ${a.klausel ?? ''}\n  Einschränkung: ${a.einschraenkung ?? ''}\n  Angreifbar wenn: ${a.angreifbar_wenn ?? '—'}`
+                ).join('\n')
+              }
+            }
+
+            // BGH/OLG-Urteile laden
+            let rechtsprechung = ''
+            if (abgelehnteZiffern.length) {
+              rechtsprechung = await searchPkvPrecedentsByZiffer(abgelehnteZiffern, 5).catch(() => '')
+            }
+
+            // Positionen-Liste für Prompt
+            const positionenListe = []
+            for (const r of analyse.rechnungen ?? []) {
+              for (const pos of r.positionen ?? []) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const posAny4 = pos as any
+                if (posAny4.status === 'abgelehnt' || posAny4.status === 'gekuerzt') {
+                  const kuerzung = ((posAny4.betragEingereicht ?? 0) - (posAny4.betragErstattet ?? 0)).toFixed(2)
+                  positionenListe.push(
+                    `GOÄ ${posAny4.goaeZiffer ?? posAny4.ziffer ?? '?'}: ${posAny4.leistung ?? posAny4.bezeichnung ?? ''} (${posAny4.status}, Kürzung: ${kuerzung} €)`
+                  )
+                }
+              }
+            }
+
+            const tarifBlock = tarifAusschluesse ? `\n## Relevante Vertragsklauseln\n${tarifAusschluesse}` : ''
+            const rechtsBlock = rechtsprechung ? `\n## Relevante Rechtsprechung\n${rechtsprechung}` : ''
+
+            const enrichPrompt = `Lies das beigefügte AXA-Begründungsschreiben zur Ablehnung.
+
+## Abgelehnte / gekürzte Positionen
+${positionenListe.map(p => `- ${p}`).join('\n') || '(keine)'}
+${tarifBlock}${rechtsBlock}
+
+## Deine Aufgabe
+1. Extrahiere die konkreten Ablehnungsbegründungen pro GOÄ-Ziffer aus dem Begründungsschreiben.
+2. Prüfe jede Ablehnung gegen die Vertragsklauseln: Ist sie vertragskonform oder angreifbar?
+3. Prüfe ob BGH/OLG-Urteile die Versichertenposition stützen.
+4. Erstelle eine positions-scharfe "zusammenfassung" die klar benennt welche Ablehnungen angreifbar sind (Klausel + BGH) und welche nicht.
+5. Setze "widerspruchErfolgswahrscheinlichkeit" basierend auf der Analyse (nicht pauschal).
+
+JSON-Ausgabe (kein Text davor/danach):
+{
+  "ablehnungsgruende": ["Konkrete Ablehnung GOÄ ZZZ: [Grund] — max 25 Wörter"],
+  "zusammenfassung": "Positions-scharfe Analyse: welche Ablehnungen sind angreifbar und warum.",
+  "widerspruchEmpfohlen": true,
+  "widerspruchErklaerung": "Konkreter Grund: Klausel oder Urteil nennen.",
+  "widerspruchErfolgswahrscheinlichkeit": 70,
+  "naechsteSchritte": ["Schritt 1 konkret", "Schritt 2 konkret", "Schritt 3 konkret"],
+  "positionUpdates": [
+    { "goaeZiffer": "3561", "ablehnungsbegruendung": "Exakte Begründung aus AXA-Schreiben." }
+  ]
+}`
+
+            const { text: raw } = await callAiWithPdf({
+              model: 'claude-sonnet-4-6',
+              systemPrompt: 'Du bist ein PKV-Experte. Antworte ausschließlich mit einem JSON-Objekt.',
+              userPrompt: enrichPrompt,
+              pdfBase64: bsPdfBuffer.toString('base64'),
+              maxTokens: 5000,
+            })
+
+            logKiUsage({ callType: 'kasse_analyse', model: 'claude-sonnet-4-6', inputTokens: 0, outputTokens: 0, userId: targetUserId }).catch(() => {})
+
+            // JSON extrahieren
+            const stripped = raw.replace(/^```(?:json)?\s*/im, '').replace(/\s*```\s*$/m, '').trim()
+            const m = stripped.match(/\{[\s\S]*\}/)
+            if (m) {
+              const delta = JSON.parse(m[0]) as Record<string, unknown>
+              if (Array.isArray(delta.ablehnungsgruende) && (delta.ablehnungsgruende as unknown[]).length > 0) analyseAny.ablehnungsgruende = delta.ablehnungsgruende
+              if (delta.zusammenfassung)       analyseAny.zusammenfassung      = delta.zusammenfassung
+              if (delta.widerspruchErklaerung) analyseAny.widerspruchErklaerung = delta.widerspruchErklaerung
+              if (typeof delta.widerspruchEmpfohlen === 'boolean') analyseAny.widerspruchEmpfohlen = delta.widerspruchEmpfohlen
+              if (typeof delta.widerspruchErfolgswahrscheinlichkeit === 'number') analyseAny.widerspruchErfolgswahrscheinlichkeit = delta.widerspruchErfolgswahrscheinlichkeit
+              if (Array.isArray(delta.naechsteSchritte) && (delta.naechsteSchritte as unknown[]).length > 0) analyseAny.naechsteSchritte = delta.naechsteSchritte
+              // Per-Position ablehnungsbegruendung
+              if (Array.isArray(delta.positionUpdates)) {
+                const updateMap = new Map((delta.positionUpdates as Array<{goaeZiffer: string; ablehnungsbegruendung: string}>).map(u => [String(u.goaeZiffer), u.ablehnungsbegruendung]))
+                for (const r of analyse.rechnungen ?? []) {
+                  for (const pos of r.positionen ?? []) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const posAny2 = pos as any
+                    const ziffer = String(posAny2.goaeZiffer ?? posAny2.ziffer ?? '')
+                    if (updateMap.has(ziffer)) posAny2.ablehnungsbegruendung = updateMap.get(ziffer)
+                  }
+                }
+              }
+            }
+          }
+        } catch (enrichErr) {
+          console.error(`[batch-reanalyse] Begründungsschreiben-Anreicherung fehlgeschlagen:`, enrichErr)
+          // Fallback: alte Felder übernehmen wie bisher
+          if (Array.isArray(existingAnalyse?.ablehnungsgruende) && existingAnalyse.ablehnungsgruende.length > 0) analyseAny.ablehnungsgruende = existingAnalyse.ablehnungsgruende
+          if (existingAnalyse?.zusammenfassung) analyseAny.zusammenfassung = existingAnalyse.zusammenfassung
+          if (existingAnalyse?.widerspruchErklaerung) analyseAny.widerspruchErklaerung = existingAnalyse.widerspruchErklaerung
+          if (typeof existingAnalyse?.widerspruchErfolgswahrscheinlichkeit === 'number') analyseAny.widerspruchErfolgswahrscheinlichkeit = existingAnalyse.widerspruchErfolgswahrscheinlichkeit
+          if (Array.isArray(existingAnalyse?.naechsteSchritte) && existingAnalyse.naechsteSchritte.length > 0) analyseAny.naechsteSchritte = existingAnalyse.naechsteSchritte
         }
-        // Zusammenfassung — Begründungsschreiben liefert vollständige Aussage;
-        // Haupt-PDF sagt nur "Gründe folgen separat"
-        if (existingAnalyse?.zusammenfassung) {
-          analyseAny.zusammenfassung = existingAnalyse.zusammenfassung
-        }
-        // Widerspruchsempfehlung + Erklärung aus Begründungsschreiben
-        if (existingAnalyse?.widerspruchErklaerung) {
-          analyseAny.widerspruchErklaerung = existingAnalyse.widerspruchErklaerung
-        }
-        if (typeof existingAnalyse?.widerspruchErfolgswahrscheinlichkeit === 'number') {
-          analyseAny.widerspruchErfolgswahrscheinlichkeit = existingAnalyse.widerspruchErfolgswahrscheinlichkeit
-        }
-        if (Array.isArray(existingAnalyse?.naechsteSchritte) && existingAnalyse.naechsteSchritte.length > 0) {
-          analyseAny.naechsteSchritte = existingAnalyse.naechsteSchritte
-        }
+      } else if (hatBegruendungsschreiben) {
+        // PDF-Pfad fehlt aber Analyse war schon angereichert — alte Felder behalten
+        if (Array.isArray(existingAnalyse?.ablehnungsgruende) && existingAnalyse.ablehnungsgruende.length > 0) analyseAny.ablehnungsgruende = existingAnalyse.ablehnungsgruende
+        if (existingAnalyse?.zusammenfassung) analyseAny.zusammenfassung = existingAnalyse.zusammenfassung
+        if (existingAnalyse?.widerspruchErklaerung) analyseAny.widerspruchErklaerung = existingAnalyse.widerspruchErklaerung
+        if (typeof existingAnalyse?.widerspruchErfolgswahrscheinlichkeit === 'number') analyseAny.widerspruchErfolgswahrscheinlichkeit = existingAnalyse.widerspruchErfolgswahrscheinlichkeit
+        if (Array.isArray(existingAnalyse?.naechsteSchritte) && existingAnalyse.naechsteSchritte.length > 0) analyseAny.naechsteSchritte = existingAnalyse.naechsteSchritte
       }
 
       // Einsparpotenzial-Split neu berechnen
